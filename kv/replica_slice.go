@@ -41,10 +41,10 @@ func (i ReplicaInfo) attrs() []string {
 // A ReplicaSlice is a slice of ReplicaInfo.
 type ReplicaSlice []ReplicaInfo
 
-// newReplicaSlice creates a ReplicaSlice from the replicas listed in the range
+// NewReplicaSlice creates a ReplicaSlice from the replicas listed in the range
 // descriptor and using gossip to lookup node descriptors. Replicas on nodes
 // that are not gossipped are omitted from the result.
-func newReplicaSlice(gossip *gossip.Gossip, desc *roachpb.RangeDescriptor) ReplicaSlice {
+func NewReplicaSlice(gossip *gossip.Gossip, desc *roachpb.RangeDescriptor) ReplicaSlice {
 	if gossip == nil {
 		return nil
 	}
@@ -149,5 +149,28 @@ func (rs ReplicaSlice) randPerm(startIndex int, topIndex int, intnFn func(int) i
 	for i := 1; i < length; i++ {
 		j := intnFn(i + 1)
 		rs.Swap(startIndex+i, startIndex+j)
+	}
+}
+
+// OptimizeReplicaOrder choses the order in which the replicas are to be used
+// for sending RPCs (meaning in the order in which they'll be probed for
+// the lease). If the choice is not random, the replicas will also be sorted:
+// "closer" replicas are ordered first. If the current node is a replica, then
+// it'll be the first one.
+// nodeDesc is the descriptor of the current node. It can be nil, in which case
+// information about the current descriptor is not used in optimizing the order.
+func (rs ReplicaSlice) OptimizeReplicaOrder(nodeDesc *roachpb.NodeDescriptor) {
+	// If we don't know which node we're on, don't optimize anything.
+	if nodeDesc == nil {
+		rs.Shuffle()
+		return
+	}
+	// Sort replicas by attribute affinity, which we treat as a stand-in for
+	// proximity (for now).
+	rs.SortByCommonAttributePrefix(nodeDesc.Attrs.Attrs)
+
+	// If there is a replica in local node, move it to the front.
+	if i := rs.FindReplicaByNodeID(nodeDesc.NodeID); i > 0 {
+		rs.MoveToFront(i)
 	}
 }

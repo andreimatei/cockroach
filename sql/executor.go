@@ -30,6 +30,7 @@ import (
 	"github.com/cockroachdb/cockroach/config"
 	"github.com/cockroachdb/cockroach/gossip"
 	"github.com/cockroachdb/cockroach/internal/client"
+	"github.com/cockroachdb/cockroach/kv"
 	"github.com/cockroachdb/cockroach/roachpb"
 	"github.com/cockroachdb/cockroach/sql/distsql"
 	"github.com/cockroachdb/cockroach/sql/parser"
@@ -177,6 +178,9 @@ type ExecutorConfig struct {
 	LeaseManager *LeaseManager
 	Clock        *hlc.Clock
 	DistSQLSrv   *distsql.ServerImpl
+
+	RangeDescriptorCache *kv.RangeDescriptorCache
+	LeaseHolderCache     *kv.LeaseHolderCache
 
 	TestingKnobs *ExecutorTestingKnobs
 }
