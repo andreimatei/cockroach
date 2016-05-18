@@ -22,7 +22,9 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/cockroachdb/cockroach/gossip"
 	"github.com/cockroachdb/cockroach/internal/client"
+	"github.com/cockroachdb/cockroach/kv"
 	"github.com/cockroachdb/cockroach/roachpb"
 	"github.com/cockroachdb/cockroach/rpc"
 	"github.com/cockroachdb/cockroach/sql/parser"
@@ -34,16 +36,21 @@ import (
 // ServerConfig encompasses the configuration required to create a
 // DistSQLServer.
 type ServerConfig struct {
-	Context    context.Context
-	DB         *client.DB
-	RPCContext *rpc.Context
-	Stopper    *stop.Stopper
+	Context              context.Context
+	DB                   *client.DB
+	RPCContext           *rpc.Context
+	NodeDesc             roachpb.NodeDescriptor
+	LeaderCache          *kv.LeaseHolderCache
+	RangeDescriptorCache *kv.RangeDescriptorCache
+	Gossip               *gossip.Gossip
+	Stopper				 *stop.Stopper
 }
 
 // ServerImpl implements the server for the distributed SQL APIs.
 type ServerImpl struct {
 	ServerConfig
 	evalCtx      parser.EvalContext
+	leaderFinder *LeaseHolderResolver
 	flowRegistry *flowRegistry
 }
 
@@ -60,6 +67,8 @@ func NewServer(cfg ServerConfig) *ServerImpl {
 		evalCtx: parser.EvalContext{
 			ReCache: parser.NewRegexpCache(512),
 		},
+		leaderFinder: NewLeaseHolderResolver(
+			cfg.LeaderCache, cfg.RangeDescriptorCache, cfg.Gossip, cfg.NodeDesc),
 		flowRegistry: makeFlowRegistry(),
 	}
 	return ds

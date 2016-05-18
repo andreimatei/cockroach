@@ -172,13 +172,12 @@ type Executor struct {
 // All fields holding a pointer or an interface are required to create
 // a Executor; the rest will have sane defaults set if omitted.
 type ExecutorConfig struct {
-	Context      context.Context
-	DB           *client.DB
-	Gossip       *gossip.Gossip
-	LeaseManager *LeaseManager
-	Clock        *hlc.Clock
-	DistSQLSrv   *distsql.ServerImpl
-
+	Context              context.Context
+	DB                   *client.DB
+	Gossip               *gossip.Gossip
+	LeaseManager         *LeaseManager
+	Clock                *hlc.Clock
+	DistSQLSrv           *distsql.ServerImpl
 	RangeDescriptorCache *kv.RangeDescriptorCache
 	LeaseHolderCache     *kv.LeaseHolderCache
 

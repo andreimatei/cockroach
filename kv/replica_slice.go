@@ -159,6 +159,11 @@ func (rs ReplicaSlice) randPerm(startIndex int, topIndex int, intnFn func(int) i
 // it'll be the first one.
 // nodeDesc is the descriptor of the current node. It can be nil, in which case
 // information about the current descriptor is not used in optimizing the order.
+//
+// Note that this method is not concerned with any information the node might
+// have about how the lease holder might be. If there is such info (e.g. in a
+// LeaseHolderCache), the caller will probably want to further tweak the head of
+// the ReplicaSlice.
 func (rs ReplicaSlice) OptimizeReplicaOrder(nodeDesc *roachpb.NodeDescriptor) {
 	// If we don't know which node we're on, don't optimize anything.
 	if nodeDesc == nil {
