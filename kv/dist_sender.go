@@ -991,6 +991,8 @@ func (ds *DistSender) sendToReplicas(
 func (ds *DistSender) handlePerReplicaError(rangeID roachpb.RangeID, pErr *roachpb.Error) bool {
 	switch tErr := pErr.GetDetail().(type) {
 	case *roachpb.RangeNotFoundError:
+		// TODO(andrei): We have a stale range descriptor in out cache; refresh the
+		// cache in the background.
 		return true
 	case *roachpb.NodeUnavailableError:
 		return true
