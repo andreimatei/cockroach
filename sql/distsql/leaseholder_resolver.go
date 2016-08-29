@@ -38,17 +38,19 @@ import (
 const maxPreferredRangesPerLeaseHolder = 10
 
 // LeaseHolderResolver resolves key spans to the lease holder of their
-// respective ranges.  Used when planning physical execution of distributed SQL
+// respective ranges. Used when planning physical execution of distributed SQL
 // queries.
 //
-// The LeaseHolderResolver also populates the RangeDescriptorCache with missing
-// entries. TODO(andrei): figure out a story for updating existing entries in
-// the RangeDescriptorCache. As of July 2016, this class has no role in that;
-// only the DistSender does it.
+// The LeaseHolderResolver also populates the RangeDescriptorCache and the
+// LeaseHolderCache with missing entries.
+// TODO(andrei): figure out a story for updating existing entries in the
+// RangeDescriptorCache. As of July 2016, this class has no role in that; only
+// the DistSender does it.
 //
-// The LeaseHolderResolver shares the LeaseHolderCache and the RangeDescriptorCache with the
-// DistSender. TODO(andrei): investigate refactoring the DistSender to use this
-// same variant of this API for splitting up KV batches.
+// The LeaseHolderResolver shares the LeaseHolderCache and the
+// RangeDescriptorCache with the DistSender.
+// TODO(andrei): investigate refactoring the DistSender to use this same variant
+// of this API for splitting up KV batches.
 //
 // All public methods are thread-safe.
 type LeaseHolderResolver struct {
@@ -79,8 +81,8 @@ func NewLeaseHolderResolver(
 
 // ResolveLeaseHolders takes a list of spans and returns a list of lease
 // holders, one for every range that overlaps the spans.
-// The spans need to be disjoint; they also need to be sorted so that the
-// prefetching in the range descriptor cache helps us.
+// The spans need to be disjoint; they also need to be sorted so that we take
+// advantage of the prefetching done by the RangeDescriptorCache.
 // !!! maybe I need to accept reverse spans for some reason? Look again at what
 // the deal with "inclusive" is - some functions in DistSender take inclusive as
 // an arg. Why?
@@ -120,9 +122,9 @@ func (lr *LeaseHolderResolver) ResolveLeaseHolders(
 			}
 			leaseReplicaInfo = leaseHolder
 			// Populate the cache with the correct lease holder. As a byproduct, also
-			// try to elect the replica guessed above to really become a lease holder.
-			// Doing this here, early, benefits the command that we'll surely be
-			// sending to this presumed lease holder later.
+			// try to elect the replica guessed above to actually become the lease
+			// holder. Doing this here, early, benefits the command that we'll surely
+			// be sending to this presumed lease holder later.
 			go lr.writeLeaseHolderToCache(rangeDesc, replicas)
 		}
 		leaseHolders = append(leaseHolders, leaseReplicaInfo)
