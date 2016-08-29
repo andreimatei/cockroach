@@ -320,8 +320,8 @@ func (ds *DistSender) getNodeDescriptor() *roachpb.NodeDescriptor {
 // slice. Returns an RPC error if the request could not be sent. Note
 // that the reply may contain a higher level error and must be checked in
 // addition to the RPC error.
-// The replicas are assume to have been ordered by preference, closer ones (if
-// any) at the front.
+// The replicas are assume to have been ordered by preference, usually closer
+// ones (if any) at the front.
 func (ds *DistSender) sendRPC(
 	ctx context.Context,
 	rangeID roachpb.RangeID,
@@ -406,6 +406,8 @@ func (ds *DistSender) sendSingleRange(
 		}
 	}
 
+	// !!! try to use sendRPCAndProcessResults
+
 	// TODO(tschottdorf): should serialize the trace here, not higher up.
 	br, err := ds.sendRPC(ctx, desc.RangeID, replicas, ba)
 	if err != nil {
@@ -423,6 +425,168 @@ func (ds *DistSender) sendSingleRange(
 	pErr := br.Error
 	br.Error = nil // scrub the response error
 	return br, pErr
+}
+
+// evictToken is used to evict the descriptor of the range in question from the
+// cache, if needed.
+func (ds *DistSender) sendRPCAndProcessResults(
+	ctx context.Context,
+	ba roachpb.BatchRequest,
+	desc *roachpb.RangeDescriptor,
+	evictToken *EvictionToken,
+	replicas ReplicaSlice,
+) (*roachpb.BatchResponse, error) {
+	var br *roachpb.BatchResponse
+	var err error
+	// Retry while we're getting retryable errors.
+	for r := retry.StartWithCtx(ctx, ds.rpcRetryOptions); r.Next(); {
+		br, err = ds.sendRPC(ctx, desc.RangeID, replicas, ba)
+		if err != nil {
+			break
+		}
+
+		// If the reply contains a timestamp, update the local HLC with it.
+		if br.Error != nil && br.Error.Now != hlc.ZeroTimestamp {
+			ds.clock.Update(br.Error.Now)
+		} else if br.Now != hlc.ZeroTimestamp {
+			ds.clock.Update(br.Now)
+		}
+
+		// Untangle the error from the received response.
+		err = br.Error.GoError()
+		br.Error = nil // scrub the response error
+
+		if err == nil {
+			break
+		} else {
+			var shouldRetry retryType
+			shouldRetry, err = ds.handleSingleRangeError(ctx, ba, err, desc, evictToken)
+			switch shouldRetry {
+			case notRetryable:
+				break
+			case retryWithBackoff:
+			case retryNoBackoff:
+				r.Reset()
+			default:
+				panic(fmt.Sprintf("bad retry type: %d", shouldRetry))
+			}
+		}
+	}
+	return br, err
+}
+
+type retryType byte
+
+const (
+	notRetryable retryType = iota
+	retryWithBackoff
+	retryNoBackoff
+)
+
+// handleSingleRangeError reacts to an error resulting from sending RPCs to the
+// replicas of a single range. It returns true if the error is retryable, false
+// otherwise. If it returns false, it also returns an error intended to replace
+// the input error.
+// evictToken is used to evict the descriptor of the range in question from the
+// cache, if needed.
+func (ds *DistSender) handleSingleRangeError(
+	ctx context.Context,
+	ba roachpb.BatchRequest,
+	err error,
+	desc *roachpb.RangeDescriptor,
+	evictToken *EvictionToken,
+) (retryType, error) {
+	// It's possible that the returned descriptor misses parts of the
+	// keys it's supposed to scan after it's truncated to match the
+	// descriptor. Example revscan [a,g), first desc lookup for "g"
+	// returns descriptor [c,d) -> [d,g) is never scanned.
+	// We evict and retry in such a case.
+	rs, err := keys.Range(ba)
+	if err != nil {
+		return notRetryable, err
+	}
+	includesFrontOfCurSpan := func(rd *roachpb.RangeDescriptor) bool {
+		if ba.IsReverse() {
+			return desc.ContainsExclusiveEndKey(rs.EndKey)
+		}
+		return desc.ContainsKey(rs.Key)
+	}
+
+	// Error handling: If the error indicates that our range
+	// descriptor is out of date, evict it from the cache and try
+	// again. Errors that apply only to a single replica were
+	// handled in send().
+	//
+	// TODO(bdarnell): Don't retry endlessly. If we fail twice in a
+	// row and the range descriptor hasn't changed, return the error
+	// to our caller.
+	switch tErr := err.(type) {
+	case *roachpb.SendError:
+		// We've tried all the replicas without success. Either
+		// they're all down, or we're using an out-of-date range
+		// descriptor. Invalidate the cache and try again with the new
+		// metadata.
+		if err := evictToken.Evict(ctx); err != nil {
+			return notRetryable, err
+		}
+		log.VTracef(1, ctx, "will retry with backoff because of: %s", tErr)
+		return retryWithBackoff, nil
+	case *roachpb.RangeKeyMismatchError:
+		// Range descriptor might be out of date - evict it. This is
+		// likely the result of a range split. If we have new range
+		// descriptors, insert them instead as long as they are different
+		// from the last descriptor to avoid endless loops.
+		var replacements []roachpb.RangeDescriptor
+		different := func(rd *roachpb.RangeDescriptor) bool {
+			return !desc.RSpan().Equal(rd.RSpan())
+		}
+		if tErr.MismatchedRange != nil && different(tErr.MismatchedRange) {
+			replacements = append(replacements, *tErr.MismatchedRange)
+		}
+		if tErr.SuggestedRange != nil && different(tErr.SuggestedRange) {
+			if includesFrontOfCurSpan(tErr.SuggestedRange) {
+				replacements = append(replacements, *tErr.SuggestedRange)
+			}
+		}
+		// Same as Evict() if replacements is empty.
+		if err := evictToken.EvictAndReplace(ctx, replacements...); err != nil {
+			return notRetryable, err
+		}
+		log.VTracef(1, ctx, "will retry immediately because of: %s", tErr)
+		// On addressing errors, don't backoff; retry immediately.
+		return retryNoBackoff, nil
+	}
+	return notRetryable, err
+}
+
+// FindLeaseHolder queries a set of replicas to get the current lease.  As a
+// side-effect, the LeaseHolderCache is updated. The set of replicas is sorted
+// by preference and, in case there currently is no active lease, the first
+// replica becomes the lease holder. In case there is a lease that's about to
+// expire, it is renewed.
+// evictToken is used to evict the descriptor of the range in question from the
+// cache, if needed.
+func (ds *DistSender) FindLeaseHolder(
+	ctx context.Context,
+	desc *roachpb.RangeDescriptor,
+	evictToken *EvictionToken,
+	replicas ReplicaSlice,
+) (roachpb.Lease, error) {
+	// We're sending a LeaseInfoRequest to the replicas and rely on the
+	// lower-level code to actually update the LeaseHolderCache.
+	ba := roachpb.BatchRequest{}
+	ba.Timestamp = ds.clock.Now()
+	ba.Add(&roachpb.LeaseInfoRequest{
+		Span: roachpb.Span{
+			Key: desc.StartKey.AsRawKey(),
+		},
+	})
+	br, err := ds.sendRPCAndProcessResults(ctx, ba, desc, evictToken, replicas)
+	if err != nil {
+		return roachpb.Lease{}, err
+	}
+	lease := br.Responses[0].LeaseInfo.Lease
+	return lease, nil
 }
 
 // Send implements the batch.Sender interface. It subdivides
@@ -685,6 +849,8 @@ func (ds *DistSender) sendChunk(ctx context.Context, ba roachpb.BatchRequest) (*
 			}
 
 			log.VTracef(1, ctx, "reply error %s: %s", ba, pErr)
+
+			// !!! try to use handleSingleRangeError
 
 			// Error handling: If the error indicates that our range
 			// descriptor is out of date, evict it from the cache and try
