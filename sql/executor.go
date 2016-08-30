@@ -30,7 +30,6 @@ import (
 	"github.com/cockroachdb/cockroach/config"
 	"github.com/cockroachdb/cockroach/gossip"
 	"github.com/cockroachdb/cockroach/internal/client"
-	"github.com/cockroachdb/cockroach/kv"
 	"github.com/cockroachdb/cockroach/roachpb"
 	"github.com/cockroachdb/cockroach/sql/distsql"
 	"github.com/cockroachdb/cockroach/sql/parser"
@@ -172,14 +171,12 @@ type Executor struct {
 // All fields holding a pointer or an interface are required to create
 // a Executor; the rest will have sane defaults set if omitted.
 type ExecutorConfig struct {
-	Context              context.Context
-	DB                   *client.DB
-	Gossip               *gossip.Gossip
-	LeaseManager         *LeaseManager
-	Clock                *hlc.Clock
-	DistSQLSrv           *distsql.ServerImpl
-	RangeDescriptorCache *kv.RangeDescriptorCache
-	LeaseHolderCache     *kv.LeaseHolderCache
+	Context      context.Context
+	DB           *client.DB
+	Gossip       *gossip.Gossip
+	LeaseManager *LeaseManager
+	Clock        *hlc.Clock
+	DistSQLSrv   *distsql.ServerImpl
 
 	TestingKnobs *ExecutorTestingKnobs
 }

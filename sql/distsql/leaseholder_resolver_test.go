@@ -23,7 +23,6 @@ import (
 
 	"github.com/cockroachdb/cockroach/base"
 	"github.com/cockroachdb/cockroach/keys"
-	"github.com/cockroachdb/cockroach/kv"
 	"github.com/cockroachdb/cockroach/roachpb"
 	"github.com/cockroachdb/cockroach/sql/distsql"
 	"github.com/cockroachdb/cockroach/sql/parser"
@@ -101,9 +100,7 @@ func TestResolveLeaseHolders(t *testing.T) {
 	}
 
 	// Create a LeaseHolderResolver.
-	lhc := kv.NewLeaseHolderCache(100)
-	rdc := kv.NewRangeDescriptorCache(tc.Servers[0].GetDistSender(), 100)
-	lr := distsql.NewLeaseHolderResolver(lhc, rdc, tc.Servers[0].Gossip(), tc.Servers[0].GetNode().Descriptor)
+	lr := distsql.NewLeaseHolderResolver(tc.Servers[0].GetDistSender(), tc.Servers[0].Gossip(), tc.Servers[0].GetNode().Descriptor)
 
 	var spans []roachpb.Span
 	for i := 0; i < 3; i++ {
@@ -112,7 +109,7 @@ func TestResolveLeaseHolders(t *testing.T) {
 			roachpb.Span{Key: rowRanges[i].StartKey.AsRawKey(), EndKey: rowRanges[i].EndKey.AsRawKey()})
 	}
 
-	// Resolve the spans. Since our caches is empty,
+	// Resolve the spans. Since our caches is empty, !!!
 	replicas, err := lr.ResolveLeaseHolders(context.Background(), spans)
 	if err != nil {
 		t.Fatal(err)

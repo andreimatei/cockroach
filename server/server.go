@@ -219,6 +219,7 @@ func NewServer(srvCtx Context, stopper *stop.Stopper) (*Server, error) {
 		Context:    s.Ctx(),
 		DB:         s.db,
 		RPCContext: s.rpcContext,
+		DistSender: s.distSender,
 		Stopper:    s.stopper,
 	}
 	s.distSQLServer = distsql.NewServer(distSQLCfg)
@@ -226,14 +227,12 @@ func NewServer(srvCtx Context, stopper *stop.Stopper) (*Server, error) {
 
 	// Set up Executor
 	execCfg := sql.ExecutorConfig{
-		Context:              s.Ctx(),
-		DB:                   s.db,
-		Gossip:               s.gossip,
-		LeaseManager:         s.leaseMgr,
-		Clock:                s.clock,
-		DistSQLSrv:           s.distSQLServer,
-		RangeDescriptorCache: s.distSender.GetRangeDescriptorCache(),
-		LeaseHolderCache:     s.distSender.GetLeaseHolderCache(),
+		Context:      s.Ctx(),
+		DB:           s.db,
+		Gossip:       s.gossip,
+		LeaseManager: s.leaseMgr,
+		Clock:        s.clock,
+		DistSQLSrv:   s.distSQLServer,
 	}
 	if srvCtx.TestingKnobs.SQLExecutor != nil {
 		execCfg.TestingKnobs = srvCtx.TestingKnobs.SQLExecutor.(*sql.ExecutorTestingKnobs)

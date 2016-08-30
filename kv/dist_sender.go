@@ -17,7 +17,6 @@
 package kv
 
 import (
-	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -25,6 +24,8 @@ import (
 
 	opentracing "github.com/opentracing/opentracing-go"
 	"golang.org/x/net/context"
+
+	"github.com/pkg/errors"
 
 	"github.com/cockroachdb/cockroach/base"
 	"github.com/cockroachdb/cockroach/gossip"
@@ -205,6 +206,7 @@ func NewDistSender(cfg *DistSenderConfig, g *gossip.Gossip) *DistSender {
 			ds.rpcRetryOptions.Closer = ds.rpcContext.Stopper.ShouldQuiesce()
 		}
 	}
+	log.Infof(context.TODO(), "!!! NewDistSender. MaxR: %d", ds.rpcRetryOptions.MaxRetries)
 	if cfg.SendNextTimeout != 0 {
 		ds.sendNextTimeout = cfg.SendNextTimeout
 	} else {
@@ -427,6 +429,8 @@ func (ds *DistSender) sendSingleRange(
 	return br, pErr
 }
 
+// !!! comment
+// If no error is returned, then BatchResponse.Error is also nil.
 // evictToken is used to evict the descriptor of the range in question from the
 // cache, if needed.
 func (ds *DistSender) sendRPCAndProcessResults(
@@ -438,9 +442,12 @@ func (ds *DistSender) sendRPCAndProcessResults(
 ) (*roachpb.BatchResponse, error) {
 	var br *roachpb.BatchResponse
 	var err error
+	log.Infof(ctx, "!!! about to try with retry %s", ds.rpcRetryOptions)
 	// Retry while we're getting retryable errors.
 	for r := retry.StartWithCtx(ctx, ds.rpcRetryOptions); r.Next(); {
+		log.Infof(ctx, "!!! trying")
 		br, err = ds.sendRPC(ctx, desc.RangeID, replicas, ba)
+		log.Infof(ctx, "!!! ds.sendRPC returned br: %+v, err: %s", br, err)
 		if err != nil {
 			break
 		}
@@ -471,6 +478,11 @@ func (ds *DistSender) sendRPCAndProcessResults(
 				panic(fmt.Sprintf("bad retry type: %d", shouldRetry))
 			}
 		}
+	}
+	if br == nil && err == nil {
+		// We didn't attempt the RPC at all, presumably because the DistSender is
+		// shutting down.
+		return nil, errors.Errorf("operation cancelled")
 	}
 	return br, err
 }
@@ -585,6 +597,7 @@ func (ds *DistSender) FindLeaseHolder(
 	if err != nil {
 		return roachpb.Lease{}, err
 	}
+	log.Infof(ctx, "!!! br: %+v", br)
 	lease := br.Responses[0].LeaseInfo.Lease
 	return lease, nil
 }

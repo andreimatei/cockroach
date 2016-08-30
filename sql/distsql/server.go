@@ -36,13 +36,12 @@ import (
 // ServerConfig encompasses the configuration required to create a
 // DistSQLServer.
 type ServerConfig struct {
-	Context              context.Context
-	DB                   *client.DB
-	RPCContext           *rpc.Context
-	NodeDesc             roachpb.NodeDescriptor
-	LeaderCache          *kv.LeaseHolderCache
-	RangeDescriptorCache *kv.RangeDescriptorCache
-	Gossip               *gossip.Gossip
+	Context    context.Context
+	DB         *client.DB
+	RPCContext *rpc.Context
+	NodeDesc   roachpb.NodeDescriptor
+	Gossip     *gossip.Gossip
+	DistSender *kv.DistSender
 	Stopper				 *stop.Stopper
 }
 
@@ -68,7 +67,7 @@ func NewServer(cfg ServerConfig) *ServerImpl {
 			ReCache: parser.NewRegexpCache(512),
 		},
 		leaderFinder: NewLeaseHolderResolver(
-			cfg.LeaderCache, cfg.RangeDescriptorCache, cfg.Gossip, cfg.NodeDesc),
+			cfg.DistSender, cfg.Gossip, cfg.NodeDesc),
 		flowRegistry: makeFlowRegistry(),
 	}
 	return ds
