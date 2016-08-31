@@ -98,54 +98,67 @@ type descWithEvictionToken struct {
 // an arg. Why?
 func (lr *LeaseHolderResolver) ResolveLeaseHolders(
 	ctx context.Context, spans []roachpb.Span,
-) ([]kv.ReplicaInfo, error) {
-	var leaseHolders []kv.ReplicaInfo
-	descsWithEvictionToks, err := lr.getRangeDescriptors(ctx, spans)
-	if log.V(3) {
-		log.Infof(ctx, "resolved spans %+v to range descriptors: %+v", spans, descsWithEvictionToks)
-	}
+) (map[int][]kv.ReplicaInfo, error) { // !!! make it a slice
+	leaseHolders := make(map[int][]kv.ReplicaInfo)
+	descsWithEvictToks, err := lr.getRangeDescriptors(ctx, spans)
 	if err != nil {
 		return nil, err
+	}
+	{
+		firstSpansDescs := descsWithEvictToks[0]
+		descs := make([]*roachpb.RangeDescriptor, 0, 10)
+		for i, descTok := range firstSpansDescs {
+			if i == 10 {
+				break
+			}
+			descs = append(descs, descTok.RangeDescriptor)
+		}
+		log.VTracef(2, ctx, "resolved span %s to range descriptors "+
+			"(only showing first 10): %+v", spans[0], descs)
 	}
 
 	// Keep track of how many ranges we assigned to each node so we can coallesce
 	// guesses.
 	rangesPerLeaseHolder := make(map[roachpb.NodeID]uint32)
-	for _, descWithTok := range descsWithEvictionToks {
-		var leaseReplicaInfo kv.ReplicaInfo
-		leaseReplicaDesc, ok := lr.leaseHolderCache.Lookup(descWithTok.RangeID)
-		if ok {
-			// Lease-holder cache hit.
-			leaseReplicaInfo.ReplicaDescriptor = leaseReplicaDesc
-			nd, err := lr.gossip.GetNodeDescriptor(leaseReplicaDesc.NodeID)
-			if err != nil {
-				return nil, sqlbase.NewRangeUnavailableError(
-					descWithTok.RangeID, leaseReplicaDesc.NodeID)
+	for i := range spans {
+		spanDescs := descsWithEvictToks[i]
+		for _, descWithTok := range spanDescs {
+			var leaseReplicaInfo kv.ReplicaInfo
+			leaseReplicaDesc, ok := lr.leaseHolderCache.Lookup(descWithTok.RangeID)
+			if ok {
+				// Lease-holder cache hit.
+				leaseReplicaInfo.ReplicaDescriptor = leaseReplicaDesc
+				nd, err := lr.gossip.GetNodeDescriptor(leaseReplicaDesc.NodeID)
+				if err != nil {
+					return nil, sqlbase.NewRangeUnavailableError(
+						descWithTok.RangeID, leaseReplicaDesc.NodeID)
+				}
+				leaseReplicaInfo.NodeDesc = nd
+			} else {
+				// Lease-holder cache miss. We'll guess a lease holder and start a real
+				// lookup in the background.
+				leaseHolder, replicas, err := lr.guessLeaseHolder(descWithTok.RangeDescriptor, rangesPerLeaseHolder)
+				if err != nil {
+					return nil, err
+				}
+				leaseReplicaInfo = leaseHolder
+				// Populate the cache with the correct lease holder. As a byproduct, also
+				// try to elect the replica guessed above to actually become the lease
+				// holder. Doing this here, early, benefits the command that we'll surely
+				// be sending to this presumed lease holder later. It also helps if the
+				// same query is repeated in the future.
+				// TODO(andrei): figure out the context to pass here. It can't use the
+				// current span. Should it be the Server's context for background
+				// operations? Or that + a new root span?
+				lr.stopper.RunWorker(func() {
+					lr.writeLeaseHolderToCache(
+						context.TODO(), descWithTok.RangeDescriptor,
+						descWithTok.evictToken, replicas)
+				})
 			}
-			leaseReplicaInfo.NodeDesc = nd
-		} else {
-			// Lease-holder cache miss. We'll guess a lease holder and start a real
-			// lookup in the background.
-			leaseHolder, replicas, err := lr.guessLeaseHolder(descWithTok.RangeDescriptor, rangesPerLeaseHolder)
-			if err != nil {
-				return nil, err
-			}
-			leaseReplicaInfo = leaseHolder
-			// Populate the cache with the correct lease holder. As a byproduct, also
-			// try to elect the replica guessed above to actually become the lease
-			// holder. Doing this here, early, benefits the command that we'll surely
-			// be sending to this presumed lease holder later.
-			// TODO(andrei): figure out the context to pass here. It can't use the
-			// current span. Should it be the Server's context for background
-			// operations? Or that + a new root span?
-			lr.stopper.RunWorker(func() {
-				lr.writeLeaseHolderToCache(
-					context.TODO(), descWithTok.RangeDescriptor,
-					descWithTok.evictToken, replicas)
-			})
+			leaseHolders[i] = append(leaseHolders[i], leaseReplicaInfo)
+			rangesPerLeaseHolder[leaseReplicaInfo.NodeID]++
 		}
-		leaseHolders = append(leaseHolders, leaseReplicaInfo)
-		rangesPerLeaseHolder[leaseReplicaInfo.NodeID]++
 	}
 	return leaseHolders, nil
 }
@@ -218,10 +231,12 @@ func (lr *LeaseHolderResolver) writeLeaseHolderToCache(
 	evictionToken *kv.EvictionToken,
 	replicas kv.ReplicaSlice,
 ) {
-	if _, err := lr.distSender.FindLeaseHolder(
-		ctx, desc, evictionToken, replicas); err != nil {
+	l, err := lr.distSender.FindLeaseHolder(
+		ctx, desc, evictionToken, replicas)
+	if err != nil {
 		log.VTracef(1, ctx, "failed to find lease holder: %s", err)
 	}
+	log.Infof(ctx, "!!! updated cache for range: %s to: %s", desc.RSpan(), l.Replica)
 	// TODO(andrei): at this point we know the real lease holder. If this doesn't
 	// correspond to the guess we've already returned to the client, we could
 	// have some channel for informing of this if it's not too late.
@@ -229,23 +244,17 @@ func (lr *LeaseHolderResolver) writeLeaseHolderToCache(
 
 // getRangeDescriptors takes a list of spans are resolves it to a list of
 // ranges. Spans need to be disjoint and sorted, and so will the results be.
-// !!! The results need to indicate if one range somehow covered multiple spans,
-// or the other way around.
 func (lr *LeaseHolderResolver) getRangeDescriptors(
 	ctx context.Context, spans []roachpb.Span,
-) ([]descWithEvictionToken, error) {
-	var res []descWithEvictionToken
-	for _, span := range spans {
-		descsWithEvictTokens, err := lr.resolveSpan(ctx, span)
+) (map[int][]descWithEvictionToken, error) {
+	res := make(map[int][]descWithEvictionToken)
+	for i, span := range spans {
+		descsWithEvictToks, err := lr.resolveSpan(ctx, span)
 		if err != nil {
 			return nil, err
 		}
-		// The first range returned might be the same as the last one from the
-		// previous spans (spans are disjunct and sorted).
-		if len(res) > 0 && descsWithEvictTokens[0].RangeID == res[len(res)-1].RangeID {
-			descsWithEvictTokens = descsWithEvictTokens[1:]
-		}
-		res = append(res, descsWithEvictTokens...)
+		log.Infof(ctx, "!!! resolved span %s to: %+v", span, descsWithEvictToks)
+		res[i] = descsWithEvictToks
 	}
 	return res, nil
 }
@@ -279,13 +288,8 @@ func (lr *LeaseHolderResolver) resolveSpan(
 			rs := roachpb.RSpan{Key: startKey, EndKey: endKey}
 			desc, needAnother, evictToken, err = kv.ResolveKeySpanToFirstDescriptor(
 				ctx, lr.rangeCache, rs, evictToken, false /* isReverse */)
-
-			// getDescriptors may fail retryably if, for example, the first
-			// range isn't available via Gossip. Assume that all errors at
-			// this level are retryable. Non-retryable errors would be for
-			// things like malformed requests which we should have checked
-			// for before reaching this point.
-			// !!! turn this into a comment on ResolveKeySpanToFirstDescriptor.
+			// We assume that all errors coming from ResolveKeySpanToFirstDescriptor
+			// are retryable, as per its documentation.
 			if err != nil {
 				log.VTracef(1, ctx, "range descriptor lookup failed: %s", err.Error())
 				continue

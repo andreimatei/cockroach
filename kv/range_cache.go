@@ -660,6 +660,11 @@ func (rdc *RangeDescriptorCache) clearOverlappingCachedRangeDescriptors(desc *ro
 // method should be called; it evicts the cache appropriately. Finally, the
 // returned bool is true in case the given range reaches outside the returned
 // descriptor.
+//
+// ResolveKeySpanToFirstDescriptor may fail retryably if, for example, the first
+// range isn't available via Gossip. The caller can assume that all errors are
+// retryable. Non-retryable errors would be for things like malformed requests
+// which should have been checked for before calling this.
 func ResolveKeySpanToFirstDescriptor(
 	ctx context.Context,
 	rangeCache *RangeDescriptorCache,

@@ -18,6 +18,7 @@ package distsql_test
 
 import (
 	"testing"
+	"time"
 
 	"golang.org/x/net/context"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/cockroachdb/cockroach/sql/parser"
 	"github.com/cockroachdb/cockroach/sql/sqlbase"
 	"github.com/cockroachdb/cockroach/testutils/testcluster"
+	"github.com/cockroachdb/cockroach/util"
 	"github.com/cockroachdb/cockroach/util/leaktest"
 	"github.com/cockroachdb/cockroach/util/log"
 	"github.com/pkg/errors"
@@ -36,7 +38,7 @@ import (
 func TestResolveLeaseHolders(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 
-	tc := testcluster.StartTestCluster(t, 3,
+	tc := testcluster.StartTestCluster(t, 4,
 		base.TestClusterArgs{
 			ReplicationMode: base.ReplicationManual,
 			ServerArgs: base.TestServerArgs{
@@ -56,7 +58,10 @@ func TestResolveLeaseHolders(t *testing.T) {
 	}
 
 	tableDesc := sqlbase.GetTableDescriptor(tc.Servers[0].DB(), "t", "test")
-	// Split every SQL row in its own range.
+	log.Infof(context.TODO(), "!!! test about to split")
+	// Split every SQL row to its own range.
+	// TODO(andrei): use the new SQL SPLIT statement when available, and then we
+	// also don't need to actually INSERT any data any more.
 	rowRanges := make([]*roachpb.RangeDescriptor, 4)
 	for i := 0; i < 3; i++ {
 		var err error
@@ -69,38 +74,57 @@ func TestResolveLeaseHolders(t *testing.T) {
 			rowRanges[i-1] = l
 		}
 	}
-	// Replicate the row ranges everywhere.
+	log.Infof(context.TODO(), "!!! test done splitting")
+	// Replicate the row ranges on all of the first 3 nodes. Save the 4th node in
+	// a pristine state, with empty caches.
 	for i := 0; i < 3; i++ {
 		var err error
 		rowRanges[i], err = tc.AddReplicas(
-			rowRanges[i].StartKey.AsRawKey(),
-			testcluster.ReplicationTarget{
-				NodeID:  tc.Servers[1].GetNode().Descriptor.NodeID,
-				StoreID: tc.Servers[1].GetFirstStoreID(),
-			},
-			testcluster.ReplicationTarget{
-				NodeID:  tc.Servers[2].GetNode().Descriptor.NodeID,
-				StoreID: tc.Servers[2].GetFirstStoreID(),
-			})
+			rowRanges[i].StartKey.AsRawKey(), tc.Target(1), tc.Target(2))
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
+	log.Infof(context.TODO(), "!!! test done replicating")
 
 	// Scatter the leases around; node i gets range i.
 	for i := 0; i < 3; i++ {
-		err := tc.TransferRangeLease(rowRanges[i],
-			testcluster.ReplicationTarget{
-				NodeID:  tc.Servers[i].GetNode().Descriptor.NodeID,
-				StoreID: tc.Servers[i].GetFirstStoreID(),
-			})
-		if err != nil {
+		if err := tc.TransferRangeLease(rowRanges[i], tc.Target(i)); err != nil {
 			t.Fatal(err)
 		}
+		// Wait for everybody to apply the new lease, so that we can rely on the
+		// lease discovery done later by the LeaseHolderResolver to be up to date.
+		util.SucceedsSoon(t, func() error {
+			for j := 0; j < 3; j++ {
+				target := tc.Target(j)
+				rt, err := tc.FindRangeLeaseHolder(rowRanges[i], &target)
+				if err != nil {
+					return err
+				}
+				if rt != tc.Target(i) {
+					return errors.Errorf("node %d hasn't applied the lease yet", j)
+				}
+			}
+			return nil
+		})
 	}
+	log.Infof(context.TODO(), "!!! test done moving leases")
 
-	// Create a LeaseHolderResolver.
-	lr := distsql.NewLeaseHolderResolver(tc.Servers[0].GetDistSender(), tc.Servers[0].Gossip(), tc.Servers[0].GetNode().Descriptor)
+	// Create a LeaseHolderResolver using the 4th node, with empty caches.
+	s3 := tc.Servers[3]
+	// Evict the descriptor for range 1 from the cache. It's probably stale since
+	// this test has been mocking with that range. And a stale descriptor would
+	// affect our resolving.
+	rdc := s3.GetDistSender().GetRangeDescriptorCache()
+	err := rdc.EvictCachedRangeDescriptor(roachpb.RKeyMin, nil, false /* inclusive */)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// !!! why exactly was this eviction necessary? How come gossip wasn't taking
+	// care of it?
+
+	lr := distsql.NewLeaseHolderResolver(
+		s3.GetDistSender(), s3.Gossip(), s3.GetNode().Descriptor, s3.Stopper())
 
 	var spans []roachpb.Span
 	for i := 0; i < 3; i++ {
@@ -109,12 +133,57 @@ func TestResolveLeaseHolders(t *testing.T) {
 			roachpb.Span{Key: rowRanges[i].StartKey.AsRawKey(), EndKey: rowRanges[i].EndKey.AsRawKey()})
 	}
 
-	// Resolve the spans. Since our caches is empty, !!!
-	replicas, err := lr.ResolveLeaseHolders(context.Background(), spans)
+	// Resolve the spans. Since the LeaseHolderCache is empty, all the ranges
+	// should be grouped and "assigned" to replica 0.
+	log.Infof(context.TODO(), "!!! test about to resolve")
+	replicas, err := lr.ResolveLeaseHolders(context.TODO(), spans)
 	if err != nil {
 		t.Fatal(err)
 	}
-	log.Infof(context.TODO(), "!!! replicas: %s", replicas)
+	log.Infof(context.TODO(), "!!! replicas: %+v", replicas)
+	if len(replicas) != 3 {
+		t.Fatalf("expected replies for 3 spans, got %d: %+v", len(replicas), replicas)
+	}
+	si := tc.Servers[0]
+	nodeID := si.GetNode().Descriptor.NodeID
+	storeID := si.GetFirstStoreID()
+	for i := 0; i < 3; i++ {
+		if len(replicas[i]) != 1 {
+			t.Fatalf("expected 1 range for span %s, got %d (%+v)",
+				len(replicas[i]), replicas[i])
+		}
+		rd := replicas[i][0].ReplicaDescriptor
+		if rd.NodeID != nodeID || rd.StoreID != storeID {
+			t.Fatalf("expected span %s to be on replica (%d, %d) but was on %s",
+				spans[i], nodeID, storeID, rd)
+		}
+	}
+
+	time.Sleep(time.Second) // !!!
+
+	// Check that the LeaseHolderCache updates the cache asynchronously and so
+	// soon enough the node in question has up-to-date info.
+	util.SucceedsSoon(t, func() error {
+		replicas, err = lr.ResolveLeaseHolders(context.TODO(), spans)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 3; i++ {
+			if len(replicas[i]) != 1 {
+				t.Fatalf("expected 1 range for span %s, got %d (%+v)",
+					len(replicas[i]), replicas[i])
+			}
+			si := tc.Servers[i]
+			nodeID := si.GetNode().Descriptor.NodeID
+			storeID := si.GetFirstStoreID()
+			rd := replicas[i][0].ReplicaDescriptor
+			if rd.NodeID != nodeID || rd.StoreID != storeID {
+				return errors.Errorf("expected span %s to be on replica (%d, %d) but was on %s",
+					spans[i], nodeID, storeID, rd)
+			}
+		}
+		return nil
+	})
 }
 
 // splitRangeAtKey splits the range for a table with schema

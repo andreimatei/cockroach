@@ -42,7 +42,7 @@ type ServerConfig struct {
 	NodeDesc   roachpb.NodeDescriptor
 	Gossip     *gossip.Gossip
 	DistSender *kv.DistSender
-	Stopper				 *stop.Stopper
+	Stopper    *stop.Stopper
 }
 
 // ServerImpl implements the server for the distributed SQL APIs.
@@ -67,7 +67,7 @@ func NewServer(cfg ServerConfig) *ServerImpl {
 			ReCache: parser.NewRegexpCache(512),
 		},
 		leaderFinder: NewLeaseHolderResolver(
-			cfg.DistSender, cfg.Gossip, cfg.NodeDesc),
+			cfg.DistSender, cfg.Gossip, cfg.NodeDesc, cfg.Stopper),
 		flowRegistry: makeFlowRegistry(),
 	}
 	return ds

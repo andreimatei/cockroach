@@ -206,7 +206,6 @@ func NewDistSender(cfg *DistSenderConfig, g *gossip.Gossip) *DistSender {
 			ds.rpcRetryOptions.Closer = ds.rpcContext.Stopper.ShouldQuiesce()
 		}
 	}
-	log.Infof(context.TODO(), "!!! NewDistSender. MaxR: %d", ds.rpcRetryOptions.MaxRetries)
 	if cfg.SendNextTimeout != 0 {
 		ds.sendNextTimeout = cfg.SendNextTimeout
 	} else {
@@ -429,7 +428,9 @@ func (ds *DistSender) sendSingleRange(
 	return br, pErr
 }
 
-// !!! comment
+// sendRPCAndProcessResults sends an RPC to a set of replicas of a single range.
+// It wraps sendRPC() and processes the errors by passing them to
+// handleSingleRangeError().
 // If no error is returned, then BatchResponse.Error is also nil.
 // evictToken is used to evict the descriptor of the range in question from the
 // cache, if needed.
@@ -442,12 +443,9 @@ func (ds *DistSender) sendRPCAndProcessResults(
 ) (*roachpb.BatchResponse, error) {
 	var br *roachpb.BatchResponse
 	var err error
-	log.Infof(ctx, "!!! about to try with retry %s", ds.rpcRetryOptions)
 	// Retry while we're getting retryable errors.
 	for r := retry.StartWithCtx(ctx, ds.rpcRetryOptions); r.Next(); {
-		log.Infof(ctx, "!!! trying")
 		br, err = ds.sendRPC(ctx, desc.RangeID, replicas, ba)
-		log.Infof(ctx, "!!! ds.sendRPC returned br: %+v, err: %s", br, err)
 		if err != nil {
 			break
 		}
@@ -482,7 +480,7 @@ func (ds *DistSender) sendRPCAndProcessResults(
 	if br == nil && err == nil {
 		// We didn't attempt the RPC at all, presumably because the DistSender is
 		// shutting down.
-		return nil, errors.Errorf("operation cancelled")
+		return nil, &roachpb.NodeUnavailableError{}
 	}
 	return br, err
 }
@@ -584,10 +582,14 @@ func (ds *DistSender) FindLeaseHolder(
 	evictToken *EvictionToken,
 	replicas ReplicaSlice,
 ) (roachpb.Lease, error) {
-	// We're sending a LeaseInfoRequest to the replicas and rely on the
-	// lower-level code to actually update the LeaseHolderCache.
+	// We're sending an inconsistent LeaseInfoRequest read to the replicas,
+	// so we're not going to receive NotLeaseHolderError's. This means it's up to
+	// us to update the cache, we can't rely on lower levels to do it. Sending an
+	// INCONSISTENT read is good since we save the request from bouncing around in
+	// case a lease exists and the first replica is not the holder.
 	ba := roachpb.BatchRequest{}
 	ba.Timestamp = ds.clock.Now()
+	ba.ReadConsistency = roachpb.INCONSISTENT
 	ba.Add(&roachpb.LeaseInfoRequest{
 		Span: roachpb.Span{
 			Key: desc.StartKey.AsRawKey(),
@@ -597,8 +599,9 @@ func (ds *DistSender) FindLeaseHolder(
 	if err != nil {
 		return roachpb.Lease{}, err
 	}
-	log.Infof(ctx, "!!! br: %+v", br)
 	lease := br.Responses[0].LeaseInfo.Lease
+	ds.updateLeaseHolderCache(desc.RangeID, lease.Replica)
+
 	return lease, nil
 }
 
@@ -781,11 +784,8 @@ func (ds *DistSender) sendChunk(ctx context.Context, ba roachpb.BatchRequest) (*
 			desc, needAnother, evictToken, err = ResolveKeySpanToFirstDescriptor(
 				ctx, ds.rangeCache, rs, evictToken, isReverse)
 
-			// ResolveKeySpanToFirstDescriptor may fail retryably if, for example, the
-			// first range isn't available via Gossip. Assume that all errors at this
-			// level are retryable. Non-retryable errors would be for things like
-			// malformed requests which we should have checked for before reaching
-			// this point.
+			// We assume that all errors coming from ResolveKeySpanToFirstDescriptor
+			// are retryable, as per its documentation.
 			if err != nil {
 				log.Trace(ctx, "range descriptor lookup failed: "+err.Error())
 				if log.V(1) {
