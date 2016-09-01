@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"math"
 
+	"google.golang.org/appengine/log"
+
 	"golang.org/x/net/context"
 
 	"github.com/cockroachdb/cockroach/roachpb"
@@ -230,6 +232,8 @@ func scanNodeToDistSQL(
 	nodeToRanges := make(map[roachpb.NodeID][]distsql.RangeInfo)
 	nodeAddr := make(map[roachpb.NodeID]string)
 
+	myNode := roachpb.NodeID(-1)
+
 	for i, keySpan := range n.spans {
 		rngInfos := rngInfoMap[i]
 		// Trim the beginning and the end.
@@ -238,9 +242,20 @@ func scanNodeToDistSQL(
 		for _, rngInfo := range rngInfos {
 			nodeToRanges[rngInfo.Rep.NodeID] = append(
 				nodeToRanges[rngInfo.Rep.NodeID], rngInfo)
-			nodeAddr[rngInfo.Rep.NodeID] = rngInfo.Rep.NodeDesc.Address.String()
+			addr := rngInfo.Rep.NodeDesc.Address.String()
+			nodeAddr[rngInfo.Rep.NodeID] = addr
+			if addr == myAddr { // GROSS HACK!
+				myNode = rngInfo.Rep.NodeID
+			}
 		}
 	}
+
+	if myNode != -1 {
+		log.Infof(context.Background(), "Flow on my node: %d", myNode)
+	}
+
+	localReq := distsql.SetupFlowRequest{Txn: n.p.txn.Proto}
+	localReq.Flow.FlowID = fid
 
 	var colMap []uint32
 	distSQLSrv := n.p.execCfg.DistSQLSrv
@@ -253,6 +268,15 @@ func scanNodeToDistSQL(
 
 		req := distsql.SetupFlowRequest{Txn: n.p.txn.Proto}
 
+		var endpoint distsql.StreamEndpointSpec
+		if nodeID != myNode {
+			endpoint.Mailbox = &distsql.MailboxSpec{
+				StreamID:   distsql.StreamID(nodeID),
+				TargetAddr: myAddr}
+		} else {
+			endpoint.LocalStreamID = 1
+		}
+
 		tr := scanNodeToTableReaderSpec(n, spans)
 		colMap = tr.OutputColumns
 		req.Flow = distsql.FlowSpec{
@@ -260,10 +284,8 @@ func scanNodeToDistSQL(
 			Processors: []distsql.ProcessorSpec{{
 				Core: distsql.ProcessorCoreUnion{TableReader: tr},
 				Output: []distsql.OutputRouterSpec{{
-					Type: distsql.OutputRouterSpec_MIRROR,
-					Streams: []distsql.StreamEndpointSpec{{
-						Mailbox: &distsql.MailboxSpec{StreamID: distsql.StreamID(nodeID), TargetAddr: myAddr},
-					}},
+					Type:    distsql.OutputRouterSpec_MIRROR,
+					Streams: []distsql.StreamEndpointSpec{endpoint},
 				}},
 			}},
 		}
@@ -280,28 +302,33 @@ func scanNodeToDistSQL(
 		}
 	}
 
-	req := distsql.SetupFlowRequest{Txn: n.p.txn.Proto}
-	req.Flow = distsql.FlowSpec{
-		FlowID: fid,
-		Processors: []distsql.ProcessorSpec{{
-			Input: []distsql.InputSyncSpec{{Type: distsql.InputSyncSpec_UNORDERED}},
-			Core:  distsql.ProcessorCoreUnion{Noop: &distsql.NoopCoreSpec{}},
-			Output: []distsql.OutputRouterSpec{{
-				Type: distsql.OutputRouterSpec_MIRROR,
-				Streams: []distsql.StreamEndpointSpec{{
-					Mailbox: &distsql.MailboxSpec{SimpleResponse: true},
-				}},
+	var streams []distsql.StreamEndpointSpec
+	for nodeID, _ := range nodeToRanges {
+		var endpoint distsql.StreamEndpointSpec
+		if nodeID != myNode {
+			endpoint.Mailbox = &distsql.MailboxSpec{StreamID: distsql.StreamID(nodeID)}
+		} else {
+			endpoint.LocalStreamID = 1
+		}
+		streams = append(streams, endpoint)
+	}
+
+	localReq.Flow.Processors = append(localReq.Flow.Processors, distsql.ProcessorSpec{
+		Input: []distsql.InputSyncSpec{{
+			Type:    distsql.InputSyncSpec_UNORDERED,
+			Streams: streams,
+		}},
+		Core: distsql.ProcessorCoreUnion{Noop: &distsql.NoopCoreSpec{}},
+		Output: []distsql.OutputRouterSpec{{
+			Type: distsql.OutputRouterSpec_MIRROR,
+			Streams: []distsql.StreamEndpointSpec{{
+				Mailbox: &distsql.MailboxSpec{SimpleResponse: true},
 			}},
 		}},
-	}
-
-	for nodeID, _ := range nodeToRanges {
-		s := &req.Flow.Processors[0].Input[0].Streams
-		*s = append(*s, distsql.StreamEndpointSpec{Mailbox: &distsql.MailboxSpec{StreamID: distsql.StreamID(nodeID)}})
-	}
+	})
 
 	return newDistSQLNode(
-		n.resultColumns, colMap, n.ordering, distSQLSrv, &req, syncMode)
+		n.resultColumns, colMap, n.ordering, distSQLSrv, &localReq, syncMode)
 }
 
 // hackPlanToUseDistSQL goes through a planNode tree and replaces each scanNode with
