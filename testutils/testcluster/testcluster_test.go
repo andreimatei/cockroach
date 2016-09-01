@@ -263,13 +263,20 @@ func TestDSQL(t *testing.T) {
 
 	s0.Exec(`CREATE DATABASE t`)
 	s0.Exec(`CREATE TABLE test (k INT PRIMARY KEY, v INT)`)
-	s0.Exec(`INSERT INTO test VALUES (5, 1), (4, 2), (1, 2)`)
+	s0.Exec(`INSERT INTO test VALUES (1, 1), (2, 2), (3, 3)`)
 
-	if r := s1.Query(`SELECT * FROM test WHERE k = 5`); !r.Next() {
+	if r := s1.Query(`SELECT * FROM test WHERE k = 3`); !r.Next() {
 		t.Fatal("no rows")
 	}
 
 	s2.ExecRowsAffected(3, `DELETE FROM test`)
 
-	s0.Exec(`SET DIST_SQL=true`)
+	// !!!
+	s2.DB.SetMaxOpenConns(1)
+	s2.Exec(`SET DIST_SQL=true`)
+
+	if r := s2.Query(`SELECT * FROM test WHERE k = 3`); !r.Next() {
+		t.Fatal("no rows")
+	}
+
 }
