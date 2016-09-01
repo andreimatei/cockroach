@@ -99,7 +99,7 @@ func TestResolveLeaseHolders(t *testing.T) {
 				target := tc.Target(j)
 				rt, err := tc.FindRangeLeaseHolder(rowRanges[i], &target)
 				if err != nil {
-					return err
+					t.Fatal(err)
 				}
 				if rt != tc.Target(i) {
 					return errors.Errorf("node %d hasn't applied the lease yet", j)

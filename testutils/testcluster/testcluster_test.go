@@ -25,14 +25,17 @@ import (
 
 	"github.com/cockroachdb/cockroach/base"
 	"github.com/cockroachdb/cockroach/keys"
+	"github.com/cockroachdb/cockroach/roachpb"
 	"github.com/cockroachdb/cockroach/rpc"
 	"github.com/cockroachdb/cockroach/server/serverpb"
+	"github.com/cockroachdb/cockroach/sql/parser"
 	"github.com/cockroachdb/cockroach/sql/sqlbase"
 	"github.com/cockroachdb/cockroach/testutils"
 	"github.com/cockroachdb/cockroach/testutils/sqlutils"
 	"github.com/cockroachdb/cockroach/util"
 	"github.com/cockroachdb/cockroach/util/leaktest"
 	"github.com/cockroachdb/cockroach/util/log"
+	"github.com/pkg/errors"
 )
 
 func TestManualReplication(t *testing.T) {
@@ -244,6 +247,49 @@ func TestStopServer(t *testing.T) {
 	}
 }
 
+// !!! copied from leaseholder_resolver_test
+func primaryIndexKey(tableDesc *sqlbase.TableDescriptor, val parser.Datum) (roachpb.Key, error) {
+	primaryIndexKeyPrefix := sqlbase.MakeIndexKeyPrefix(tableDesc, tableDesc.PrimaryIndex.ID)
+	colIDtoRowIndex := map[sqlbase.ColumnID]int{tableDesc.Columns[0].ID: 0}
+	primaryIndexKey, _, err := sqlbase.EncodeIndexKey(
+		tableDesc, &tableDesc.PrimaryIndex, colIDtoRowIndex, []parser.Datum{val}, primaryIndexKeyPrefix)
+	if err != nil {
+		return nil, err
+	}
+	return roachpb.Key(primaryIndexKey), nil
+}
+
+// splitRangeAtKey splits the range for a table with schema
+// `CREATE TABLE test (k INT PRIMARY KEY)` at row with value pk (the row will be
+// the first on the right of the split).
+func splitRangeAtKey(
+	tc *TestCluster, tableDesc *sqlbase.TableDescriptor, pk int,
+) (*roachpb.RangeDescriptor, *roachpb.RangeDescriptor, error) {
+	if tableDesc.Columns[0].Type.Kind != sqlbase.ColumnType_INT {
+		return nil, nil, errors.Errorf("expected table with one INT col, got: %+v", tableDesc)
+	}
+
+	if len(tableDesc.Indexes) != 0 {
+		return nil, nil, errors.Errorf("expected table with just a PK, got: %+v", tableDesc)
+	}
+	if len(tableDesc.PrimaryIndex.ColumnIDs) != 1 ||
+		tableDesc.PrimaryIndex.ColumnIDs[0] != tableDesc.Columns[0].ID ||
+		tableDesc.PrimaryIndex.ColumnDirections[0] != sqlbase.IndexDescriptor_ASC {
+		return nil, nil, errors.Errorf("table with unexpected PK: %+v", tableDesc)
+	}
+
+	pik, err := primaryIndexKey(tableDesc, parser.NewDInt(parser.DInt(pk)))
+	if err != nil {
+		return nil, nil, err
+	}
+	startKey := keys.MakeFamilyKey(pik, uint32(tableDesc.Families[0].ID))
+	leftRange, rightRange, err := tc.SplitRange(startKey)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "failed to split at row: %d", pk)
+	}
+	return leftRange, rightRange, nil
+}
+
 // !!!
 func TestDSQL(t *testing.T) {
 	defer leaktest.AfterTest(t)()
@@ -265,18 +311,107 @@ func TestDSQL(t *testing.T) {
 	s0.Exec(`CREATE TABLE test (k INT PRIMARY KEY, v INT)`)
 	s0.Exec(`INSERT INTO test VALUES (1, 1), (2, 2), (3, 3)`)
 
-	if r := s1.Query(`SELECT * FROM test WHERE k = 3`); !r.Next() {
+	tableDesc := sqlbase.GetTableDescriptor(tc.Servers[0].DB(), "t", "test")
+	log.Infof(context.TODO(), "!!! test about to split")
+	// Split every SQL row to its own range.
+	// TODO(andrei): use the new SQL SPLIT statement when available, and then we
+	// also don't need to actually INSERT any data any more.
+	rowRanges := make([]*roachpb.RangeDescriptor, 4)
+	for i := 0; i < 3; i++ {
+		//s0.Exec(`ALTER TABLE test SPLIT AT ($1)`, i)
+		var err error
+		var l *roachpb.RangeDescriptor
+		l, rowRanges[i], err = splitRangeAtKey(tc, tableDesc, i)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i > 0 {
+			rowRanges[i-1] = l
+		}
+	}
+	log.Infof(context.TODO(), "!!! test done splitting")
+
+	// Replicate the row ranges on all nodes.
+	for i := 0; i < 3; i++ {
+		var err error
+		rowRanges[i], err = tc.AddReplicas(
+			rowRanges[i].StartKey.AsRawKey(), tc.Target(1), tc.Target(2))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	log.Infof(context.TODO(), "!!! test done replicating")
+
+	// Scatter the leases around; node i gets range i.
+	for i := 0; i < 3; i++ {
+		if err := tc.TransferRangeLease(rowRanges[i], tc.Target(i)); err != nil {
+			t.Fatal(err)
+		}
+			rowRanges[i], i)
+		// Wait for everybody to apply the new lease, so that we can rely on the
+		// lease discovery done later by the LeaseHolderResolver to be up to date.
+		util.SucceedsSoon(t, func() error {
+			for j := 0; j < 3; j++ {
+				target := tc.Target(j)
+				rt, err := tc.FindRangeLeaseHolder(rowRanges[i], &target)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if rt != tc.Target(i) {
+					return errors.Errorf("node %d hasn't applied the lease yet", j)
+				}
+			}
+			return nil
+		})
+	}
+	log.Infof(context.TODO(), "!!! test done moving leases")
+
+	if r := s1.Query(`SELECT * FROM test WHERE v = 3`); !r.Next() {
 		t.Fatal("no rows")
+	} else {
+		r.Close()
 	}
 
-	s2.ExecRowsAffected(3, `DELETE FROM test`)
+	// Evict the descriptor for range 1 from the cache. It's probably stale since
+	// this test has been mocking with that range. And a stale descriptor would
+	// affect our resolving.
+	rdc := tc.Servers[2].DistSender().GetRangeDescriptorCache()
+	err := rdc.EvictCachedRangeDescriptor(roachpb.RKeyMin, nil, false /* inclusive */)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	// !!!
 	s2.DB.SetMaxOpenConns(1)
 	s2.Exec(`SET DIST_SQL=true`)
 
-	if r := s2.Query(`SELECT * FROM test WHERE k = 3`); !r.Next() {
+	log.Infof(context.TODO(), "!!! distsql: test 1st try")
+	if r := s2.Query(`SELECT * FROM test WHERE v = 3`); !r.Next() {
 		t.Fatal("no rows")
+	} else {
+		r.Close()
 	}
 
+	time.Sleep(time.Second)
+	log.Infof(context.TODO(), "!!! distsql: test 2nd try")
+
+	rows := s2.Query(`SELECT * FROM test WHERE v = 3`)
+	gotRows := false
+	for rows.Next() {
+		gotRows = true
+		var k, v int
+		err = rows.Scan(&k, &v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		log.Infof(context.TODO(), "!!! test got row: %d - %d", k, v)
+	}
+	if !gotRows {
+		t.Fatalf("no rows")
+	}
+	err = rows.Err() // get any error encountered during iteration
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows.Close()
 }

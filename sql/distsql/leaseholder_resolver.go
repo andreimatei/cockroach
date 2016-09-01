@@ -281,16 +281,19 @@ func (lr *LeaseHolderResolver) resolveSpan(
 
 	var res []descWithEvictionToken
 	needAnother := true
+
+	startKey, err := keys.Addr(span.Key)
+	if err != nil {
+		return nil, err
+	}
+
 	for needAnother {
 		var desc *roachpb.RangeDescriptor
 		var evictToken *kv.EvictionToken
 		var err error
+
 		for r := retry.Start(retryOptions); r.Next(); {
 			log.Trace(ctx, "meta descriptor lookup")
-			startKey, err := keys.Addr(span.Key)
-			if err != nil {
-				return nil, err
-			}
 			var endKey roachpb.RKey
 			if len(span.EndKey) != 0 {
 				var err error
@@ -302,13 +305,16 @@ func (lr *LeaseHolderResolver) resolveSpan(
 			rs := roachpb.RSpan{Key: startKey, EndKey: endKey}
 			desc, needAnother, evictToken, err = kv.ResolveKeySpanToFirstDescriptor(
 				ctx, lr.rangeCache, rs, evictToken, false /* isReverse */)
+			log.VTracef(2, ctx, "distsql LeaseHolderResolver looked up range descriptor "+
+				"for %s. Got: %s. needAnother: %t", rs, desc, needAnother)
+
 			// We assume that all errors coming from ResolveKeySpanToFirstDescriptor
 			// are retryable, as per its documentation.
 			if err != nil {
 				log.VTracef(1, ctx, "range descriptor lookup failed: %s", err.Error())
 				continue
 			} else {
-				log.VTracef(2, ctx, "looked up range descriptor")
+				startKey = desc.EndKey
 				res = append(res, descWithEvictionToken{
 					RangeDescriptor: desc, evictToken: evictToken})
 				break
@@ -318,5 +324,6 @@ func (lr *LeaseHolderResolver) resolveSpan(
 			return nil, err
 		}
 	}
+	log.VTracef(2, ctx, "looked up range descriptor")
 	return res, nil
 }

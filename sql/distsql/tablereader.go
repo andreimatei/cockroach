@@ -222,6 +222,9 @@ func (tr *tableReader) Run(wg *sync.WaitGroup) {
 
 	if log.V(2) {
 		log.Infof(tr.ctx, "starting (filter: %s)", tr.filter)
+		if log.V(3) {
+			log.Infof(tr.ctx, "table reader spans: %s", sqlbase.PrettySpans(tr.spans, 0))
+		}
 		defer log.Infof(tr.ctx, "exiting")
 	}
 
