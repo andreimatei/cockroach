@@ -290,15 +290,19 @@ func scanNodeToDistSQL(
 			}},
 		}
 
-		conn, err := distSQLSrv.RPCContext.GRPCDial(nodeAddr[nodeID])
-		if err != nil {
-			return nil, err
-		}
-		client := distsql.NewDistSQLClient(conn)
-		if resp, err := client.SetupFlow(context.Background(), &req); err != nil {
-			return nil, err
-		} else if resp.Error != nil {
-			return nil, resp.Error.GoError()
+		if nodeID != myNode {
+			conn, err := distSQLSrv.RPCContext.GRPCDial(nodeAddr[nodeID])
+			if err != nil {
+				return nil, err
+			}
+			client := distsql.NewDistSQLClient(conn)
+			if resp, err := client.SetupFlow(context.Background(), &req); err != nil {
+				return nil, err
+			} else if resp.Error != nil {
+				return nil, resp.Error.GoError()
+			}
+		} else {
+			localReq = req
 		}
 	}
 
