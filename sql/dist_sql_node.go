@@ -216,9 +216,9 @@ type resolvedSQLSpan struct {
 // If syncMode is true, the plan does not instantiate any goroutines
 // internally.
 func scanNodeToDistSQL(
-	n *scanNode, syncMode bool, lhr *distsql.LeaseHolderResolver,
+	nodeDesc *roachpb.NodeDescriptor, n *scanNode, syncMode bool, lhr *distsql.LeaseHolderResolver,
 ) (*distSQLNode, error) {
-	req := distsql.SetupFlowRequest{Txn: n.p.txn.Proto}
+	myAddr := nodeDesc.Address.String()
 
 	rngInfoMap, err := lhr.ResolveLeaseHolders(context.TODO(), n.spans)
 	if err != nil {
@@ -226,6 +226,8 @@ func scanNodeToDistSQL(
 	}
 
 	nodeToRanges := make(map[roachpb.NodeID][]distsql.RangeInfo)
+	nodeAddr := make(map[roachpb.NodeID]string)
+
 	for i, keySpan := range n.spans {
 		rngInfos := rngInfoMap[i]
 		// Trim the beginning and the end.
@@ -234,33 +236,68 @@ func scanNodeToDistSQL(
 		for _, rngInfo := range rngInfos {
 			nodeToRanges[rngInfo.Rep.NodeID] = append(
 				nodeToRanges[rngInfo.Rep.NodeID], rngInfo)
+			nodeAddr[rngInfo.Rep.NodeID] = rngInfo.Rep.NodeDesc.Address.String()
 		}
 	}
 
-	for _, ranges := range nodeToRanges {
+	var colMap []uint32
+	distSQLSrv := n.p.execCfg.DistSQLSrv
+
+	for nodeID, ranges := range nodeToRanges {
 		spans := make([]roachpb.Span, len(ranges))
 		for i, rng := range ranges {
 			spans[i] = rng.Span
 		}
+
+		req := distsql.SetupFlowRequest{Txn: n.p.txn.Proto}
+
 		tr := scanNodeToTableReaderSpec(n, spans)
+		colMap = tr.OutputColumns
 		req.Flow = distsql.FlowSpec{
 			Processors: []distsql.ProcessorSpec{{
 				Core: distsql.ProcessorCoreUnion{TableReader: tr},
 				Output: []distsql.OutputRouterSpec{{
 					Type: distsql.OutputRouterSpec_MIRROR,
 					Streams: []distsql.StreamEndpointSpec{{
-						Mailbox: &distsql.MailboxSpec{SimpleResponse: true},
+						Mailbox: &distsql.MailboxSpec{StreamID: distsql.StreamID(nodeID), TargetAddr: myAddr},
 					}},
 				}},
 			}},
 		}
+
+		conn, err := distSQLSrv.RPCContext.GRPCDial(nodeAddr[nodeID])
+		if err != nil {
+			return nil, err
+		}
+		client := distsql.NewDistSQLClient(conn)
+		if resp, err := client.SetupFlow(context.Background(), &req); err != nil {
+			return nil, err
+		} else if resp.Error != nil {
+			return nil, resp.Error.GoError()
+		}
 	}
 
-	// !!!
-	// return newDistSQLNode(
-	//   n.resultColumns, tr.OutputColumns, n.ordering, n.p.execCfg.DistSQLSrv, &req, syncMode)
+	req := distsql.SetupFlowRequest{Txn: n.p.txn.Proto}
+	req.Flow = distsql.FlowSpec{
+		Processors: []distsql.ProcessorSpec{{
+			Input: []distsql.InputSyncSpec{{Type: distsql.InputSyncSpec_UNORDERED}},
+			Core:  distsql.ProcessorCoreUnion{Noop: &distsql.NoopCoreSpec{}},
+			Output: []distsql.OutputRouterSpec{{
+				Type: distsql.OutputRouterSpec_MIRROR,
+				Streams: []distsql.StreamEndpointSpec{{
+					Mailbox: &distsql.MailboxSpec{SimpleResponse: true},
+				}},
+			}},
+		}},
+	}
 
-	panic("!!!")
+	for nodeID, _ := range nodeToRanges {
+		s := &req.Flow.Processors[0].Input[0].Streams
+		*s = append(*s, distsql.StreamEndpointSpec{Mailbox: &distsql.MailboxSpec{StreamID: distsql.StreamID(nodeID)}})
+	}
+
+	return newDistSQLNode(
+		n.resultColumns, colMap, n.ordering, distSQLSrv, &req, syncMode)
 }
 
 // hackPlanToUseDistSQL goes through a planNode tree and replaces each scanNode with
@@ -268,14 +305,14 @@ func scanNodeToDistSQL(
 // If syncMode is true, the plan does not instantiate any goroutines
 // internally.
 func hackPlanToUseDistSQL(
-	plan planNode, syncMode bool, lhr *distsql.LeaseHolderResolver,
+	nodeDesc *roachpb.NodeDescriptor, plan planNode, syncMode bool, lhr *distsql.LeaseHolderResolver,
 ) error {
 	// Trigger limit propagation.
 	plan.SetLimitHint(math.MaxInt64, true)
 
 	if sel, ok := plan.(*selectNode); ok {
 		if scan, ok := sel.source.plan.(*scanNode); ok {
-			distNode, err := scanNodeToDistSQL(scan, syncMode, lhr)
+			distNode, err := scanNodeToDistSQL(nodeDesc, scan, syncMode, lhr)
 			if err != nil {
 				return err
 			}
@@ -285,7 +322,7 @@ func hackPlanToUseDistSQL(
 
 	_, _, children := plan.ExplainPlan(true)
 	for _, c := range children {
-		if err := hackPlanToUseDistSQL(c, syncMode, lhr); err != nil {
+		if err := hackPlanToUseDistSQL(nodeDesc, c, syncMode, lhr); err != nil {
 			return err
 		}
 	}
