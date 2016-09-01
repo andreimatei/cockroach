@@ -26,6 +26,7 @@ import (
 	"github.com/cockroachdb/cockroach/sql/distsql"
 	"github.com/cockroachdb/cockroach/sql/parser"
 	"github.com/cockroachdb/cockroach/sql/sqlbase"
+	"github.com/cockroachdb/cockroach/util/uuid"
 )
 
 // distSQLNode is a planNode that receives results from a distsql flow (through
@@ -219,6 +220,7 @@ func scanNodeToDistSQL(
 	nodeDesc *roachpb.NodeDescriptor, n *scanNode, syncMode bool, lhr *distsql.LeaseHolderResolver,
 ) (*distSQLNode, error) {
 	myAddr := nodeDesc.Address.String()
+	fid := distsql.FlowID{uuid.MakeV4()}
 
 	rngInfoMap, err := lhr.ResolveLeaseHolders(context.TODO(), n.spans)
 	if err != nil {
@@ -254,6 +256,7 @@ func scanNodeToDistSQL(
 		tr := scanNodeToTableReaderSpec(n, spans)
 		colMap = tr.OutputColumns
 		req.Flow = distsql.FlowSpec{
+			FlowID: fid,
 			Processors: []distsql.ProcessorSpec{{
 				Core: distsql.ProcessorCoreUnion{TableReader: tr},
 				Output: []distsql.OutputRouterSpec{{
@@ -279,6 +282,7 @@ func scanNodeToDistSQL(
 
 	req := distsql.SetupFlowRequest{Txn: n.p.txn.Proto}
 	req.Flow = distsql.FlowSpec{
+		FlowID: fid,
 		Processors: []distsql.ProcessorSpec{{
 			Input: []distsql.InputSyncSpec{{Type: distsql.InputSyncSpec_UNORDERED}},
 			Core:  distsql.ProcessorCoreUnion{Noop: &distsql.NoopCoreSpec{}},
