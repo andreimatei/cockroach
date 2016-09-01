@@ -135,9 +135,10 @@ type ResultRow struct {
 // An Executor executes SQL statements.
 // Executor is thread-safe.
 type Executor struct {
-	nodeID  roachpb.NodeID
-	cfg     ExecutorConfig
-	reCache *parser.RegexpCache
+	nodeID   roachpb.NodeID
+	nodeDesc roachpb.NodeDescriptor
+	cfg      ExecutorConfig
+	reCache  *parser.RegexpCache
 
 	// Transient stats.
 	Latency       metric.Histograms
@@ -314,6 +315,7 @@ func (e *Executor) Ctx() context.Context {
 // before actually using the Executor.
 func (e *Executor) SetNodeDesc(desc roachpb.NodeDescriptor) {
 	e.nodeID = desc.NodeID
+	e.nodeDesc = desc
 	e.cfg.LeaseManager.nodeID = uint32(desc.NodeID)
 	e.cfg.LeaseHolderResolver.SetNodeDesc(desc)
 }
@@ -1132,8 +1134,7 @@ func (e *Executor) execStmt(
 
 	if testDistSQL != 0 || planMaker.session.UseDistSQL {
 		log.Infof(planMaker.ctx(), "!!! using DistSQL for %q", stmt)
-		if err := hackPlanToUseDistSQL(
-			plan, testDistSQL == 1, e.cfg.LeaseHolderResolver); err != nil {
+		if err := hackPlanToUseDistSQL(&e.nodeDesc, plan, testDistSQL == 1, e.cfg.LeaseHolderResolver); err != nil {
 			return result, err
 		}
 	}
