@@ -159,9 +159,10 @@ func (lr *LeaseHolderResolver) ResolveLeaseHolders(
 				// TODO(andrei): figure out the context to pass here. It can't use the
 				// current span. Should it be the Server's context for background
 				// operations? Or that + a new root span?
+				rangeDesc := descWithTok.RangeDescriptor
 				lr.stopper.RunWorker(func() {
 					lr.writeLeaseHolderToCache(
-						context.TODO(), descWithTok.RangeDescriptor,
+						context.TODO(), rangeDesc,
 						descWithTok.evictToken, replicas)
 				})
 			}

@@ -20,14 +20,13 @@ import (
 	"fmt"
 	"math"
 
-	"google.golang.org/appengine/log"
-
 	"golang.org/x/net/context"
 
 	"github.com/cockroachdb/cockroach/roachpb"
 	"github.com/cockroachdb/cockroach/sql/distsql"
 	"github.com/cockroachdb/cockroach/sql/parser"
 	"github.com/cockroachdb/cockroach/sql/sqlbase"
+	"github.com/cockroachdb/cockroach/util/log"
 	"github.com/cockroachdb/cockroach/util/uuid"
 )
 
@@ -228,6 +227,7 @@ func scanNodeToDistSQL(
 	if err != nil {
 		return nil, err
 	}
+	log.Infof(context.TODO(), "!!! scanNodeToDistSQL: resolved: %+v", rngInfoMap)
 
 	nodeToRanges := make(map[roachpb.NodeID][]distsql.RangeInfo)
 	nodeAddr := make(map[roachpb.NodeID]string)
