@@ -115,7 +115,7 @@ func TestResolveLeaseHolders(t *testing.T) {
 	// Evict the descriptor for range 1 from the cache. It's probably stale since
 	// this test has been mocking with that range. And a stale descriptor would
 	// affect our resolving.
-	rdc := s3.GetDistSender().GetRangeDescriptorCache()
+	rdc := s3.DistSender().GetRangeDescriptorCache()
 	err := rdc.EvictCachedRangeDescriptor(roachpb.RKeyMin, nil, false /* inclusive */)
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +124,7 @@ func TestResolveLeaseHolders(t *testing.T) {
 	// care of it?
 
 	lr := distsql.NewLeaseHolderResolver(
-		s3.GetDistSender(), s3.Gossip(), s3.GetNode().Descriptor, s3.Stopper())
+		s3.DistSender(), s3.Gossip(), s3.GetNode().Descriptor, s3.Stopper())
 
 	var spans []roachpb.Span
 	for i := 0; i < 3; i++ {
