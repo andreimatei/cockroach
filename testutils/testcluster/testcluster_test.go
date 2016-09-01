@@ -243,3 +243,33 @@ func TestStopServer(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// !!!
+func TestDSQL(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	tc := StartTestCluster(t, 3,
+		base.TestClusterArgs{
+			ReplicationMode: base.ReplicationManual,
+			ServerArgs: base.TestServerArgs{
+				UseDatabase: "t",
+			},
+		})
+	defer tc.Stopper().Stop()
+
+	s0 := sqlutils.MakeSQLRunner(t, tc.Conns[0])
+	s1 := sqlutils.MakeSQLRunner(t, tc.Conns[1])
+	s2 := sqlutils.MakeSQLRunner(t, tc.Conns[2])
+
+	s0.Exec(`CREATE DATABASE t`)
+	s0.Exec(`CREATE TABLE test (k INT PRIMARY KEY, v INT)`)
+	s0.Exec(`INSERT INTO test VALUES (5, 1), (4, 2), (1, 2)`)
+
+	if r := s1.Query(`SELECT * FROM test WHERE k = 5`); !r.Next() {
+		t.Fatal("no rows")
+	}
+
+	s2.ExecRowsAffected(3, `DELETE FROM test`)
+
+	s0.Exec(`SET DIST_SQL=true`)
+}

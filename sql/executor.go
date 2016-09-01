@@ -1130,7 +1130,8 @@ func (e *Executor) execStmt(
 		return result, err
 	}
 
-	if testDistSQL != 0 {
+	if testDistSQL != 0 || planMaker.session.UseDistSQL {
+		log.Infof(planMaker.ctx(), "!!! using DistSQL for %q", stmt)
 		if err := hackPlanToUseDistSQL(
 			plan, testDistSQL == 1, e.cfg.LeaseHolderResolver); err != nil {
 			return result, err

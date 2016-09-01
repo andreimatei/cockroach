@@ -81,6 +81,13 @@ func (p *planner) Set(n *parser.Set) (planNode, error) {
 	case `EXTRA_FLOAT_DIGITS`:
 		// These settings are sent by the JDBC driver but we silently ignore them.
 
+	case `DIST_SQL`:
+		b, err := p.getBoolVal(name, typedValues)
+		if err != nil {
+			return nil, err
+		}
+		p.session.UseDistSQL = b
+
 	default:
 		return nil, fmt.Errorf("unknown variable: %q", name)
 	}
@@ -101,6 +108,22 @@ func (p *planner) getStringVal(name string, values []parser.TypedExpr) (string, 
 			name, values[0], val.Type())
 	}
 	return string(*s), nil
+}
+
+func (p *planner) getBoolVal(name string, values []parser.TypedExpr) (bool, error) {
+	if len(values) != 1 {
+		return false, fmt.Errorf("%s: requires a single boolean value", name)
+	}
+	val, err := values[0].Eval(&p.evalCtx)
+	if err != nil {
+		return false, err
+	}
+	b, ok := val.(*parser.DBool)
+	if !ok {
+		return false, fmt.Errorf("%s: requires a single boolean value: %s is a %s",
+			name, values[0], val.Type())
+	}
+	return bool(*b), nil
 }
 
 func (p *planner) SetDefaultIsolation(n *parser.SetDefaultIsolation) (planNode, error) {

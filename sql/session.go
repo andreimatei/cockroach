@@ -49,9 +49,10 @@ var traceSQL = traceSQLDuration > 0
 // Session contains the state of a SQL client connection.
 // Create instances using NewSession().
 type Session struct {
-	Database string
-	User     string
-	Syntax   int32
+	Database   string
+	User       string
+	Syntax     int32
+	UseDistSQL bool
 
 	// Info about the open transaction (if any).
 	TxnState txnState
