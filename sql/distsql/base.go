@@ -55,6 +55,28 @@ type processor interface {
 	Run(wg *sync.WaitGroup)
 }
 
+type noopProcessor struct {
+	flowCtx *FlowCtx
+	input   RowSource
+	output  RowReceiver
+}
+
+func (n *noopProcessor) Run(wg *sync.WaitGroup) {
+	if wg != nil {
+		defer wg.Done()
+	}
+	for {
+		row, err := n.input.NextRow()
+		if err != nil || row == nil {
+			n.output.Close(err)
+			return
+		}
+		if !n.output.PushRow(row) {
+			return
+		}
+	}
+}
+
 // StreamMsg is the message used in the channels that implement
 // local physical streams.
 type StreamMsg struct {
