@@ -89,6 +89,11 @@ type descWithEvictionToken struct {
 	evictToken *kv.EvictionToken
 }
 
+type RangeInfo struct {
+	Span roachpb.Span
+	Rep  kv.ReplicaInfo
+}
+
 // ResolveLeaseHolders takes a list of spans and returns a list of lease
 // holders, one for every range that overlaps the spans.
 // The spans need to be disjoint; they also need to be sorted so that we take
@@ -98,8 +103,8 @@ type descWithEvictionToken struct {
 // an arg. Why?
 func (lr *LeaseHolderResolver) ResolveLeaseHolders(
 	ctx context.Context, spans []roachpb.Span,
-) (map[int][]kv.ReplicaInfo, error) { // !!! make it a slice
-	leaseHolders := make(map[int][]kv.ReplicaInfo)
+) ([][]RangeInfo, error) {
+	leaseHolders := make([][]RangeInfo, len(spans))
 	descsWithEvictToks, err := lr.getRangeDescriptors(ctx, spans)
 	if err != nil {
 		return nil, err
@@ -123,17 +128,21 @@ func (lr *LeaseHolderResolver) ResolveLeaseHolders(
 	for i := range spans {
 		spanDescs := descsWithEvictToks[i]
 		for _, descWithTok := range spanDescs {
-			var leaseReplicaInfo kv.ReplicaInfo
+			var rngInfo RangeInfo
+			rngInfo.Span = roachpb.Span{
+				Key:    descWithTok.StartKey.AsRawKey(),
+				EndKey: descWithTok.EndKey.AsRawKey(),
+			}
 			leaseReplicaDesc, ok := lr.leaseHolderCache.Lookup(descWithTok.RangeID)
 			if ok {
 				// Lease-holder cache hit.
-				leaseReplicaInfo.ReplicaDescriptor = leaseReplicaDesc
+				rngInfo.Rep.ReplicaDescriptor = leaseReplicaDesc
 				nd, err := lr.gossip.GetNodeDescriptor(leaseReplicaDesc.NodeID)
 				if err != nil {
 					return nil, sqlbase.NewRangeUnavailableError(
 						descWithTok.RangeID, leaseReplicaDesc.NodeID)
 				}
-				leaseReplicaInfo.NodeDesc = nd
+				rngInfo.Rep.NodeDesc = nd
 			} else {
 				// Lease-holder cache miss. We'll guess a lease holder and start a real
 				// lookup in the background.
@@ -141,7 +150,7 @@ func (lr *LeaseHolderResolver) ResolveLeaseHolders(
 				if err != nil {
 					return nil, err
 				}
-				leaseReplicaInfo = leaseHolder
+				rngInfo.Rep = leaseHolder
 				// Populate the cache with the correct lease holder. As a byproduct, also
 				// try to elect the replica guessed above to actually become the lease
 				// holder. Doing this here, early, benefits the command that we'll surely
@@ -156,11 +165,16 @@ func (lr *LeaseHolderResolver) ResolveLeaseHolders(
 						descWithTok.evictToken, replicas)
 				})
 			}
-			leaseHolders[i] = append(leaseHolders[i], leaseReplicaInfo)
-			rangesPerLeaseHolder[leaseReplicaInfo.NodeID]++
+			leaseHolders[i] = append(leaseHolders[i], rngInfo)
+			rangesPerLeaseHolder[rngInfo.Rep.NodeID]++
 		}
 	}
 	return leaseHolders, nil
+}
+
+// !! panic if used before this is called?
+func (lr *LeaseHolderResolver) SetNodeDesc(nodeDesc roachpb.NodeDescriptor) {
+	lr.nodeDesc = nodeDesc
 }
 
 // guessLeaseHolder "guesses" a lease holder for a given range. It gives

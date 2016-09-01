@@ -22,6 +22,7 @@ import (
 
 	"golang.org/x/net/context"
 
+	"github.com/cockroachdb/cockroach/roachpb"
 	"github.com/cockroachdb/cockroach/sql/distsql"
 	"github.com/cockroachdb/cockroach/sql/parser"
 	"github.com/cockroachdb/cockroach/sql/sqlbase"
@@ -143,7 +144,7 @@ func (n *distSQLNode) Values() parser.DTuple {
 
 // scanNodeToTableReaderSpec generates a TableReaderSpec that corresponds to a
 // scanNode.
-func scanNodeToTableReaderSpec(n *scanNode) *distsql.TableReaderSpec {
+func scanNodeToTableReaderSpec(n *scanNode, spans []roachpb.Span) *distsql.TableReaderSpec {
 	s := &distsql.TableReaderSpec{
 		Table:   n.desc,
 		Reverse: n.reverse,
@@ -159,10 +160,19 @@ func scanNodeToTableReaderSpec(n *scanNode) *distsql.TableReaderSpec {
 			panic("invalid scanNode index")
 		}
 	}
+	/* !!!
 	s.Spans = make([]distsql.TableReaderSpan, len(n.spans))
 	for i, span := range n.spans {
 		s.Spans[i].Span = span
 	}
+	*/
+	// !!!
+	tableReaderSpans := make([]distsql.TableReaderSpan, len(spans))
+	for i, span := range spans {
+		tableReaderSpans[i] = distsql.TableReaderSpan{Span: span}
+	}
+	s.Spans = tableReaderSpans
+
 	s.OutputColumns = make([]uint32, 0, len(n.resultColumns))
 	for i := range n.resultColumns {
 		if n.valNeededForCol[i] {
@@ -195,40 +205,77 @@ func scanNodeToTableReaderSpec(n *scanNode) *distsql.TableReaderSpec {
 	return s
 }
 
+type resolvedSQLSpan struct {
+	sqlKeySpan roachpb.Span
+	ranges     []roachpb.Span
+	replicas   []roachpb.ReplicaDescriptor
+}
+
 // scanNodeToDistSQL creates a flow and distSQLNode that correspond to a
 // scanNode.
 // If syncMode is true, the plan does not instantiate any goroutines
 // internally.
-func scanNodeToDistSQL(n *scanNode, syncMode bool) (*distSQLNode, error) {
+func scanNodeToDistSQL(
+	n *scanNode, syncMode bool, lhr *distsql.LeaseHolderResolver,
+) (*distSQLNode, error) {
 	req := distsql.SetupFlowRequest{Txn: n.p.txn.Proto}
-	tr := scanNodeToTableReaderSpec(n)
-	req.Flow = distsql.FlowSpec{
-		Processors: []distsql.ProcessorSpec{{
-			Core: distsql.ProcessorCoreUnion{TableReader: tr},
-			Output: []distsql.OutputRouterSpec{{
-				Type: distsql.OutputRouterSpec_MIRROR,
-				Streams: []distsql.StreamEndpointSpec{{
-					Mailbox: &distsql.MailboxSpec{SimpleResponse: true},
-				}},
-			}},
-		}},
+
+	rngInfoMap, err := lhr.ResolveLeaseHolders(context.TODO(), n.spans)
+	if err != nil {
+		return nil, err
 	}
 
-	return newDistSQLNode(
-		n.resultColumns, tr.OutputColumns, n.ordering, n.p.execCfg.DistSQLSrv, &req, syncMode)
+	nodeToRanges := make(map[roachpb.NodeID][]distsql.RangeInfo)
+	for i, keySpan := range n.spans {
+		rngInfos := rngInfoMap[i]
+		// Trim the beginning and the end.
+		rngInfos[0].Span.Key = keySpan.Key
+		rngInfos[len(rngInfos)-1].Span.EndKey = keySpan.EndKey
+		for _, rngInfo := range rngInfos {
+			nodeToRanges[rngInfo.Rep.NodeID] = append(
+				nodeToRanges[rngInfo.Rep.NodeID], rngInfo)
+		}
+	}
+
+	for _, ranges := range nodeToRanges {
+		spans := make([]roachpb.Span, len(ranges))
+		for i, rng := range ranges {
+			spans[i] = rng.Span
+		}
+		tr := scanNodeToTableReaderSpec(n, spans)
+		req.Flow = distsql.FlowSpec{
+			Processors: []distsql.ProcessorSpec{{
+				Core: distsql.ProcessorCoreUnion{TableReader: tr},
+				Output: []distsql.OutputRouterSpec{{
+					Type: distsql.OutputRouterSpec_MIRROR,
+					Streams: []distsql.StreamEndpointSpec{{
+						Mailbox: &distsql.MailboxSpec{SimpleResponse: true},
+					}},
+				}},
+			}},
+		}
+	}
+
+	// !!!
+	// return newDistSQLNode(
+	//   n.resultColumns, tr.OutputColumns, n.ordering, n.p.execCfg.DistSQLSrv, &req, syncMode)
+
+	panic("!!!")
 }
 
 // hackPlanToUseDistSQL goes through a planNode tree and replaces each scanNode with
 // a distSQLNode and a corresponding flow.
 // If syncMode is true, the plan does not instantiate any goroutines
 // internally.
-func hackPlanToUseDistSQL(plan planNode, syncMode bool) error {
+func hackPlanToUseDistSQL(
+	plan planNode, syncMode bool, lhr *distsql.LeaseHolderResolver,
+) error {
 	// Trigger limit propagation.
 	plan.SetLimitHint(math.MaxInt64, true)
 
 	if sel, ok := plan.(*selectNode); ok {
 		if scan, ok := sel.source.plan.(*scanNode); ok {
-			distNode, err := scanNodeToDistSQL(scan, syncMode)
+			distNode, err := scanNodeToDistSQL(scan, syncMode, lhr)
 			if err != nil {
 				return err
 			}
@@ -238,7 +285,7 @@ func hackPlanToUseDistSQL(plan planNode, syncMode bool) error {
 
 	_, _, children := plan.ExplainPlan(true)
 	for _, c := range children {
-		if err := hackPlanToUseDistSQL(c, syncMode); err != nil {
+		if err := hackPlanToUseDistSQL(c, syncMode, lhr); err != nil {
 			return err
 		}
 	}

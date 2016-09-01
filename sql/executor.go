@@ -177,6 +177,8 @@ type ExecutorConfig struct {
 	LeaseManager *LeaseManager
 	Clock        *hlc.Clock
 	DistSQLSrv   *distsql.ServerImpl
+	// !!!
+	LeaseHolderResolver *distsql.LeaseHolderResolver
 
 	TestingKnobs *ExecutorTestingKnobs
 }
@@ -308,11 +310,12 @@ func (e *Executor) Ctx() context.Context {
 	return e.cfg.Context
 }
 
-// SetNodeID sets the node ID for the SQL server. This method must be called
+// SetNodeDesc !!! sets the node ID for the SQL server. This method must be called
 // before actually using the Executor.
-func (e *Executor) SetNodeID(nodeID roachpb.NodeID) {
-	e.nodeID = nodeID
-	e.cfg.LeaseManager.nodeID = uint32(nodeID)
+func (e *Executor) SetNodeDesc(desc roachpb.NodeDescriptor) {
+	e.nodeID = desc.NodeID
+	e.cfg.LeaseManager.nodeID = uint32(desc.NodeID)
+	e.cfg.LeaseHolderResolver.SetNodeDesc(desc)
 }
 
 // updateSystemConfig is called whenever the system config gossip entry is updated.
@@ -1131,7 +1134,8 @@ func (e *Executor) execStmt(
 	}
 
 	if testDistSQL != 0 {
-		if err := hackPlanToUseDistSQL(plan, testDistSQL == 1); err != nil {
+		if err := hackPlanToUseDistSQL(
+			plan, testDistSQL == 1, e.cfg.LeaseHolderResolver); err != nil {
 			return result, err
 		}
 	}

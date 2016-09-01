@@ -233,6 +233,10 @@ func NewServer(srvCtx Context, stopper *stop.Stopper) (*Server, error) {
 		LeaseManager: s.leaseMgr,
 		Clock:        s.clock,
 		DistSQLSrv:   s.distSQLServer,
+		LeaseHolderResolver: distsql.NewLeaseHolderResolver(
+			s.distSender, s.gossip,
+			roachpb.NodeDescriptor{}, // !!!
+			s.stopper),
 	}
 	if srvCtx.TestingKnobs.SQLExecutor != nil {
 		execCfg.TestingKnobs = srvCtx.TestingKnobs.SQLExecutor.(*sql.ExecutorTestingKnobs)
@@ -478,7 +482,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// Begin recording status summaries.
 	s.node.startWriteSummaries(s.ctx.MetricsSampleInterval)
 
-	s.sqlExecutor.SetNodeID(s.node.Descriptor.NodeID)
+	s.sqlExecutor.SetNodeDesc(s.node.Descriptor)
 
 	// Create and start the schema change manager only after a NodeID
 	// has been assigned.

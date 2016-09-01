@@ -152,7 +152,7 @@ func TestResolveLeaseHolders(t *testing.T) {
 			t.Fatalf("expected 1 range for span %s, got %d (%+v)",
 				len(replicas[i]), replicas[i])
 		}
-		rd := replicas[i][0].ReplicaDescriptor
+		rd := replicas[i][0].Rep.ReplicaDescriptor
 		if rd.NodeID != nodeID || rd.StoreID != storeID {
 			t.Fatalf("expected span %s to be on replica (%d, %d) but was on %s",
 				spans[i], nodeID, storeID, rd)
@@ -176,7 +176,7 @@ func TestResolveLeaseHolders(t *testing.T) {
 			si := tc.Servers[i]
 			nodeID := si.GetNode().Descriptor.NodeID
 			storeID := si.GetFirstStoreID()
-			rd := replicas[i][0].ReplicaDescriptor
+			rd := replicas[i][0].Rep.ReplicaDescriptor
 			if rd.NodeID != nodeID || rd.StoreID != storeID {
 				return errors.Errorf("expected span %s to be on replica (%d, %d) but was on %s",
 					spans[i], nodeID, storeID, rd)
