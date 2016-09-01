@@ -347,7 +347,6 @@ func TestDSQL(t *testing.T) {
 		if err := tc.TransferRangeLease(rowRanges[i], tc.Target(i)); err != nil {
 			t.Fatal(err)
 		}
-			rowRanges[i], i)
 		// Wait for everybody to apply the new lease, so that we can rely on the
 		// lease discovery done later by the LeaseHolderResolver to be up to date.
 		util.SucceedsSoon(t, func() error {
