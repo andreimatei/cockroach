@@ -1,0 +1,1874 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<meta name="generator" content="Docutils 0.14: http://docutils.sourceforge.net/" />
+<title>Haskell for OCaml programmers</title>
+<meta name="author" content="Raphael ‘kena’ Poss" />
+<meta name="date" content="March 2014" />
+<link rel="stylesheet" href="aux/all.css" type="text/css" />
+</head>
+<body>
+<div class="document" id="haskell-for-ocaml-programmers">
+<h1 class="title">Haskell for OCaml programmers</h1>
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Author:</th>
+<td><a class="first last reference external" href="http://science.raphael.poss.name/">Raphael ‘kena’ Poss</a></td></tr>
+<tr><th class="docinfo-name">Date:</th>
+<td>March 2014</td></tr>
+</tbody>
+</table>
+<p>This post mirrors <a class="reference external" href="http://blog.ezyang.com/2010/10/ocaml-for-haskellers/">OCaml for Haskellers</a> from Edward Z. Yang (2010).</p>
+<div class="contents topic" id="contents">
+<p class="topic-title first">Contents</p>
+<ul class="simple">
+<li><a class="reference internal" href="#prologue" id="id29">Prologue</a></li>
+<li><a class="reference internal" href="#why-you-should-learn-haskell" id="id30">Why you should learn Haskell</a></li>
+<li><a class="reference internal" href="#straightforward-equivalences" id="id31">Straightforward equivalences</a></li>
+<li><a class="reference internal" href="#recursive-definitions" id="id32">Recursive definitions</a></li>
+<li><a class="reference internal" href="#program-structure" id="id33">Program structure</a></li>
+<li><a class="reference internal" href="#program-and-effect-composition" id="id34">Program and effect composition</a></li>
+<li><a class="reference internal" href="#print-debugging" id="id35">Print debugging</a></li>
+<li><a class="reference internal" href="#mutable-variables" id="id36">Mutable variables</a></li>
+<li><a class="reference internal" href="#arrays" id="id37">Arrays</a></li>
+<li><a class="reference internal" href="#type-classes-in-a-nutshell" id="id38">Type classes in a nutshell</a></li>
+<li><a class="reference internal" href="#rolling-your-own-recipe-system" id="id39">Rolling your own recipe system</a></li>
+<li><a class="reference internal" href="#haskell-limitations" id="id40">Haskell limitations</a></li>
+<li><a class="reference internal" href="#external-links" id="id41">External links</a><ul>
+<li><a class="reference internal" href="#searching-for-more-information" id="id42">Searching for more information</a></li>
+<li><a class="reference internal" href="#further-reads" id="id43">Further reads</a></li>
+<li><a class="reference internal" href="#references" id="id44">References</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#copyright-and-licensing" id="id45">Copyright and licensing</a></li>
+</ul>
+</div>
+<hr class="docutils" />
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">The latest version of this document can be found online at
+<a class="reference external" href="http://science.raphael.poss.name/haskell-for-ocaml-programmers.html">http://science.raphael.poss.name/haskell-for-ocaml-programmers.html</a>.
+Alternate formats:
+<a class="reference external" href="http://science.raphael.poss.name/haskell-for-ocaml-programmers.txt">Source</a>,
+<a class="reference external" href="http://science.raphael.poss.name/haskell-for-ocaml-programmers.pdf">PDF</a>.</p>
+</div>
+<div class="section" id="prologue">
+<h1><a class="toc-backref" href="#id29">Prologue</a></h1>
+<p>Why write a new post when a clever reader could simply “read <a class="reference external" href="http://blog.ezyang.com/2010/10/ocaml-for-haskellers/">Edward's
+post</a> backwards”?</p>
+<p>It's about the different audience, really.</p>
+<p>My experience is that programmers well-versed in Haskell,
+or who learn Haskell as first language, tend to have a strong
+background in mathematics and logical reasoning. For this audience,
+the abstract equivalences between Haskell and OCaml are trivial and do
+not bear repeating. For them, a post like Edward's that mosty focuses
+on the “limitations” of OCaml compared to Haskell, and provides
+succinct high-level descriptions of OCaml's unique features, is
+sufficient.</p>
+<p>In contrast, an OCaml programmer is often someone who has learned OCaml by
+iterative widening of their programming toolbox from other
+languages, perhaps without particular sensitivity to the aesthetics of
+abstraction. I once belonged to such an audience; I have taught
+programming to it, too.</p>
+<p>For practical OCaml programmers, I found that <strong>it often works
+better to approach Haskell from its operational perspective</strong>, rather
+than the formal/equational approach typically taken in Haskell
+tutorials. The merits of Haskell's powerful abstraction compositions,
+in this context, are a matter best left to self-discovery, later in
+the learning process.</p>
+<p>For example, Haskell tutorials often focus early on
+non-strict evaluation and strong typing. This is an unfortunate
+starting angle for a seasoned OCaml programmer who already knows
+Haskell's type system very well (OCaml has mostly the same) and who is
+likely to care immediately about a clear time and space cost model for
+his/her code, an expectation broken at first sight by non-strict
+evaluation.</p>
+</div>
+<div class="section" id="why-you-should-learn-haskell">
+<h1><a class="toc-backref" href="#id30">Why you should learn Haskell</a></h1>
+<p>There are two set of important features found in Haskell and not in OCaml:
+<em>killer features</em> and <em>acquired tastes</em>.</p>
+<p>Killer features are those that can immediately enable better productivity,
+without incurring a feeling of loss from leaving OCaml's world:</p>
+<ul>
+<li><p class="first">layout-based code structuring;</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 78)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    (* ML: begin/end needed to scope
+       nested pattern matches *)
+    match v1 with
+    | 0 -&gt; begin
+            match v2 with
+            | 1 -&gt; &quot;hello&quot;
+            | 2 -&gt; &quot;world&quot;
+           end
+    | 3 -&gt; &quot;yay&quot;
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 90)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    {- HS: indentation disambiguates
+       nested pattern matches -}
+    case v1 of
+     0 -&gt; case v2 of
+           1 -&gt; &quot;hello&quot;
+           2 -&gt; &quot;world
+     3 -&gt; &quot;yay&quot;
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</li>
+<li><p class="first">declarations after use;</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 102)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    v = sum 20
+      where  {- no equivalent in OCaml -}
+        sum n = n * (n - 1) / 2
+
+</pre>
+</div>
+</li>
+<li><p class="first">readable type interfaces directly next to declarations;</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 113)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    (* in mod.mli *)
+    val f : int -&gt; int -&gt; int
+    (* in mod.ml *)
+    let f = (+)
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 120)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    {- in Mod.hs -}
+    f :: Int -&gt; Int -&gt; Int
+    f = (+)
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</li>
+<li><p class="first">operator and function overloading;</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 131)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    (* no ad-hoc polymorphism,
+       (+) vs. (+.) *)
+    begin
+      print_string
+         (string_of_int (3 + 2));
+      print_string
+         (string_of_float (3.0 +. 0.14));
+    end
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 142)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    {- show and (+) are overloaded -}
+
+    do
+     putStr
+         (show (3 + 2))
+     putStr
+         (show (3.0 + 0.14))
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</li>
+<li><p class="first">more flexibility on operator and function names;</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 157)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    let (^.) a b = a ^ &quot;.&quot; ^ b
+    let v = &quot;hello&quot; ^. &quot;world&quot;
+
+    (* only punctuation can serve as
+       infix operators *)
+
+    (* &quot;.&quot; is not a valid prefix *)
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 167)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    (^.) a b = a ++ &quot;.&quot; ++ b
+    v = &quot;hello&quot; ^. &quot;world&quot;
+
+    dot a b = a ^. b
+    v2 = &quot;hello&quot; `dot` &quot;world&quot;
+
+    (.) f g x = f (g x)
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</li>
+<li><p class="first">configurable operator associativity and precedence.</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 182)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+     let (/~) a b = a / b
+     let (-~) a b = a - b
+
+     (* all operators starting with the
+        same character have the same
+        associativity and precedence *)
+
+     let v = 12 /~ 3 -~ 1 /~ 2
+        (* = (12 /~ 3) -~ (1 /~ 2) *)
+        (* = 4 -~ 0 *)
+        (* = 4 *)
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 196)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+     (/~) a b = a / b
+     (-~) a b = a - b
+
+     infixr 7 -~   {- higher = tighter -}
+     infixr 6 /~   {- r for right-assoc -}
+
+     v = 12 /~ 3 -~ 1 /~ 2
+        {- = 12 /~ ((3 -~ 1) /~ 2)  -}
+        {- = 12 /~ (2 /~ 2) -}
+        {- = 12 /~ 1 -}
+        {- = 12 -}
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</li>
+</ul>
+<p>“Acquired tastes” are Haskell features that a) can yield a significant
+productivity improvement in the long run b) can yield terrible
+performance and/or unreadable code when used naively and thus c) will
+require patience and practice until you start feeling comfortable
+using them:</p>
+<ul class="simple">
+<li>pure arrays;</li>
+<li>function definitions by equations over infinite data structures;</li>
+<li>type classes and custom Functor / Applicative / Monoid instances.</li>
+</ul>
+<p>Some examples are given later below.</p>
+</div>
+<hr class="docutils" />
+<div class="section" id="straightforward-equivalences">
+<h1><a class="toc-backref" href="#id31">Straightforward equivalences</a></h1>
+<p>Naming of types:</p>
+<pre class="code literal-block">
+int float  char string bool userDefined (* OCaml *)
+Int Double Char String Bool UserDefined {- Haskell -}
+</pre>
+<p>Operators:</p>
+<pre class="code literal-block">
+=   &lt;&gt;  ^   &#64;   &#64;&#64;  +.  /.  *.  +.  (* OCaml *)
+==  /=  ++  ++  $   +   /   *   +   {- Haskell -}
+
+land lor lxor [la]sl [la]sr lnot       (* OCaml *)
+.&amp;.  .|. xor  shiftL shiftR complement {- Haskell -}
+</pre>
+<p>Functions:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 250)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+ let f x y = x + y
+ let g = fun x y -&gt; x + y
+
+ let rec fact n =
+     if n = 1 then 1
+     else n * fact (n-1)
+
+ let rec fact' = function
+   | 1 -&gt; 1
+   | n -&gt; n * fact' (n-1)
+
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 264)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+ f x y = x + y
+ g = \x -&gt; \y -&gt; x + y
+
+ fact n = {- no &quot;rec&quot; needed -}
+     if n = 1 then 1
+     else n * fact (n-1)
+
+ {- equational: order matters -}
+ fact' 1 = 1
+ fact' n = n * fact' (n-1)
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Unit:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 282)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+ (* val f : unit -&gt; int *)
+ let f () = 3
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 287)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+ f :: () -&gt; Int
+ f () = 3
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Pattern match and guards:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 297)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    match e with
+     | 0 -&gt; 1
+     | n when n &gt; 10 -&gt; 2
+     | _ -&gt; 3
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 304)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    case e of
+     0 -&gt; 1
+     n | n &gt; 10 -&gt; 2
+     _ -&gt; 3
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Lists:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 316)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+ let rec len = function
+    | [] -&gt; 0
+    | x::xs -&gt; 1 + (len xs)
+ let v = len ([1; 2] &#64; [2; 1] &#64; 3::4::[])
+ (* v = 6 *)
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 324)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+ len [] = 0
+ len (x:xs) = 1 + (len xs)
+
+ v = len ([1, 2] ++ [2, 1] ++ 3:4:[])
+ {- v = 6 -}
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Parametric types:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 337)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+ (* type parameters use an apostrophe *)
+ (* tuple types defined with &quot;*&quot; *)
+ type 'a pair = P of ('a * 'a)
+
+ (* concrete parameter
+    before abstract type *)
+ type t = int pair
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 347)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+ {- type parameters use small letters -}
+ {- tuple types defined by commas -}
+ data Pair a = P (a, a)
+
+ {- concrete parameter
+    after abstract type -}
+ type T = Pair Int
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Algebraic data types:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 363)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    (* predefined *)
+    type 'a option =
+         | None
+         | Some of 'a
+
+    (* custom *)
+    type 'a tree =
+         | Leaf of 'a
+         | Node of 'a tree * 'a tree
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 375)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    {- predefined -}
+    data Maybe a =
+         | Nothing
+         | Just a
+
+    {- custom -}
+    data Tree a =
+         | Leaf a
+         | Node (Tree a, Tree a)
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Generalized algebraic data types:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 393)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+ (* available from OCaml 4.x *)
+ type _ term =
+   | Int : int -&gt; int term
+   | Add : (int -&gt; int -&gt; int) term
+   | App : ('b -&gt; 'a) term * 'b term
+           -&gt; 'a term
+
+ let rec eval : type a. a term -&gt; a =
+ function
+   | Int n    -&gt; n
+   | Add      -&gt; (fun x y -&gt; x+y)
+   | App(f,x) -&gt; (eval f) (eval x)
+
+ (* two : int *)
+ let two =
+     eval (App (App (Add, Int 1), Int 1))
+
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 413)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    {- compile with -XGADTs -}
+    data Term a where
+      Int :: Int -&gt; Term Int
+      Add :: Term (Int -&gt; Int -&gt; Int)
+      App :: (Term (b -&gt; a), Term b)
+             -&gt; Term a
+
+    eval :: Term a -&gt; a
+
+    eval (Int n)    = n
+    eval (Add)      = (\x y -&gt; x + y)
+    eval (App(f,x)) = (eval f) (eval x)
+
+    two :: Int
+    two =
+        eval (App (App (Add, Int 1), Int 1))
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Text I/O, string representation and interpretation (yay to overloading):</p>
+<pre class="code literal-block">
+string_of_int string_of_float          (* OCaml *)
+show          show                     {- Haskell -}
+
+int_of_string float_of_string          (* OCaml *)
+read          read                     {- Haskell -}
+
+print_char print_string print_endline  (* OCaml *)
+putChar    putStr       putStrLn       {- Haskell -}
+
+input_line input_char                  (* OCaml *)
+getLine    getChar                     {- Haskell -}
+</pre>
+<p>Functional goodies:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 454)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+ (* &quot;&#64;&#64;&quot; is low-priority application *)
+ print_endline &#64;&#64; string_of_int 3
+
+ (* can be defined in OCaml *)
+ val flip : ('a -&gt; 'b -&gt; 'c)
+            -&gt; 'b -&gt; 'a -&gt; 'c
+ let flip f = fun x y -&gt; f y x
+
+ val (&#64;.) : ('b -&gt; 'c) -&gt; ('a -&gt; 'b)
+            -&gt; 'a -&gt; 'c
+ let (&#64;.) f g = fun x -&gt; f (g x)
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 468)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+ {- &quot;$&quot; is low-priority application -}
+ putStrLn $ show 3
+
+ {- built-in in Haskell -}
+ flip :: (a -&gt; b -&gt; c)
+         -&gt; b -&gt; a -&gt; c
+ flip f = \x y -&gt; f y x
+
+ (.) :: (b -&gt; c) -&gt; (a -&gt; b)
+        -&gt; a -&gt; c
+ (.) f g = \x -&gt; f (g x)
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<hr class="docutils" />
+<div class="section" id="recursive-definitions">
+<h1><a class="toc-backref" href="#id32">Recursive definitions</a></h1>
+<p>In OCaml, recursive definitions are expressed with the keyword
+<tt class="docutils literal">rec</tt>. In Haskell, <em>all definitions are recursive</em>, including those
+of variables. This means that one cannot use the same identifier to
+bind to successive definitions in the same scope:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 496)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+ let f n =
+     (* this defines a fresh &quot;n&quot; *)
+     let n = n - 1 in
+     n
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 503)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+ f n =
+     {- must use different identifiers -}
+     let n' = n - 1 in
+     n'
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Otherwise, the Haskell compiler will generate a circular data definition
+for <tt class="docutils literal">n</tt>, which is usually not the intended result!</p>
+</div>
+<div class="section" id="program-structure">
+<h1><a class="toc-backref" href="#id33">Program structure</a></h1>
+<p>In OCaml, a <em>program</em> is defined by the concatenation of all the
+statements in the source code; the control entry point at run-time is
+the first statement in the top-level module. There is no function with
+a special role as entry point. Execution proceeds by evaluating all
+statements in order.</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 522)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    let f =
+        print_endline &quot;start&quot;;
+        fun () -&gt; &quot;world&quot;
+
+    let p1 () =
+      print_endline &quot;hello&quot;
+    let p2 () =
+      print_endline (f ())
+
+    p1 (); p2 ()
+
+    (* prints &quot;start&quot;, &quot;hello&quot;, &quot;world&quot; *)
+
+</pre>
+</div>
+<p>In Haskell, a “program” must be defined by a <em>constant</em> (not function)
+with the special name “<strong>main</strong>”. The run-time system starts execution
+by first constructing the data representations of all top-level
+definitions; including the definition of the constant “main”, which
+stores a <em>data structure</em> akin to a “list of statements”, or
+“recipe”. At that point, there cannot be any effects performed
+yet. Then the run-time system continues execution by reducing the
+recipe referenced by main, step by step from the head, performing the
+effects described by the statements therein.</p>
+<p>To build such a “list of statements” or “recipe”, Haskell provides a shorthand
+syntax using the <strong>do</strong> keyword and newline/semicolon separators:</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 550)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    {- no side-effects in top-level definitions -}
+    f () = &quot;world&quot;
+
+    p1 = do {- p1 is a constant recipe -}
+      putStrLn &quot;hello&quot;
+    p2 = do {- p2 is another constant recipe -}
+      putStrLn (f ())
+
+    {- entry program must be called &quot;main&quot; -}
+    {- it is also a constant recipe -}
+    main = do p1; p2
+
+</pre>
+</div>
+<p>In OCaml, all statements
+in source files are executed when the corresponding modules are
+imported. In Haskell, source code files provide only definitions;
+there are no side-effects performed during module imports.</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 572)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    (* in t.ml *)
+
+    let _ =
+        print_endline &quot;hello&quot;
+
+    (* in main.ml *)
+    open T
+    let main =
+        print_endline &quot;world&quot;
+
+    (* prints &quot;hello&quot;, then &quot;world&quot; *)
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 586)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    {- in T.hs -}
+    module T where
+    _ = do
+        putStrLn &quot;hello&quot;
+
+    {- in main.hs -}
+    import T
+    main = do
+        putStrLn &quot;world&quot;
+
+    {- prints only &quot;world&quot;, not &quot;hello&quot; -}
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>This is because only the constant recipe constructed by the “main”
+definition will be evaluated for side-effects at run-time, after all
+top-level definitions are constructed.</p>
+<p>In OCaml, a file named &quot;<tt class="docutils literal">blah.ml</tt>&quot; defines a module
+named &quot;Blah&quot;. The module name is derived from the file name.
+In Haskell, a <strong>module</strong> specification in the file
+specifies the module name:</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 609)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    module Blah where ...
+
+</pre>
+</div>
+<p><em>By convention</em>, programmers also name the file containing &quot;<tt class="docutils literal">module
+Blah where ...</tt>&quot; with filename <tt class="docutils literal">Blah.hs</tt>. However, it is possible
+to split a Haskell module definition in multiple source files with
+different names, or define multiple Haskell modules in the same source
+file <a class="footnote-reference" href="#id5" id="id4">[1]</a>.</p>
+<table class="docutils footnote" frame="void" id="id5" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id4">[1]</a></td><td>This opportunity is specified in the <a class="reference external" href="http://www.haskell.org/onlinereport/modules.html">Haskell Language
+Report</a>, the official specification of the Haskell
+language. However, in practice, its most popular implementation GHC
+only properly handles modules where the filename matches the
+<tt class="docutils literal">module</tt> specification therein.</td></tr>
+</tbody>
+</table>
+<p>Module use:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 632)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    open Char
+
+    (* &quot;lowercase&quot; imported by
+       &quot;open&quot; from Char *)
+    let lc = lowercase
+
+    (* no explicit import needed
+       to use qualified module names *)
+    let lsz  = List.length
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 644)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    import Char
+
+    {- &quot;toLower&quot; imported by
+       &quot;import&quot; from Char -}
+    lc = toLower
+
+    {- need &quot;import qualified&quot; to use -}
+    import qualified Data.List
+    lsz = Data.List.length
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>It is possible to import a module in Haskell (OCaml's “open”) without
+importing all the names it defines. To include only specific
+identifiers, place them between parentheses after the module name; to
+exclude specific identifiers, use “<tt class="docutils literal">hiding</tt>”:</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 661)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    import Char (toUpper,toLower)
+    import Char hiding (isAscii)
+
+</pre>
+</div>
+<p>The set of predefined functions and operators in OCaml is provided by
+the module <tt class="docutils literal">Pervasives</tt>. In Haskell, they are provided by module
+<tt class="docutils literal">Prelude</tt>. It is possible to disable predefined functions using
+<tt class="docutils literal">import Prelude hiding <span class="pre">(...)</span></tt>.</p>
+<p>Contrary to OCaml, it is not possible in Haskell to import/open a module locally to a
+function. Also, there are no direct Haskell equivalents for OCaml's parametric modules
+(functors). See <a class="reference internal" href="#haskell-limitations">Haskell limitations</a> below for suggestions.</p>
+</div>
+<div class="section" id="program-and-effect-composition">
+<h1><a class="toc-backref" href="#id34">Program and effect composition</a></h1>
+<p>Composition of pure functions in Haskell is conceptually the same as
+in OCaml. OCaml predefines &quot;<tt class="docutils literal">|&gt;</tt>&quot; (reverse pipeline), Haskell predefines &quot;<tt class="docutils literal">.</tt>&quot; (composition).</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 686)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    let p x = f (g (h x))
+    let p x = f &#64;&#64; g &#64;&#64; h &#64;&#64; x
+
+    (* &quot;|&gt;&quot; predefined in OCaml *)
+
+    let p x = x |&gt; h |&gt; g |&gt; f
+
+    (* &quot;.&quot; not predefined in OCaml *)
+    let (&#64;.) f g = fun x -&gt; f (g x)
+    let p x = (f &#64;. g &#64;. h) x
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 699)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    p x = f (g (h x))
+    p x = f $ g $ h $ x
+
+    {- &quot;|&gt;&quot; not predefined in Haskell -}
+    (|&gt;) x f = f x
+    p x = x |&gt; h |&gt; g |&gt; f
+
+    {- &quot;.&quot; predefined in Haskell -}
+
+    p x = (f . g . h) x
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>To compose effectful statements with no result, both OCaml and Haskell
+use semicolons (for Haskell, inside a do-block). Additionally in Haskell, a newline
+character is also a valid statement separator in a do-block.</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 719)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    val f : int -&gt; unit
+    val g : int -&gt; unit
+
+    let _ =
+        (* sequence of unit calls *)
+        f 3 ; f 4 ;
+        g 2
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 729)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    f :: Int -&gt; IO ()
+    g :: Int -&gt; IO ()
+
+    main = do
+        {- sequence of unit statements -}
+        f 3 ; f 4 {- \n separates too -}
+        g 2
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>In OCaml, effectful functions that return a value of type <tt class="docutils literal">t</tt> are
+declared with <tt class="docutils literal">t</tt> as return type.</p>
+<p>In Haskell, there are no effectful functions; only functions that
+return “lists of statements”, or recipes, as described earlier. This creates a
+conceptual level of indirection: there are no “functions that perform
+an effect and return a value of type <tt class="docutils literal">t</tt>”, but rather “functions
+that return recipes, so that the subsequent evaluation of those recipes performs
+effects and also produces a value of type <tt class="docutils literal">t</tt>”.</p>
+<p>A function that returns a recipe is typed with
+return type “<tt class="docutils literal">IO t</tt>”, which means “a recipe of statements that computes
+a value of type <tt class="docutils literal">t</tt> upon its later evaluation”.</p>
+<p>To express the production of the computed value inside the do-block,
+you can use the handy function <strong>return</strong>:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 759)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    (* inc : int -&gt; int  (with effects) *)
+    let inc n =
+        print_endline &#64;&#64; string_of_int n;
+        n + 1
+
+    (* fact : int -&gt; int  (with effects) *)
+    let fact =
+        let rec factr r n =
+           print_endline &#64;&#64; string_of_int n;
+           if n = 1 then r
+           else factr (n * r) (n - 1)
+        in factr 1
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 774)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    inc :: Int -&gt; IO Int
+    inc n = do
+           putStrLn $ show n
+           return (n + 1)
+
+    fact :: Int -&gt; IO Int
+    fact =
+        let factr r n = do
+           putStrLn $ show n
+           if n == 1 then return r
+           else factr (n * r) (n - 1)
+        in factr 1
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>In OCaml, you can bind a variable to the return value
+of an effectful function with “<tt class="docutils literal">let</tt>”, as usual. In Haskell,
+another syntax is defined for this purpose using “<tt class="docutils literal">&lt;-</tt>” in a do-block:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 796)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    (* fact : int -&gt; int  (with effects) *)
+
+    let _ =
+        let v = fact 3;
+        print_endline &#64;&#64; string_of_int v
+
+    (* prints 6 *)
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 806)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    fact :: Int -&gt; IO Int
+
+    main = do
+        v &lt;- fact 3
+        putStrLn $ show v
+
+    {- prints 6 -}
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Haskell's insistence on separating pure functions from “lists of
+effectful statements that produce values at run-time” creates a
+plumbing problem that does not exist in OCaml. Say, for example, you
+have two effectful functions like <tt class="docutils literal">inc</tt> and <tt class="docutils literal">fact</tt> above, that
+both take a <em>value</em> as argument and print something before producing
+their result. How to compose them together?</p>
+<p>Direct composition works in OCaml (because both return <tt class="docutils literal">int</tt>, which
+matches their input argument type), but not in Haskell. Instead in
+Haskell we must either explicitly bind the return value of the first
+effectful definition to a name with “<tt class="docutils literal">&lt;-</tt>”, or use the operators
+“<tt class="docutils literal">=&lt;&lt;</tt>” and “<tt class="docutils literal">&gt;&gt;=</tt>” (piping of effects):</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 832)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    (* inc : int -&gt; int   (with effects) *)
+    (* fact : int -&gt; int  (with effects) *)
+
+    let _ =
+       let p = (fact (inc 2));
+       let q = (fact &#64;&#64; inc 2);
+       let r = (inc 2 |&gt; fact);
+       let s = (2 |&gt; inc |&gt; fact)
+
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 844)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    inc :: Int -&gt; IO Int
+    fact :: Int -&gt; IO Int
+
+    main = do
+       tmp &lt;- inc 2; p &lt;- fact tmp;
+       q &lt;- (fact =&lt;&lt; inc 2)
+       r &lt;- (inc 2 &gt;&gt;= fact)
+       s &lt;- ((return 2) &gt;&gt;= inc &gt;&gt;= fact)
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="section" id="print-debugging">
+<h1><a class="toc-backref" href="#id35">Print debugging</a></h1>
+<p>The functional engineer's nightmare: “what actual argument values is
+this function really called with at run-time?”</p>
+<p>In OCaml, one can readily interleave “print” statements with
+the functional code to trace what happens at run-time. In Haskell,
+there is an extra issue because “print” statements are only
+available in the context of the special recipes with
+type <tt class="docutils literal">IO a</tt>, for example constructed
+by the do-block syntax, and these do not fit type-wise
+in pure functions with regular non-<tt class="docutils literal">IO</tt> types.</p>
+<p>There are two ways to achieve this in Haskell. The “pure and magic”
+way, and the “impure but obviously effective” way.</p>
+<p>The “pure and magic” way is a function called <strong>trace</strong> in the library
+module <tt class="docutils literal">Debug.Trace</tt>. This function has type <tt class="docutils literal">String <span class="pre">-&gt;</span> a <span class="pre">-&gt;</span> a</tt>,
+and will print its first argument during evaluation and return its
+second argument as result. From the language's perspective, this
+function is pure:</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 879)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    import qualified Debug.Trace
+    fact n =
+        let n' = Debug.Trace.trace (&quot;fact: &quot; ++ (show n)) n in
+        n' * fact (n' - 1)
+
+</pre>
+</div>
+<p>In some cases, one may want to do other effectful things beside
+printing text.  For example, we may want to print a timestamp or log
+output to file.  Besides the other functions from <tt class="docutils literal">Debug.Trace</tt>, you can roll your
+own tracing utility using the special function <tt class="docutils literal">unsafePerformIO</tt>:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 894)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+ let f args ... =
+
+    print_string ...;
+    (... value computation ...)
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 901)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+ let f args... =
+    unsafePerformIO $ do
+      putStr ...
+      return (... value computation ...)
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p><tt class="docutils literal">unsafePerformIO</tt> takes as single argument a recipe as
+constructed eg. by a do-block. When the enclosing expression is
+evaluated at run-time, the recipe is first evaluated for effects and
+then the final value, given to “<tt class="docutils literal">return</tt>” within the do-block, becomes
+the functional value of the enclosing expression. <tt class="docutils literal">unsafePerformIO</tt>
+has type <tt class="docutils literal">IO a <span class="pre">-&gt;</span> a</tt>.</p>
+<p>This is the “impure but obviously effective” way:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 920)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+    (* no import needed *)
+
+
+    (* add : int -&gt; int -&gt; int *)
+    let add a b =
+
+          print_endline &#64;&#64; &quot;add: &quot;
+                     ^ (string_of_int a)
+                     ^ &quot;, &quot;
+                     ^ (string_of_int b);
+          (a + b)
+
+    (* v1 : int *)
+    let v1 = add 1 1
+
+    let _ =
+          print_string &quot;hello&quot;;
+          print_int v1;
+          print_int &#64;&#64; add 2 3
+
+    (* prints add, hello, add *)
+    (* v1 is evaluated where defined *)
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 945)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    import System.IO.Unsafe
+           (unsafePerformIO)
+
+    add :: Int -&gt; Int -&gt; Int
+    add a b =
+          unsafePerformIO $ do
+              putStrLn $ &quot;add: &quot;
+                    ++ (show a)
+                    ++ &quot;, &quot;
+                    ++ (show b)
+              return (a + b)
+
+    v1 :: Int
+    v1 = add 1 1
+
+    main = do
+         putStr &quot;hello&quot;
+         putStr . show $ v1
+         putStr . show $ add 2 3
+
+    {- prints hello, add, add -}
+    {- v1's def is not an evaluation! -}
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>Despite its name, this construction is quite safe to use and it
+properly witnesses the evaluation of the enclosing expression at
+run-time. It is called “unsafe” because it breaks the usual convention
+that non-<tt class="docutils literal">IO</tt> functions are pure. However, in the particular case of
+print debugging the purity is practically preserved since the I/O
+operations do not change the value of the function.</p>
+<p>It is bad practice (and strongly frowned upon) to write a Haskell
+function using <tt class="docutils literal">unsafePerformIO</tt> that is declared pure via a non-IO
+type but whose run-time return value is dependent on run-time side
+effects other than its arguments.</p>
+<p>(<tt class="docutils literal">unsafePerformIO</tt> is a bit of a taboo. Haskell programmers do not
+talk about it to “outsiders”, in the same way that
+OCaml programmers do not talk about <tt class="docutils literal">Obj.magic</tt>. But the engineer's
+life would be miserable without it. <a class="reference external" href="http://www.haskell.org/ghc/docs/latest/html/libraries/base/System-IO-Unsafe.html">Just be careful</a>.)</p>
+</div>
+<div class="section" id="mutable-variables">
+<h1><a class="toc-backref" href="#id36">Mutable variables</a></h1>
+<p>OCaml provides the <tt class="docutils literal">ref</tt> type for mutable references to values.
+In Haskell, the type <tt class="docutils literal">Data.IORef.IORef</tt> does the same:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 998)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+     let _ =
+         let v = ref &quot;hello&quot;;
+         let s = !v in print_endline s;
+         v := &quot;world&quot;;
+         let s = !v in print_endline s
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 1006)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+     main = do
+        v &lt;- newIORef &quot;hello&quot;
+        s &lt;- readIORef v; putStrLn s
+        writeIORef v &quot;world&quot;
+        s &lt;- readIORef v; putStrLn s
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The Haskell library <a class="reference external" href="http://www.haskell.org/haskellwiki/Library/ArrayRef">ArrayRef</a> provides some syntactic sugar to simplify the use of mutable references.</p>
+<p>Like in OCaml, the behavior of concurrent access to
+mutable variables by different threads in Haskell is not properly
+defined by the language. Just avoid data races on <tt class="docutils literal">IORef</tt> and use
+Haskell's <tt class="docutils literal">MVar</tt> type to communicate between threads instead.</p>
+</div>
+<div class="section" id="arrays">
+<h1><a class="toc-backref" href="#id37">Arrays</a></h1>
+<p>OCaml's arrays are mutable; although they are less often used, Haskell
+supports mutable arrays too. Since in-place array updates are
+effectful, in Haskell they must be used in the context of recipes, eg. inside do-blocks:</p>
+<table border="1" class="colwidths-given docutils borderless">
+<colgroup>
+<col width="50%" />
+<col width="50%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 1033)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: ocaml
+
+ let _ =
+     let a = Array.make 10 42;
+     let v = a.(0);
+     a.(2) &lt;- v + v;
+     print_int a.(2)
+
+ (* prints 84 *)
+
+</pre>
+</div>
+</td>
+<td><div class="first last system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 1043)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+ main = do
+     a &lt;- newArray (0,9) 42
+     v &lt;- readArray a 0
+     writeArray a 2 (v + v)
+     putStrLn.show &lt;&lt;= readArray a 2
+
+ {- prints 84 -}
+</pre>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+<p>The Haskell library <a class="reference external" href="http://www.haskell.org/haskellwiki/Library/ArrayRef">ArrayRef</a> provides some syntactic sugar to
+simplify the manipulation of arrays.</p>
+<p>Next to mutable arrays, Haskell provides a lot of different pure array
+types in different libraries. Unfortunately, using pure arrays is
+quite cumbersome at first. Only later, when you start to grasp that
+compositions of functions that operate on arrays are “flattened”
+before execution (thanks to non-strict evaluation), does it begin to
+make sense. On the plus side, you then can start to write powerful
+reusable abstractions with arrays. On the down side, your code then becomes
+unreadable.</p>
+<p>Decidely, pure Haskell arrays are an acquired taste, one
+difficult to share with non-experts.</p>
+</div>
+<div class="section" id="type-classes-in-a-nutshell">
+<h1><a class="toc-backref" href="#id38">Type classes in a nutshell</a></h1>
+<p>A common task in software engineering is to advertise a set of services
+using an abstract interface that hides the internal implementation.
+For this purpose, OCaml programmers can use objects or parametric modules.</p>
+<p>Since Haskell provides neither objects nor parametric modules, Haskell
+programmers rely on another mechanism entirely, called “type
+classes”. Type classes are nothing like modules but they can help for
+encapsulation given the right mindset.</p>
+<p>In a nutshell, Haskell type classes express a programming contract
+over a set of types (hence the name): that all types in the class,
+ie. its “instances”, are guaranteed to provide some other related
+functions. Moreover, a class can also provide a default implementation
+for some of its functions.</p>
+<p>The usual example is the <tt class="docutils literal">Eq</tt> class, written as follows:</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 1091)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+     class Eq a where
+         (==) :: a -&gt; a -&gt; Bool
+         (/=) :: a -&gt; a -&gt; Bool
+         (/=) x y = not (x == y)
+
+</pre>
+</div>
+<p>This definition expresses the following: “for all types <tt class="docutils literal">a</tt> in the
+class <tt class="docutils literal">Eq a</tt>, there exist two operators <tt class="docutils literal"><span class="pre">(==)</span></tt> and <tt class="docutils literal"><span class="pre">(/=)</span></tt> that
+accept two arguments of type <tt class="docutils literal">a</tt> and returns a boolean value. Moreover,
+the class <tt class="docutils literal">Eq</tt> provides a default implementation of <tt class="docutils literal"><span class="pre">(/=)</span></tt> that uses
+the actual implementation of <tt class="docutils literal"><span class="pre">(==)</span></tt> by each particular instance.”</p>
+<p>Once a class is specified, a programmer can do two things with it:
+<em>define type instances</em> of the class, or <em>define functions over instances</em>
+of the class.</p>
+<p>To define an instance of a class, you first define a type, then you define
+how the type belongs to the class. For example, one can first define
+a new type that implements Peano integers:</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 1112)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+     data Peano = Zero | Succ Peano
+
+</pre>
+</div>
+<p>Then, express that <tt class="docutils literal">Peano</tt> is a member of <tt class="docutils literal">Eq</tt>:</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 1118)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+     instance Eq Peano where
+         (==) Zero Zero = True
+         (==) (Succ x) (Succ x) = (x == x)
+         (==) _ _ = False
+
+</pre>
+</div>
+<p>Once this definition is visible, automatically any expression of the
+form “<tt class="docutils literal">x /= y</tt>” becomes valid, thanks to the default implementation
+of <tt class="docutils literal"><span class="pre">(/=)</span></tt> already provided by <tt class="docutils literal">Eq</tt>.</p>
+<p>Given a type class, one can also define functions over any possible
+instance of that class. For example, given <tt class="docutils literal">Eq</tt>, one can write a function
+which for any three values, returns <tt class="docutils literal">True</tt> if at least two are equal:</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 1133)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+     any2 :: (Eq a) =&gt; a -&gt; a -&gt; a -&gt; Bool
+     any2 x y z = (x == y) || (y == z) || (x == z)
+
+</pre>
+</div>
+<p>Notice the prefix “<tt class="docutils literal">(Eq a) =&gt;</tt>” in the type signature. This means
+that “the function <tt class="docutils literal">any2</tt> is defined over any type <tt class="docutils literal">a</tt> as long as
+<tt class="docutils literal">a</tt> is an instance of <tt class="docutils literal">Eq</tt>”.</p>
+<p>Type classes can inherit all the operations of another class, before
+it defines its owns. For example, the class <tt class="docutils literal">Ord</tt> defines operator
+<tt class="docutils literal"><span class="pre">(&lt;=)</span></tt> (less than or equal), but for this it requires <tt class="docutils literal"><span class="pre">(==)</span></tt>
+defined by <tt class="docutils literal">Eq</tt>. This is written as follows:</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 1147)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    class  (Eq a) =&gt; Ord a  where
+        (&lt;=)  :: a -&gt; a -&gt; Bool
+        {- some other Ord definitions omitted here -}
+
+</pre>
+</div>
+<p>Type classes can be used directly to implement type-safe “container” data structures
+over arbitrary other types. For example, an abstract interface for an associative
+array over arbitrary keys can be defined with:</p>
+<div class="system-message">
+<p class="system-message-title">System Message: WARNING/2 (<tt class="docutils">&lt;stdin&gt;</tt>, line 1157)</p>
+<p>Cannot analyze code. Pygments package not found.</p>
+<pre class="literal-block">
+.. code:: haskell
+
+    class (Ord k) =&gt; Map mt k v where
+        empty :: mt k v
+        insert :: k -&gt; v -&gt; mt k v -&gt; mt k v
+        delete :: k -&gt; mt k v -&gt; mt k v
+        (!) :: mt k v -&gt; k -&gt; v
+
+</pre>
+</div>
+<p>This definition creates a new type class called “<tt class="docutils literal">Map</tt>”, whose type
+instances are all of the form “<tt class="docutils literal">mt k v</tt>” (this means that all
+instances of <tt class="docutils literal">Map</tt> must be parametric with two type parameters). It
+also requires that the 1st type parameter (<tt class="docutils literal">k</tt>, the key type) of its
+instances be a member of class <tt class="docutils literal">Ord</tt>. For each instance <tt class="docutils literal">mt k v</tt>,
+<tt class="docutils literal">Map</tt> provides four services <tt class="docutils literal">empty</tt>, <tt class="docutils literal">insert</tt>, <tt class="docutils literal">delete</tt> and
+<tt class="docutils literal">(!)</tt>.</p>
+<p>Once this definition is visible, it becomes possible to implement one
+or more concrete associative array data structures, and make them
+instances of <tt class="docutils literal">Map</tt> via suitable <tt class="docutils literal">instance</tt> declarations. From the
+perspective of third-party modules, the only visible services of these
+concrete implementations are those provided by the class.</p>
+</div>
+<div class="section" id="rolling-your-own-recipe-system">
+<h1><a class="toc-backref" href="#id39">Rolling your own recipe system</a></h1>
+<p>The previous sections have emphasized how “lists of statements” or
+“recipes” must be defined as constant data structures by the program,
+and are later consumed by the run-time system during execution,
+starting from <tt class="docutils literal">main</tt>, to produce effects.</p>
+<p>Once you start to become comfortable with composing these recipes
+using do-blocks, the <tt class="docutils literal">&lt;-</tt> binding and the <tt class="docutils literal"><span class="pre">(&gt;&gt;=)</span></tt> and
+<tt class="docutils literal"><span class="pre">(=&lt;&lt;)</span></tt> operators, a question often arises: <em>is it possible to write one own's
+recipe type and interpreter?</em></p>
+<p>The answer is yes! To do so, you will need to define:</p>
+<ul class="simple">
+<li>a parametric type <tt class="docutils literal">M a</tt> that represents a “recipe of statements that eventually
+produce a value of type <tt class="docutils literal">a</tt>”;</li>
+<li>a function <tt class="docutils literal">return :: a <span class="pre">-&gt;</span> M a</tt> that takes as argument a value, and constructs
+a recipe intended to produce that value later;</li>
+<li>a function <tt class="docutils literal"><span class="pre">(&gt;&gt;=)</span> :: M a <span class="pre">-&gt;</span> (a <span class="pre">-&gt;</span> M b) <span class="pre">-&gt;</span> M b</tt> that takes as
+arguments one recipe and a constructor for another recipe, and
+“connects” the two recipes together;</li>
+<li>optionally, one or more effectful statements of type <tt class="docutils literal">M a</tt> that
+can be used in recipes next to <tt class="docutils literal">return</tt>;</li>
+<li>optionally, an interpreter for objects of type <tt class="docutils literal">M a</tt>, that performs
+its effects in the way you see fit.</li>
+</ul>
+<p>Once you have defined the first three properly (see below), the
+do-block syntax presented earlier is automatically extended to your
+new type, inferring the right types from your custom definition of
+<tt class="docutils literal">return</tt>.</p>
+<p>Here are some useful recipe systems already available in Haskell:</p>
+<ul class="simple">
+<li><tt class="docutils literal">IO a</tt>: “recipes” evaluated by the Haskell run-time
+system for global effects during execution. The peculiarity of this
+one is that its implementation is completely hidden from the
+language; you can't redefine <tt class="docutils literal">IO</tt> directly in Haskell. The
+effectful statements of this recipe system include <tt class="docutils literal">putStr</tt> and
+<tt class="docutils literal">getChar</tt>, already presented above.</li>
+<li><tt class="docutils literal">Maybe a</tt>: “recipes” that eventually provide a value of type
+<tt class="docutils literal">a</tt>, but where the evaluation stops automatically at the first
+intermediate statement that returns <tt class="docutils literal">Nothing</tt>. The effectful
+statements of this recipe system include <tt class="docutils literal">fail</tt>, which forces
+<tt class="docutils literal">Nothing</tt> to be generated during the effectful evaluation.</li>
+<li><tt class="docutils literal">Writer l a</tt>: “recipes” that eventually provide a value of type
+<tt class="docutils literal">a</tt>, but where the evaluation keeps a log of messages generated by
+the statements. The effectful statements of this recipe system
+include <tt class="docutils literal">tell</tt>, which generates a message for the log during
+effectful evaluation.</li>
+<li><tt class="docutils literal">State s a</tt>: “recipes” that eventually provides a value of type
+<tt class="docutils literal">a</tt>, but where each intermediate statement can modify an internal
+value of type <tt class="docutils literal">s</tt> (a state). The effectful statements of this
+recipe system include <tt class="docutils literal">get</tt> and <tt class="docutils literal">set</tt>, which can access and
+modify the internal state during effectful evaluation.</li>
+</ul>
+<p><em>About the M-word</em>: There is a word used in the Haskell community
+which starts with the letter “M” and causes a great deal of confusion
+and misunderstandings.  I wish to avoid using the M-word entirely in
+this document. I believe that using and understanding the M-word is
+unnecessary to learn how to write Haskell programs productively.</p>
+<p>Nevetherless, you should understand that whenever you read something
+about the M-word, it really refers to what I explained in this
+section.  When you read “the type <tt class="docutils literal">T a</tt> is a M...”, it
+really means that “the type <tt class="docutils literal">T a</tt> describes recipes of statements that
+produce values of type <tt class="docutils literal">a</tt> during evaluation” and also that “the type <tt class="docutils literal">T a</tt> is
+an instance of the type class <tt class="docutils literal"><span class="pre">M...</span></tt>, which provides the services <tt class="docutils literal">return</tt>
+and <tt class="docutils literal"><span class="pre">(&gt;&gt;=)</span></tt>”.</p>
+<p>Likewise, when you read or hear “let's define a M...”, this simply
+refers to the act of writing a definition for a new custom recipe type and
+two new functions <tt class="docutils literal">return</tt> and <tt class="docutils literal"><span class="pre">(&gt;&gt;=)</span></tt>, and then using
+<tt class="docutils literal">instance</tt> to declare an instance of the <tt class="docutils literal">M</tt> class with them.</p>
+<p>The reason why Haskell programmers <em>eventually</em> end up caring a great
+deal about the M-word, in the same way they end up caring about the
+<tt class="docutils literal">Applicative</tt>, <tt class="docutils literal">Functor</tt> and <tt class="docutils literal">Monoid</tt> classes, is that there are
+very good software components that can be defined using only the
+services of these classes. This means these software components are
+greatly reusable, because they apply automatically to all types later
+declared to be instances of these classes.</p>
+</div>
+<div class="section" id="haskell-limitations">
+<h1><a class="toc-backref" href="#id40">Haskell limitations</a></h1>
+<p>Of course, there is also a price to pay. Haskell was not primarily
+designed to be a functional language by engineers for engineers. There
+are three features that OCaml gets “just right” and are unfortunately
+completely missing in Haskell:</p>
+<ul class="simple">
+<li>parametric modules and module composition;</li>
+<li>named and optional function parameters;</li>
+<li>polymorphic variant types.</li>
+</ul>
+<p>Haskell practitioners eventually develop some other conventions
+(“best practices”) to achieve parametric modularity without parametric
+modules. This usually involves mixing and matching the following features:</p>
+<ul class="simple">
+<li>preprocessing using the C preprocessor (<tt class="docutils literal">ghc <span class="pre">-cpp</span></tt>), which can be used
+to mimic parametric (but not composable) modules in the same way as in C;</li>
+<li>record types, placing the module's type definition in ghost type parameters
+of a record type, and the module's methods in its fields;</li>
+<li>type classes, eg. to replace OCaml's <tt class="docutils literal">Map</tt> functor and
+<tt class="docutils literal">OrderedType</tt> parameter, instantiated as <tt class="docutils literal">IntMap</tt>, <tt class="docutils literal">BoolMap</tt>,
+etc., by <tt class="docutils literal">Map</tt> and <tt class="docutils literal">Ord</tt> type classes (as suggested above).</li>
+</ul>
+<p>Named and optional function parameters, in practice, become less
+important once the Haskell practioner knows how to fully leverage
+higher-order functions and non-strict evaluation. A programming
+technique to implement <a class="reference external" href="http://neilmitchell.blogspot.nl/2008/04/optional-parameters-in-haskell.html">optional function arguments using record
+types</a> and default record fields was described by Neil Mitchell
+in 2008.</p>
+<p>Polymorphic variant types (<tt class="docutils literal">[&gt; `A | `B]</tt>) are, unfortunately, without direct equivalent in
+Haskell. Haskell is a “closed world language” where type inference can
+only succeed once all types from all compilation units are known. However, a language
+extension from the GHC compiler called <a class="reference external" href="http://www.haskell.org/haskellwiki/GHC/Type_families">Type families</a> can be abused to provide
+somewhat similar functionality as OCaml's polymorphic variants.</p>
+</div>
+<div class="section" id="external-links">
+<h1><a class="toc-backref" href="#id41">External links</a></h1>
+<div class="section" id="searching-for-more-information">
+<h2><a class="toc-backref" href="#id42">Searching for more information</a></h2>
+<ul class="simple">
+<li>The <a class="reference external" href="http://www.haskell.org/haskellwiki/">Haskell wiki</a>.</li>
+<li>The <a class="reference external" href="https://en.wikibooks.org/wiki/Haskell">Haskell Wikibook</a>.</li>
+<li><a class="reference external" href="http://www.haskell.org/hoogle/">Hoogle</a>: an API search engine, able to search by function name or by type signature.</li>
+<li>The <tt class="docutils literal">#haskell</tt> IRC channel on FreeNode.</li>
+<li>The <a class="reference external" href="http://www.haskell.org/ghc/docs/latest/html/users_guide/">GHC Manual</a>.</li>
+</ul>
+</div>
+<div class="section" id="further-reads">
+<h2><a class="toc-backref" href="#id43">Further reads</a></h2>
+<ul class="simple">
+<li>Paul Hudak, John Peterson, Joseph Fasel, and Reuben Thomas. <a class="reference external" href="http://www.haskell.org/tutorial/">A
+Gentle Introduction to Haskell, Version 98</a>. June 2000. Also known
+as the “official Haskell tutorial”.</li>
+<li>Miran Lipovaca. <a class="reference external" href="http://learnyouahaskell.com/">Learn You a Haskell for Great Good!</a>. April 2011. Also known
+as “the funkiest way to learn Haskell”, but a very pleasant read.</li>
+<li>Bryan O'Sullivan, Don Stewart, John Goerzen. <a class="reference external" href="http://book.realworldhaskell.org/">Real World
+Haskell</a>. November 2008. With lots of practical examples.</li>
+<li>Edward Z. Yang, <a class="reference external" href="http://blog.ezyang.com/2013/04/resource-limits-for-haskell/">Resource limits for
+Haskell</a>. April 2013. Explains how to monitor and control space usage
+in Haskell functions, including during non-strict evaluation on
+parallel computers.</li>
+<li>Robert Harper, <a class="reference external" href="http://existentialtype.wordpress.com/2011/04/09/persistence-of-memory/">Persistence of Memory</a>, April 2011. Promotes the
+use of persistent (immutable) data structures, and argues that the
+common debate about run-time efficiency of mutable vs. immutable
+data structures is often misdirected.</li>
+<li>Robert Harper, <a class="reference external" href="http://existentialtype.wordpress.com/2011/04/24/the-real-point-of-laziness/">The Point of Lazyness</a>, April 2011. Argues that
+non-strict evaluation is desirable even in eager languages, at least
+to manage processes and streams elegantly.</li>
+<li>Lennart Augustsson, <a class="reference external" href="http://augustss.blogspot.nl/2011/05/more-points-for-lazy-evaluation-in.html">More points for lazy evaluation</a>,
+May 2011. Argues that non-strict evaluation promotes reuse of
+software components.</li>
+<li>Edward Z. Yang, <a class="reference external" href="http://blog.ezyang.com/2014/01/so-you-want-to-add-a-new-concurrency-primitive-to-ghc/">So you want to add a new concurrency primitive to
+GHC...</a>, January 2014. Explains how GHC's Haskell still has
+conceptual issues internally with the notion of mutable memory.</li>
+<li>Andreas Voellmy, Junchang Wang, Paul Hudak and Kazuhiko
+Yamamoto. <a class="reference external" href="http://haskell.cs.yale.edu/wp-content/uploads/2013/08/hask035-voellmy.pdf">Mio: A high-performance multicore IO manager for
+GHC</a>. September 2013. Explains how GHC implements <tt class="docutils literal">IO</tt>
+internally, and how it was recently extended to better support
+parallel execution.</li>
+<li>Ben Rudiak-Gould, Alan Mycroft and Simon Peyton Jones. <a class="reference external" href="https://research.microsoft.com/en-us/um/people/simonpj/papers/not-not-ml/index.htm">Haskell is
+Not Not ML</a>. 2006. Suggests that there is an underlying common
+language behind Haskell and SML, that can run programs written in
+either. Also <a class="reference external" href="http://lambda-the-ultimate.org/node/1248">discussed by Ehud Lamm here</a>.</li>
+</ul>
+</div>
+<div class="section" id="references">
+<h2><a class="toc-backref" href="#id44">References</a></h2>
+<ul class="simple">
+<li>Edward Z. Yang, <a class="reference external" href="http://blog.ezyang.com/2010/10/ocaml-for-haskellers/">OCaml for Haskellers</a>, October 2010.</li>
+<li>Xavier Leroy et al., <a class="reference external" href="http://caml.inria.fr/pub/docs/manual-ocaml-4.01/">The OCaml system release 4.01</a>, September 2013.</li>
+</ul>
+</div>
+</div>
+<hr class="docutils" />
+<div class="section" id="copyright-and-licensing">
+<h1><a class="toc-backref" href="#id45">Copyright and licensing</a></h1>
+<p>Copyright © 2014, Raphael ‘kena’ Poss.
+Permission is granted to distribute, reuse and modify this document
+according to the terms of the Creative Commons Attribution-ShareAlike
+4.0 International License.  To view a copy of this license, visit
+<a class="reference external" href="http://creativecommons.org/licenses/by-sa/4.0/">http://creativecommons.org/licenses/by-sa/4.0/</a>.</p>
+<hr class="docutils" />
+<h3>Comments</h3>
+<div id="disqus_thread"></div>
+<script type="text/javascript">
+ var disqus_shortname = 'REPLACETHIS';
+ (function() {
+     var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+     dsq.src = 'http://' + disqus_shortname + '.disqus.com/embed.js';
+     (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+ })();
+</script>
+
+<noscript>Please enable JavaScript to view the <a
+href="http://disqus.com/?ref_noscript">comments powered by
+Disqus.</a></noscript>
+
+<script type="text/javascript">
+ var _gaq = _gaq || [];
+ _gaq.push(['_setAccount', 'YOURGOOGLEANALYTICSACCOUNT']);
+ _gaq.push(['_trackPageview']);
+ (function() {
+     var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+     ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+     var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+ })();
+</script></div>
+</div>
+</body>
+</html>

@@ -1,0 +1,81 @@
+
+body {
+    font-family: "OFL Sorts Mill Goudy TT", "Palatino Linotype", "Book Antiqua", "Palatino", serif; 
+    font-size: 15px;
+    line-height: 1.5em;
+    text-align: justify;
+    width: 90ex;
+    margin: auto; 
+    color: #222;
+}
+
+table.docinfo {
+  margin: 0; padding: 0;
+}
+
+table.docinfo th {
+  width: 0;
+  display: none;
+}
+
+hr{
+    margin-bottom: 1.7em;
+    margin-top: 1.7em;
+    border: solid #ddd;
+    border-width: 0 0 1px 0;
+}
+
+table.docinfo {
+  width: 100%;
+}
+
+table.docinfo td {
+  margin: 0; padding: 0;
+  display: block;
+  text-align: center;
+  width: 100%;
+
+  font-style: italic;
+  font-size: 90%;
+  color: #777;
+}
+/*
+table.docinfo td:before {
+  content: "by ";
+}
+*/
+
+a {
+  text-decoration: none;
+}
+
+pre, tt {
+    font-size: 11px;
+    line-height: 1.3em;
+    font-family: "Lucida Console", "Monaco", monospace;
+}
+
+pre.literal-block, pre.doctest-block, pre.math, pre.code {
+  margin-left: 0px;
+  margin-right: 0px;
+}
+
+.section h1 {
+  font-size: 125%;
+}
+
+.section h2 {
+  font-size: 110%;
+}
+
+table.borderless {
+  width: 150%;
+  padding: 0; 
+  margin-left: -25%;
+
+  color: #555;
+  font-size: 85%;
+}
+
+@import "http://fonts.googleapis.com/css?family=OFL+Sorts+Mill+Goudy+TT:regular,italic";
+
