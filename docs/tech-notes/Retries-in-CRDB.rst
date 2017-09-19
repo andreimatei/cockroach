@@ -2,14 +2,19 @@
 Replays in CRDB
 ===============
 
+:Authors: original author: Andrei Matei
+
+
 .. contents::
 
 Introduction
 ------------
 
-This note talks about the different kinds of retries in CRDB, the
-hazards they introduce, and the way we protect against them to maintain
-correctness. There are four types of retries we're going to be discussing: reproposals of Raft commands, re-evaluations of KV requests, retries of KV requests after conflict resolution and retries of KV requests by the ``DistSender`` on RPC errors.
+This note talks about the different kinds of retries in CRDB, the hazards they
+introduce, and the way we protect against them to maintain correctness. There
+are four types of retries we're going to be discussing: reproposals of Raft
+commands, re-evaluations of KV requests, retries of KV requests after conflict
+resolution and retries of KV requests by the ``DistSender`` on RPC errors.
 
 These are all actions that the code does consciously; none of them are
 introduced transparently by a network transport or such. Executing things twice,
@@ -82,14 +87,31 @@ Conflict resolution retries
 Raft-level Issues
 -----------------
 
-The lowest level of retries happen because of Raft-level conditions. These retries are of two types: reproposals and re-evaluations. Both of them are triggered by Raft processing; they're triggered by ```replica.handleRaftReady()``. Reproposals are lower-level operation - they're handled at this ```handleRaftReady()`` level. Re-evaluations are handled at a higher level - ``replica.executeWriteBatch()``.
+The lowest level of retries happen because of Raft-level conditions. These
+retries are of two types: reproposals and re-evaluations. Both of them are
+triggered by Raft processing; they're triggered by
+```replica.handleRaftReady()``. Reproposals are lower-level operation - they're
+handled at this ```handleRaftReady()`` level. Re-evaluations are handled at a
+higher level - ``replica.executeWriteBatch()``.
 
-Let's discuss when they happen (more technicalities will follow in the `Logic for triggering reproposals and re-evaluations`_ section):
+Let's discuss when they happen (more technicalities will follow in the `Logic
+for triggering reproposals and re-evaluations`_ section):
 
-#. When commands have been proposed but never made it to the leader (usually because we didn’t know who the leader is - think initial leader election after a range split). When we do find out about a new leader, we *repropose* pending commands.
-#. When it’s been too long since a command was proposed and we haven’t heard back. In such cases, we *repropose*.
-#. When the proposer finds out about a command attempting to apply out of order. In this case, we *re-evaluate* the request.
-#. When the leaseholder replica has just applied a snapshot and the snapshot contained commands with log positions above the positions of some of our pending proposals. We don’t know what was inside the snapshot, so we don’t know which of the pending proposals have been applied. We’ll *re-evaluate* the request. Note that this snapshot case requires that the Raft leader be divorced from the leaseholder (otherwise, a leader doesn’t apply snapshots), so it should hopefully be rare because we try to colocate the two.
+#. When commands have been proposed but never made it to the leader (usually
+   because we didn’t know who the leader is - think initial leader election
+   after a range split). When we do find out about a new leader, we *repropose*
+   pending commands.
+#. When it’s been too long since a command was proposed and we haven’t heard
+   back. In such cases, we *repropose*.
+#. When the proposer finds out about a command attempting to apply out of order.
+   In this case, we *re-evaluate* the request.
+#. When the leaseholder replica has just applied a snapshot and the snapshot
+   contained commands with log positions above the positions of some of our
+   pending proposals. We don’t know what was inside the snapshot, so we don’t
+   know which of the pending proposals have been applied. We’ll *re-evaluate*
+   the request. Note that this snapshot case requires that the Raft leader be
+   divorced from the leaseholder (otherwise, a leader doesn’t apply snapshots),
+   so it should hopefully be rare because we try to colocate the two.
 
 Next we'll discuss reproposals and re-evaluations in more detail.
 
@@ -128,13 +150,21 @@ The type of bad things that can happen because of double application differs bas
 What could go wrong because of double applications with reordering?
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The clearer to see case is when the second application happens after the request has been taken out of the ``CommandQueue``: command applications at arbitrary times is bad because it can overwrite data that it was not supposed to overwrite. Consider:
+The clearer to see case is when the second application happens after the request
+has been taken out of the ``CommandQueue``: command applications at arbitrary
+times is bad because it can overwrite data that it was not supposed to
+overwrite. Consider:
 
-#. While executing request R1, we propose command A which writes (RocksDB) key/val K=V1.
-#. The proposer waits a while, doesn't hear anything back about the application of A, and so it reproposes it as command B (A and B are equivalent; the have the same `CommandKey`).
+#. While executing request R1, we propose command A which writes (RocksDB)
+   key/val K=V1.
+#. The proposer waits a while, doesn't hear anything back about the application
+   of A, and so it reproposes it as command B (A and B are equivalent; the have
+   the same `CommandKey`).
 #. We hear back and apply one of them, A or B (we can tell which).
 #. The stack is unwound and R1 is taken out of the ``CommandQueue``.
-#. We execute request R2, which applies command C, which writes K=V2 (note that this could not happen while R1 is still in the ``CommandQueue`` because R1 and R2 are overlapping).
+#. We execute request R2, which applies command C, which writes K=V2 (note that
+   this could not happen while R1 is still in the ``CommandQueue`` because R1
+   and R2 are overlapping).
 #. The other application of A/B happens at this point, writing K=V1.
 #. We're now in an unintended state: K=V1 when we should have K=V2.
 
@@ -146,11 +176,17 @@ by appending a timestamp to them, doesn't that guarantee that keys at the
 RocksDB level are unique between commands? The answer is no, for several
 reasons:
 
-- Meta-keys don't have timestamps. Meta-keys exist when intents are present on a KV key. Two writes to a meta-key that are reordered, (or a write and a delete) would be bad.
-- Within a transaction, different requests can modify the same key (because they operate at the same timestamp).
-- The ``GCQueue`` deletes tombstones. If these deletes would be reordered with the writing of the tombstone, that'd be bad.
+- Meta-keys don't have timestamps. Meta-keys exist when intents are present on a
+  KV key. Two writes to a meta-key that are reordered, (or a write and a delete)
+  would be bad.
+- Within a transaction, different requests can modify the same key (because they
+  operate at the same timestamp).
+- The ``GCQueue`` deletes tombstones. If these deletes would be reordered with
+  the writing of the tombstone, that'd be bad.
 
-The second question that comes to mind is how exactly can command C run before the second application of A/B, given that C was proposed later? The explanation requires the Raft message flow sidebar.
+The second question that comes to mind is how exactly can command C run before
+the second application of A/B, given that C was proposed later? The explanation
+requires the Raft message flow sidebar.
 
 .. sidebar:: Raft message flow
 
@@ -242,9 +278,9 @@ of things make commands not be idempotent; this is all because of the
 RocksDB ``WriteBatch``. This payload is interpreted downstream of Raft and
 affects changes to the replica state:
 
-- Each command carries an `MVCCStats` delta which is added to the range's MVCC
+- Each command carries an ``MVCCStats`` delta which is added to the range's MVCC
   statistics upon application. Add the delta twice and you have corrupt stats.
-- Similarly, each command carries a `RaftLogDelta` having to do with Raft
+- Similarly, each command carries a ``RaftLogDelta`` having to do with Raft
   statistics.
 - Other special commands carry other special side-effects (splits, merges,
   rebalances, leases, log truncation). Some of these are currently not
@@ -270,15 +306,24 @@ values for the statistics, then we'd need to synchronize proposing the commands
 so that the stats after every single command are correct [#but]_.
 
 .. [#allornothing] Note that we probably don't need to make all commands
-  idempotent to get benefits: even if the "special" commands are not idempotent but all the "regular" commands are, we'd still have solved the problem of ambiguous errors related to re-evaluations bubbling to SQL clients.
+   idempotent to get benefits: even if the "special" commands are not idempotent
+   but all the "regular" commands are, we'd still have solved the problem of
+   ambiguous errors related to re-evaluations bubbling to SQL clients.
 .. [#assuming] Assuming we would also do something to get rid of the hazards
   related to reorderings discussed in the previous section. Otherwise, the
   ``LeaseAppliedIndex`` sequence numbers introduced to protect against those
   give us protection against double application for free.
 .. [#btw] By the way, if we're evaluating requests in parallel, we could
-  actually propose a single Raft command representing the sum of all the respective commands (i.e. ``WriteBatches``) if these commands are produced close in time to one another. That might save some Raft work at the cost of increased latency for some of the requests. This optimization would be possible with or without absolute values for the statistics.
+  actually propose a single Raft command representing the sum of all the
+  respective commands (i.e. ``WriteBatches``) if these commands are produced
+  close in time to one another. That might save some Raft work at the cost of
+  increased latency for some of the requests. This optimization would be
+  possible with or without absolute values for the statistics.
 .. [#but] However, the ``LeaseAppliedIndex`` mechanism already requires some
-  degree of synchronization between proposals, for assigning the sequence number and for proposing in the sequence number order. So it's not clear to the author if the we'd lose any parallelism if we'd also assign the stats values in order.
+  degree of synchronization between proposals, for assigning the sequence
+  number and for proposing in the sequence number order. So it's not clear to
+  the author if the we'd lose any parallelism if we'd also assign the stats
+  values in order.
 
 
 The solution to the hazards: the ``LeaseAppliedIndex``
@@ -298,7 +343,11 @@ application is only allowed if ``MaxLeaseIndex > LeaseAppliedIndex``. So, the
 log position. When we repropose commands, we repropose them with the same
 ``MaxLeaseIndex`` as the original proposal. When a command attempts to apply
 beyond it's intended position and is rejected, we have the option of
-re-evaluating the request (see `Re-evaluations of KV requests`_); we'll take this option if we're still waiting for the application result for the command in question (i.e. if we previously got a result for a reproposal, we will not take this option). We do not have the option of simply reproposing (the reproposal would keep failing in the same way).
+re-evaluating the request (see `Re-evaluations of KV requests`_); we'll take
+this option if we're still waiting for the application result for the command in
+question (i.e. if we previously got a result for a reproposal, we will not take
+this option). We do not have the option of simply reproposing (the reproposal
+would keep failing in the same way).
 
 The ``LeaseAppliedIndex`` mechanism prevents both reordering and double
 applications (since reproposals have the same ``MaxLeaseIndex`` as the original
@@ -350,7 +399,8 @@ couple of options:
   - We could attempt to resolve the ambiguity in one direction: we can evaluate
     the request again and, if the evaluation succeeds, conclude that the command
     did not apply [#noreverse]_. The reasoning allowing this conclusion will be
-    presented in the `How does MVCC detect previous applications of commands during evaluation?`_ section.
+    presented in the `How does MVCC detect previous applications of commands
+    during evaluation?`_ section.
 
 While writing this note, the author has come to think of re-evaluations as
 fundamentally being about (and only about) attempting to prove that a command
@@ -447,17 +497,17 @@ makes this true:
 
 - A non-transactional batch (or a 1PC transaction) relies on MVCC: a second
   evaluation will get a ``WriteTooOldError``. In some cases, there's no data to
-  generate a ``WriteTooOldError``: for example, if the
-  batch only consists of ``DelRange`` requests and don't write anything
-  (because there was no data to delete). In such cases, we rely on hitting the
-  timestamp cache check and refusing the second application that way? But I'm
-  not sure about this - depending on when exactly we populate the timestamp
-  cache, wouldn't we either hit it when we do the re-evaluation regardless of
-  whether the first one applied or not or, if we populate it late, would it
-  ever be populated by the first application?  Perhaps nothing prevents such
-  commands from applying twice (and that's OK because they really are
-  idempotent)? On the other hand, if a request doesn't write any data that
-  would generate a ``WriteTooOldError`` on re-evaluation, do we even need to propose such commands to Raft? FIXME.
+  generate a ``WriteTooOldError``: for example, if the batch only consists of
+  ``DelRange`` requests and don't write anything (because there was no data to
+  delete). In such cases, we rely on hitting the timestamp cache check and
+  refusing the second application that way? But I'm not sure about this -
+  depending on when exactly we populate the timestamp cache, wouldn't we either
+  hit it when we do the re-evaluation regardless of whether the first one
+  applied or not or, if we populate it late, would it ever be populated by the
+  first application?  Perhaps nothing prevents such commands from applying twice
+  (and that's OK because they really are idempotent)? On the other hand, if a
+  request doesn't write any data that would generate a ``WriteTooOldError`` on
+  re-evaluation, do we even need to propose such commands to Raft? FIXME.
 - A batch containing a ``BeginTransaction`` request relies on the transaction
   entry already existing (a second application would get a
   ``TransactionStatusError``).
@@ -471,7 +521,8 @@ makes this true:
 - Batches containing regular transactional writes rely on the sequence numbers
   mechanism (described later).
 - Other special requests (leases, splits, etc.) rely on ad-hoc mechanism. Some
-  of them are tied to an ``EndTransaction``, so they use its protections.
+  of them are tied to an ``EndTransaction``, so they use its protections. The
+  ``ProposeLease`` command, for example, relies on the current lease verification [#]_.
 
 .. note:: The ``LeaseAppliedIndex`` mechanism has nothing to do with protections
   in case of re-evaluations, as re-evaluations propose commands intended for
@@ -489,6 +540,9 @@ makes this true:
    timestamp cache entry... Perhaps it was not about batches with
    ``EndTransaction``, but internal batches whose intents have been cleared.
    FIXME @tschottdorf
+
+.. [#] The ``ProposeLease`` command is really special because it can be proposed
+   by any follower.
 
 
 Logic for triggering reproposals and re-evaluations
@@ -739,4 +793,4 @@ Misc
 
 -  AbortCache - protects against situations where reads miss previous
    writes because the intents have been cleaned up (txn has been
-   aborted)
+   aborted). Has nothing to do with retries.

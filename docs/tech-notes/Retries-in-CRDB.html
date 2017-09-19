@@ -5,46 +5,56 @@
 <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
 <meta name="generator" content="Docutils 0.14: http://docutils.sourceforge.net/" />
 <title>Replays in CRDB</title>
+<meta name="authors" content="original author: Andrei Matei" />
 <link rel="stylesheet" href="aux/all.css" type="text/css" />
 </head>
 <body>
 <div class="document" id="replays-in-crdb">
 <h1 class="title">Replays in CRDB</h1>
-
+<table class="docinfo" frame="void" rules="none">
+<col class="docinfo-name" />
+<col class="docinfo-content" />
+<tbody valign="top">
+<tr><th class="docinfo-name">Authors:</th>
+<td>original author: Andrei Matei</td></tr>
+</tbody>
+</table>
 <div class="contents topic" id="contents">
 <p class="topic-title first">Contents</p>
 <ul class="simple">
-<li><a class="reference internal" href="#introduction" id="id13">Introduction</a></li>
-<li><a class="reference internal" href="#terminology" id="id14">Terminology</a></li>
-<li><a class="reference internal" href="#raft-level-issues" id="id15">Raft-level Issues</a><ul>
-<li><a class="reference internal" href="#raft-command-reproposals" id="id16">Raft command reproposals</a><ul>
-<li><a class="reference internal" href="#what-could-go-wrong-because-of-double-applications" id="id17">What could go wrong because of double applications?</a><ul>
-<li><a class="reference internal" href="#what-could-go-wrong-because-of-double-applications-with-reordering" id="id18">What could go wrong because of double applications with reordering?</a></li>
-<li><a class="reference internal" href="#what-could-go-wrong-because-of-double-applications-without-reordering" id="id19">What could go wrong because of double applications without reordering?</a></li>
+<li><a class="reference internal" href="#introduction" id="id15">Introduction</a></li>
+<li><a class="reference internal" href="#terminology" id="id16">Terminology</a></li>
+<li><a class="reference internal" href="#raft-level-issues" id="id17">Raft-level Issues</a><ul>
+<li><a class="reference internal" href="#raft-command-reproposals" id="id18">Raft command reproposals</a><ul>
+<li><a class="reference internal" href="#what-could-go-wrong-because-of-double-applications" id="id19">What could go wrong because of double applications?</a><ul>
+<li><a class="reference internal" href="#what-could-go-wrong-because-of-double-applications-with-reordering" id="id20">What could go wrong because of double applications with reordering?</a></li>
+<li><a class="reference internal" href="#what-could-go-wrong-because-of-double-applications-without-reordering" id="id21">What could go wrong because of double applications without reordering?</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#the-solution-to-the-hazards-the-leaseappliedindex" id="id20">The solution to the hazards: the <tt class="docutils literal">LeaseAppliedIndex</tt></a></li>
+<li><a class="reference internal" href="#the-solution-to-the-hazards-the-leaseappliedindex" id="id22">The solution to the hazards: the <tt class="docutils literal">LeaseAppliedIndex</tt></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#re-evaluations-of-kv-requests" id="id21">Re-evaluations of KV requests</a><ul>
-<li><a class="reference internal" href="#how-does-mvcc-detect-previous-applications-of-commands-during-evaluation" id="id22">How does MVCC detect previous applications of commands during evaluation?</a></li>
+<li><a class="reference internal" href="#re-evaluations-of-kv-requests" id="id23">Re-evaluations of KV requests</a><ul>
+<li><a class="reference internal" href="#how-does-mvcc-detect-previous-applications-of-commands-during-evaluation" id="id24">How does MVCC detect previous applications of commands during evaluation?</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#logic-for-triggering-reproposals-and-re-evaluations" id="id23">Logic for triggering reproposals and re-evaluations</a></li>
-<li><a class="reference internal" href="#notes" id="id24">Notes</a></li>
+<li><a class="reference internal" href="#logic-for-triggering-reproposals-and-re-evaluations" id="id25">Logic for triggering reproposals and re-evaluations</a></li>
+<li><a class="reference internal" href="#notes" id="id26">Notes</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#distsender-retries" id="id25"><tt class="docutils literal">DistSender</tt> retries</a></li>
-<li><a class="reference internal" href="#conflict-resolution-retries" id="id26">Conflict resolution retries</a></li>
-<li><a class="reference internal" href="#ambiguouserror" id="id27">AmbiguousError</a></li>
-<li><a class="reference internal" href="#misc" id="id28">Misc</a></li>
+<li><a class="reference internal" href="#distsender-retries" id="id27"><tt class="docutils literal">DistSender</tt> retries</a></li>
+<li><a class="reference internal" href="#conflict-resolution-retries" id="id28">Conflict resolution retries</a></li>
+<li><a class="reference internal" href="#ambiguouserror" id="id29">AmbiguousError</a></li>
+<li><a class="reference internal" href="#misc" id="id30">Misc</a></li>
 </ul>
 </div>
 <div class="section" id="introduction">
-<h1><a class="toc-backref" href="#id13">Introduction</a></h1>
-<p>This note talks about the different kinds of retries in CRDB, the
-hazards they introduce, and the way we protect against them to maintain
-correctness. There are four types of retries we're going to be discussing: reproposals of Raft commands, re-evaluations of KV requests, retries of KV requests after conflict resolution and retries of KV requests by the <tt class="docutils literal">DistSender</tt> on RPC errors.</p>
+<h1><a class="toc-backref" href="#id15">Introduction</a></h1>
+<p>This note talks about the different kinds of retries in CRDB, the hazards they
+introduce, and the way we protect against them to maintain correctness. There
+are four types of retries we're going to be discussing: reproposals of Raft
+commands, re-evaluations of KV requests, retries of KV requests after conflict
+resolution and retries of KV requests by the <tt class="docutils literal">DistSender</tt> on RPC errors.</p>
 <p>These are all actions that the code does consciously; none of them are
 introduced transparently by a network transport or such. Executing things twice,
 or executing them at a later point in time then when we intended the execution -
@@ -59,7 +69,7 @@ operations. We’ll discuss how the batch sequence numbers and the Raft
 an operation can lead to an <tt class="docutils literal">AmbiguousResultError</tt>/<tt class="docutils literal">AmbiguousCommitError</tt>.</p>
 </div>
 <div class="section" id="terminology">
-<h1><a class="toc-backref" href="#id14">Terminology</a></h1>
+<h1><a class="toc-backref" href="#id16">Terminology</a></h1>
 <p>First of all, this note does not use the word &quot;replay&quot;, even though our code has
 used that word historically: in colloquial speech &quot;replay&quot; refers generally to
 any kind of operation being executed a second (or 3rd, etc.) time. Of course,
@@ -107,18 +117,35 @@ nodes go down - so retries may help).</dd>
 </dl>
 </div>
 <div class="section" id="raft-level-issues">
-<h1><a class="toc-backref" href="#id15">Raft-level Issues</a></h1>
-<p>The lowest level of retries happen because of Raft-level conditions. These retries are of two types: reproposals and re-evaluations. Both of them are triggered by Raft processing; they're triggered by <tt class="docutils literal">`replica.handleRaftReady()</tt>. Reproposals are lower-level operation - they're handled at this <tt class="docutils literal">`handleRaftReady()</tt> level. Re-evaluations are handled at a higher level - <tt class="docutils literal">replica.executeWriteBatch()</tt>.</p>
-<p>Let's discuss when they happen (more technicalities will follow in the <a class="reference internal" href="#logic-for-triggering-reproposals-and-re-evaluations">Logic for triggering reproposals and re-evaluations</a> section):</p>
+<h1><a class="toc-backref" href="#id17">Raft-level Issues</a></h1>
+<p>The lowest level of retries happen because of Raft-level conditions. These
+retries are of two types: reproposals and re-evaluations. Both of them are
+triggered by Raft processing; they're triggered by
+<tt class="docutils literal">`replica.handleRaftReady()</tt>. Reproposals are lower-level operation - they're
+handled at this <tt class="docutils literal">`handleRaftReady()</tt> level. Re-evaluations are handled at a
+higher level - <tt class="docutils literal">replica.executeWriteBatch()</tt>.</p>
+<p>Let's discuss when they happen (more technicalities will follow in the <a class="reference internal" href="#logic-for-triggering-reproposals-and-re-evaluations">Logic
+for triggering reproposals and re-evaluations</a> section):</p>
 <ol class="arabic simple">
-<li>When commands have been proposed but never made it to the leader (usually because we didn’t know who the leader is - think initial leader election after a range split). When we do find out about a new leader, we <em>repropose</em> pending commands.</li>
-<li>When it’s been too long since a command was proposed and we haven’t heard back. In such cases, we <em>repropose</em>.</li>
-<li>When the proposer finds out about a command attempting to apply out of order. In this case, we <em>re-evaluate</em> the request.</li>
-<li>When the leaseholder replica has just applied a snapshot and the snapshot contained commands with log positions above the positions of some of our pending proposals. We don’t know what was inside the snapshot, so we don’t know which of the pending proposals have been applied. We’ll <em>re-evaluate</em> the request. Note that this snapshot case requires that the Raft leader be divorced from the leaseholder (otherwise, a leader doesn’t apply snapshots), so it should hopefully be rare because we try to colocate the two.</li>
+<li>When commands have been proposed but never made it to the leader (usually
+because we didn’t know who the leader is - think initial leader election
+after a range split). When we do find out about a new leader, we <em>repropose</em>
+pending commands.</li>
+<li>When it’s been too long since a command was proposed and we haven’t heard
+back. In such cases, we <em>repropose</em>.</li>
+<li>When the proposer finds out about a command attempting to apply out of order.
+In this case, we <em>re-evaluate</em> the request.</li>
+<li>When the leaseholder replica has just applied a snapshot and the snapshot
+contained commands with log positions above the positions of some of our
+pending proposals. We don’t know what was inside the snapshot, so we don’t
+know which of the pending proposals have been applied. We’ll <em>re-evaluate</em>
+the request. Note that this snapshot case requires that the Raft leader be
+divorced from the leaseholder (otherwise, a leader doesn’t apply snapshots),
+so it should hopefully be rare because we try to colocate the two.</li>
 </ol>
 <p>Next we'll discuss reproposals and re-evaluations in more detail.</p>
 <div class="section" id="raft-command-reproposals">
-<h2><a class="toc-backref" href="#id16">Raft command reproposals</a></h2>
+<h2><a class="toc-backref" href="#id18">Raft command reproposals</a></h2>
 <div class="sidebar">
 <p class="first sidebar-title">Raft commands reminder</p>
 <p class="last">Raft commands contain serialized RocksDB “batches” - low-level write
@@ -141,17 +168,25 @@ only going to be waiting for one application of either of the two proposals
 before returning control to the higher layers. Would these double applications
 be bad?</p>
 <div class="section" id="what-could-go-wrong-because-of-double-applications">
-<h3><a class="toc-backref" href="#id17">What could go wrong because of double applications?</a></h3>
+<h3><a class="toc-backref" href="#id19">What could go wrong because of double applications?</a></h3>
 <p>The type of bad things that can happen because of double application differs based on whether the second application happens while the request is in the <tt class="docutils literal">CommandQueue</tt>.</p>
 <div class="section" id="what-could-go-wrong-because-of-double-applications-with-reordering">
-<h4><a class="toc-backref" href="#id18">What could go wrong because of double applications with reordering?</a></h4>
-<p>The clearer to see case is when the second application happens after the request has been taken out of the <tt class="docutils literal">CommandQueue</tt>: command applications at arbitrary times is bad because it can overwrite data that it was not supposed to overwrite. Consider:</p>
+<h4><a class="toc-backref" href="#id20">What could go wrong because of double applications with reordering?</a></h4>
+<p>The clearer to see case is when the second application happens after the request
+has been taken out of the <tt class="docutils literal">CommandQueue</tt>: command applications at arbitrary
+times is bad because it can overwrite data that it was not supposed to
+overwrite. Consider:</p>
 <ol class="arabic simple">
-<li>While executing request R1, we propose command A which writes (RocksDB) key/val K=V1.</li>
-<li>The proposer waits a while, doesn't hear anything back about the application of A, and so it reproposes it as command B (A and B are equivalent; the have the same <cite>CommandKey</cite>).</li>
+<li>While executing request R1, we propose command A which writes (RocksDB)
+key/val K=V1.</li>
+<li>The proposer waits a while, doesn't hear anything back about the application
+of A, and so it reproposes it as command B (A and B are equivalent; the have
+the same <cite>CommandKey</cite>).</li>
 <li>We hear back and apply one of them, A or B (we can tell which).</li>
 <li>The stack is unwound and R1 is taken out of the <tt class="docutils literal">CommandQueue</tt>.</li>
-<li>We execute request R2, which applies command C, which writes K=V2 (note that this could not happen while R1 is still in the <tt class="docutils literal">CommandQueue</tt> because R1 and R2 are overlapping).</li>
+<li>We execute request R2, which applies command C, which writes K=V2 (note that
+this could not happen while R1 is still in the <tt class="docutils literal">CommandQueue</tt> because R1
+and R2 are overlapping).</li>
 <li>The other application of A/B happens at this point, writing K=V1.</li>
 <li>We're now in an unintended state: K=V1 when we should have K=V2.</li>
 </ol>
@@ -163,11 +198,17 @@ by appending a timestamp to them, doesn't that guarantee that keys at the
 RocksDB level are unique between commands? The answer is no, for several
 reasons:</p>
 <ul class="simple">
-<li>Meta-keys don't have timestamps. Meta-keys exist when intents are present on a KV key. Two writes to a meta-key that are reordered, (or a write and a delete) would be bad.</li>
-<li>Within a transaction, different requests can modify the same key (because they operate at the same timestamp).</li>
-<li>The <tt class="docutils literal">GCQueue</tt> deletes tombstones. If these deletes would be reordered with the writing of the tombstone, that'd be bad.</li>
+<li>Meta-keys don't have timestamps. Meta-keys exist when intents are present on a
+KV key. Two writes to a meta-key that are reordered, (or a write and a delete)
+would be bad.</li>
+<li>Within a transaction, different requests can modify the same key (because they
+operate at the same timestamp).</li>
+<li>The <tt class="docutils literal">GCQueue</tt> deletes tombstones. If these deletes would be reordered with
+the writing of the tombstone, that'd be bad.</li>
 </ul>
-<p>The second question that comes to mind is how exactly can command C run before the second application of A/B, given that C was proposed later? The explanation requires the Raft message flow sidebar.</p>
+<p>The second question that comes to mind is how exactly can command C run before
+the second application of A/B, given that C was proposed later? The explanation
+requires the Raft message flow sidebar.</p>
 <div class="sidebar">
 <p class="first sidebar-title">Raft message flow</p>
 <ol class="last arabic simple">
@@ -229,7 +270,7 @@ unsure whether the command was applied successfully or not. FIXME: reference the
 right section for ambiguous errors.</p>
 </div>
 <div class="section" id="what-could-go-wrong-because-of-double-applications-without-reordering">
-<h4><a class="toc-backref" href="#id19">What could go wrong because of double applications without reordering?</a></h4>
+<h4><a class="toc-backref" href="#id21">What could go wrong because of double applications without reordering?</a></h4>
 <p>We’ve just seen how a command generated by a request <em>R</em> could be applied after
 <em>R</em> has been taken out of the <tt class="docutils literal">CommandQueue</tt> and why that would be bad (if we
 hadn't build special protection against it). So, we’re afraid of commands coming
@@ -256,9 +297,9 @@ of things make commands not be idempotent; this is all because of the
 RocksDB <tt class="docutils literal">WriteBatch</tt>. This payload is interpreted downstream of Raft and
 affects changes to the replica state:</p>
 <ul class="simple">
-<li>Each command carries an <cite>MVCCStats</cite> delta which is added to the range's MVCC
+<li>Each command carries an <tt class="docutils literal">MVCCStats</tt> delta which is added to the range's MVCC
 statistics upon application. Add the delta twice and you have corrupt stats.</li>
-<li>Similarly, each command carries a <cite>RaftLogDelta</cite> having to do with Raft
+<li>Similarly, each command carries a <tt class="docutils literal">RaftLogDelta</tt> having to do with Raft
 statistics.</li>
 <li>Other special commands carry other special side-effects (splits, merges,
 rebalances, leases, log truncation). Some of these are currently not
@@ -286,7 +327,9 @@ so that the stats after every single command are correct <a class="footnote-refe
 <colgroup><col class="label" /><col /></colgroup>
 <tbody valign="top">
 <tr><td class="label"><a class="fn-backref" href="#id1">[1]</a></td><td>Note that we probably don't need to make all commands
-idempotent to get benefits: even if the &quot;special&quot; commands are not idempotent but all the &quot;regular&quot; commands are, we'd still have solved the problem of ambiguous errors related to re-evaluations bubbling to SQL clients.</td></tr>
+idempotent to get benefits: even if the &quot;special&quot; commands are not idempotent
+but all the &quot;regular&quot; commands are, we'd still have solved the problem of
+ambiguous errors related to re-evaluations bubbling to SQL clients.</td></tr>
 </tbody>
 </table>
 <table class="docutils footnote" frame="void" id="assuming" rules="none">
@@ -302,20 +345,27 @@ give us protection against double application for free.</td></tr>
 <colgroup><col class="label" /><col /></colgroup>
 <tbody valign="top">
 <tr><td class="label"><a class="fn-backref" href="#id3">[3]</a></td><td>By the way, if we're evaluating requests in parallel, we could
-actually propose a single Raft command representing the sum of all the respective commands (i.e. <tt class="docutils literal">WriteBatches</tt>) if these commands are produced close in time to one another. That might save some Raft work at the cost of increased latency for some of the requests. This optimization would be possible with or without absolute values for the statistics.</td></tr>
+actually propose a single Raft command representing the sum of all the
+respective commands (i.e. <tt class="docutils literal">WriteBatches</tt>) if these commands are produced
+close in time to one another. That might save some Raft work at the cost of
+increased latency for some of the requests. This optimization would be
+possible with or without absolute values for the statistics.</td></tr>
 </tbody>
 </table>
 <table class="docutils footnote" frame="void" id="but" rules="none">
 <colgroup><col class="label" /><col /></colgroup>
 <tbody valign="top">
 <tr><td class="label"><a class="fn-backref" href="#id4">[4]</a></td><td>However, the <tt class="docutils literal">LeaseAppliedIndex</tt> mechanism already requires some
-degree of synchronization between proposals, for assigning the sequence number and for proposing in the sequence number order. So it's not clear to the author if the we'd lose any parallelism if we'd also assign the stats values in order.</td></tr>
+degree of synchronization between proposals, for assigning the sequence
+number and for proposing in the sequence number order. So it's not clear to
+the author if the we'd lose any parallelism if we'd also assign the stats
+values in order.</td></tr>
 </tbody>
 </table>
 </div>
 </div>
 <div class="section" id="the-solution-to-the-hazards-the-leaseappliedindex">
-<h3><a class="toc-backref" href="#id20">The solution to the hazards: the <tt class="docutils literal">LeaseAppliedIndex</tt></a></h3>
+<h3><a class="toc-backref" href="#id22">The solution to the hazards: the <tt class="docutils literal">LeaseAppliedIndex</tt></a></h3>
 <p>The solution CRDB has for all these hazards is the <tt class="docutils literal">LeaseAppliedIndex</tt>
 mechanism: each proposed command gets tagged with the proposer's current lease
 and with a desired log position (relative to a lease command, which is related
@@ -330,7 +380,11 @@ application is only allowed if <tt class="docutils literal">MaxLeaseIndex &gt; L
 log position. When we repropose commands, we repropose them with the same
 <tt class="docutils literal">MaxLeaseIndex</tt> as the original proposal. When a command attempts to apply
 beyond it's intended position and is rejected, we have the option of
-re-evaluating the request (see <a class="reference internal" href="#re-evaluations-of-kv-requests">Re-evaluations of KV requests</a>); we'll take this option if we're still waiting for the application result for the command in question (i.e. if we previously got a result for a reproposal, we will not take this option). We do not have the option of simply reproposing (the reproposal would keep failing in the same way).</p>
+re-evaluating the request (see <a class="reference internal" href="#re-evaluations-of-kv-requests">Re-evaluations of KV requests</a>); we'll take
+this option if we're still waiting for the application result for the command in
+question (i.e. if we previously got a result for a reproposal, we will not take
+this option). We do not have the option of simply reproposing (the reproposal
+would keep failing in the same way).</p>
 <p>The <tt class="docutils literal">LeaseAppliedIndex</tt> mechanism prevents both reordering and double
 applications (since reproposals have the same <tt class="docutils literal">MaxLeaseIndex</tt> as the original
 proposal). Again, if we had an ordered Raft transport, that would solve the
@@ -365,7 +419,7 @@ will not be allowed to apply.</td></tr>
 </div>
 </div>
 <div class="section" id="re-evaluations-of-kv-requests">
-<h2><a class="toc-backref" href="#id21">Re-evaluations of KV requests</a></h2>
+<h2><a class="toc-backref" href="#id23">Re-evaluations of KV requests</a></h2>
 <p>As we've seen in the previous section, commands cannot apply past their assigned
 <tt class="docutils literal">MaxLeaseIndex</tt>. So, what happens when a reordering causes a command to fail
 that check? We saw that we can't just repropose (well, in fact, I believe
@@ -383,7 +437,8 @@ transaction error (although we never do that now, see
 <li>We could attempt to resolve the ambiguity in one direction: we can evaluate
 the request again and, if the evaluation succeeds, conclude that the command
 did not apply <a class="footnote-reference" href="#noreverse" id="id6">[6]</a>. The reasoning allowing this conclusion will be
-presented in the <a class="reference internal" href="#how-does-mvcc-detect-previous-applications-of-commands-during-evaluation">How does MVCC detect previous applications of commands during evaluation?</a> section.</li>
+presented in the <a class="reference internal" href="#how-does-mvcc-detect-previous-applications-of-commands-during-evaluation">How does MVCC detect previous applications of commands
+during evaluation?</a> section.</li>
 </ul>
 </li>
 </ul>
@@ -468,7 +523,7 @@ the original proposal. See also <a class="reference internal" href="#todo-remove
 </tbody>
 </table>
 <div class="section" id="how-does-mvcc-detect-previous-applications-of-commands-during-evaluation">
-<h3><a class="toc-backref" href="#id22">How does MVCC detect previous applications of commands during evaluation?</a></h3>
+<h3><a class="toc-backref" href="#id24">How does MVCC detect previous applications of commands during evaluation?</a></h3>
 <p>We're owing an argument after the previous section; we've seen that
 re-evaluations are done in order to try to remove the ambiguity about whether a
 command applied or not by performing the evaluation again and hoping that it
@@ -480,31 +535,32 @@ makes this true:</p>
 <ul class="simple">
 <li>A non-transactional batch (or a 1PC transaction) relies on MVCC: a second
 evaluation will get a <tt class="docutils literal">WriteTooOldError</tt>. In some cases, there's no data to
-generate a <tt class="docutils literal">WriteTooOldError</tt>: for example, if the
-batch only consists of <tt class="docutils literal">DelRange</tt> requests and don't write anything
-(because there was no data to delete). In such cases, we rely on hitting the
-timestamp cache check and refusing the second application that way? But I'm
-not sure about this - depending on when exactly we populate the timestamp
-cache, wouldn't we either hit it when we do the re-evaluation regardless of
-whether the first one applied or not or, if we populate it late, would it
-ever be populated by the first application?  Perhaps nothing prevents such
-commands from applying twice (and that's OK because they really are
-idempotent)? On the other hand, if a request doesn't write any data that
-would generate a <tt class="docutils literal">WriteTooOldError</tt> on re-evaluation, do we even need to propose such commands to Raft? FIXME.</li>
+generate a <tt class="docutils literal">WriteTooOldError</tt>: for example, if the batch only consists of
+<tt class="docutils literal">DelRange</tt> requests and don't write anything (because there was no data to
+delete). In such cases, we rely on hitting the timestamp cache check and
+refusing the second application that way? But I'm not sure about this -
+depending on when exactly we populate the timestamp cache, wouldn't we either
+hit it when we do the re-evaluation regardless of whether the first one
+applied or not or, if we populate it late, would it ever be populated by the
+first application?  Perhaps nothing prevents such commands from applying twice
+(and that's OK because they really are idempotent)? On the other hand, if a
+request doesn't write any data that would generate a <tt class="docutils literal">WriteTooOldError</tt> on
+re-evaluation, do we even need to propose such commands to Raft? FIXME.</li>
 <li>A batch containing a <tt class="docutils literal">BeginTransaction</tt> request relies on the transaction
 entry already existing (a second application would get a
 <tt class="docutils literal">TransactionStatusError</tt>).</li>
 <li>If there's an <tt class="docutils literal">EndTransaction</tt> in the batch, then the transaction
 record might have been cleaned up by a previous application. In this case, we
 rely on the <tt class="docutils literal">TimestampCache</tt> entry that the <tt class="docutils literal">EndTransaction</tt> purposefully
-leaves behind for this purpose <a class="footnote-reference" href="#id9" id="id7">[7]</a> <a class="footnote-reference" href="#id10" id="id8">[8]</a>. I think we could also rely on the
+leaves behind for this purpose <a class="footnote-reference" href="#id10" id="id7">[7]</a> <a class="footnote-reference" href="#id11" id="id8">[8]</a>. I think we could also rely on the
 transaction status check: if the <tt class="docutils literal">EndTransaction</tt> previously applied but
 the txn record has not been cleaned up, then we can also rely on getting a
 <tt class="docutils literal">TransactionStatusError</tt>?</li>
 <li>Batches containing regular transactional writes rely on the sequence numbers
 mechanism (described later).</li>
 <li>Other special requests (leases, splits, etc.) rely on ad-hoc mechanism. Some
-of them are tied to an <tt class="docutils literal">EndTransaction</tt>, so they use its protections.</li>
+of them are tied to an <tt class="docutils literal">EndTransaction</tt>, so they use its protections. The
+<tt class="docutils literal">ProposeLease</tt> command, for example, relies on the current lease verification <a class="footnote-reference" href="#id12" id="id9">[9]</a>.</li>
 </ul>
 <div class="admonition note">
 <p class="first admonition-title">Note</p>
@@ -512,7 +568,7 @@ of them are tied to an <tt class="docutils literal">EndTransaction</tt>, so they
 in case of re-evaluations, as re-evaluations propose commands intended for
 different log positions than the original command.</p>
 </div>
-<table class="docutils footnote" frame="void" id="id9" rules="none">
+<table class="docutils footnote" frame="void" id="id10" rules="none">
 <colgroup><col class="label" /><col /></colgroup>
 <tbody valign="top">
 <tr><td class="label"><a class="fn-backref" href="#id7">[7]</a></td><td>If there's an <tt class="docutils literal">EndTransaction</tt> in the batch, that means we also wrote
@@ -522,7 +578,7 @@ on the second application. However, relying on this and not on the
 application would leave dangling intents and a dangling transaction record.</td></tr>
 </tbody>
 </table>
-<table class="docutils footnote" frame="void" id="id10" rules="none">
+<table class="docutils footnote" frame="void" id="id11" rules="none">
 <colgroup><col class="label" /><col /></colgroup>
 <tbody valign="top">
 <tr><td class="label"><a class="fn-backref" href="#id8">[8]</a></td><td>I made a note here that the <tt class="docutils literal">GCThreshold</tt> also somehow plays a role
@@ -533,10 +589,17 @@ timestamp cache entry... Perhaps it was not about batches with
 FIXME &#64;tschottdorf</td></tr>
 </tbody>
 </table>
+<table class="docutils footnote" frame="void" id="id12" rules="none">
+<colgroup><col class="label" /><col /></colgroup>
+<tbody valign="top">
+<tr><td class="label"><a class="fn-backref" href="#id9">[9]</a></td><td>The <tt class="docutils literal">ProposeLease</tt> command is really special because it can be proposed
+by any follower.</td></tr>
+</tbody>
+</table>
 </div>
 </div>
 <div class="section" id="logic-for-triggering-reproposals-and-re-evaluations">
-<h2><a class="toc-backref" href="#id23">Logic for triggering reproposals and re-evaluations</a></h2>
+<h2><a class="toc-backref" href="#id25">Logic for triggering reproposals and re-evaluations</a></h2>
 <p>This section discusses the mechanics of the code that decides about reproposals
 and re-evaluations.</p>
 <p>The code triggers re-evaluations when an <a class="reference external" href="https://github.com/cockroachdb/cockroach/blob/47287e0b94c99908515669866f71e9a3a704e4e6/pkg/storage/replica.go?utf8=%E2%9C%93#L4107">application returns a special error</a>
@@ -574,7 +637,7 @@ be handled by a special type of reproposal, as discussed before).</li>
 each re-evaluation is done by re-entering the <tt class="docutils literal">CommandQueue</tt>.</p>
 </div>
 <div class="section" id="notes">
-<h2><a class="toc-backref" href="#id24">Notes</a></h2>
+<h2><a class="toc-backref" href="#id26">Notes</a></h2>
 <p>In this section we’ve only considered reorderings of commands pertaining to
 different KV requests (the <tt class="docutils literal">CommandQueue</tt> serializes KV requests). A question
 that might come to mind is whether there could be problems with reorderings of
@@ -624,7 +687,7 @@ least a category of MVCC errors would be unambiguous.</p>
 </div>
 </div>
 <div class="section" id="distsender-retries">
-<h1><a class="toc-backref" href="#id25"><tt class="docutils literal">DistSender</tt> retries</a></h1>
+<h1><a class="toc-backref" href="#id27"><tt class="docutils literal">DistSender</tt> retries</a></h1>
 <div class="admonition warning">
 <p class="first admonition-title">Warning</p>
 <p class="last">EVERYTHING BELOW IS WIP, NOT READY FOR REVIEW</p>
@@ -755,17 +818,17 @@ TimestampCache, just like DelRange does? (see around here:
 </ul>
 </div>
 <div class="section" id="conflict-resolution-retries">
-<h1><a class="toc-backref" href="#id26">Conflict resolution retries</a></h1>
+<h1><a class="toc-backref" href="#id28">Conflict resolution retries</a></h1>
 </div>
 <div class="section" id="ambiguouserror">
-<h1><a class="toc-backref" href="#id27">AmbiguousError</a></h1>
+<h1><a class="toc-backref" href="#id29">AmbiguousError</a></h1>
 </div>
 <div class="section" id="misc">
-<h1><a class="toc-backref" href="#id28">Misc</a></h1>
+<h1><a class="toc-backref" href="#id30">Misc</a></h1>
 <ul class="simple">
 <li>AbortCache - protects against situations where reads miss previous
 writes because the intents have been cleaned up (txn has been
-aborted)</li>
+aborted). Has nothing to do with retries.</li>
 </ul>
 <hr class="docutils" />
 <h3>Comments</h3>
