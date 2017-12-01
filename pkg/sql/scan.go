@@ -109,6 +109,8 @@ type scanNode struct {
 	//
 	//lint:ignore U1000 this marker prevents by-value copies.
 	noCopy util.NoCopy
+
+	scan bool
 }
 
 func (p *planner) Scan() *scanNode {

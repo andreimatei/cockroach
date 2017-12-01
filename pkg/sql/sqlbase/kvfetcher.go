@@ -103,6 +103,8 @@ type txnKVFetcher struct {
 	// rangeInfos are deduped, so they're not ordered in any particular way and
 	// they don't map to kvFetcher.spans in any particular way.
 	rangeInfos []roachpb.RangeInfo
+
+	hack bool
 }
 
 func (f *txnKVFetcher) getRangesInfo() []roachpb.RangeInfo {
@@ -219,6 +221,7 @@ func (f *txnKVFetcher) fetch(ctx context.Context) error {
 	} else {
 		scans := make([]roachpb.ScanRequest, len(f.spans))
 		for i := range f.spans {
+			scans[i].Hack = f.hack
 			scans[i].Span = f.spans[i]
 			ba.Requests[i].MustSetInner(&scans[i])
 		}

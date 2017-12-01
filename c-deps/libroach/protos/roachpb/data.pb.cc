@@ -31,6 +31,11 @@ public:
  ::google::protobuf::internal::ExplicitlyConstructed<KeyValue>
      _instance;
 } _KeyValue_default_instance_;
+class KVSDefaultTypeInternal {
+public:
+ ::google::protobuf::internal::ExplicitlyConstructed<KVS>
+     _instance;
+} _KVS_default_instance_;
 class StoreIdentDefaultTypeInternal {
 public:
  ::google::protobuf::internal::ExplicitlyConstructed<StoreIdent>
@@ -114,6 +119,7 @@ PROTOBUF_CONSTEXPR_VAR ::google::protobuf::internal::ParseTable const
   { NULL, NULL, 0, -1, -1, -1, -1, NULL, false },
   { NULL, NULL, 0, -1, -1, -1, -1, NULL, false },
   { NULL, NULL, 0, -1, -1, -1, -1, NULL, false },
+  { NULL, NULL, 0, -1, -1, -1, -1, NULL, false },
 };
 
 void TableStruct::InitDefaultsImpl() {
@@ -129,7 +135,9 @@ void TableStruct::InitDefaultsImpl() {
   ::google::protobuf::internal::OnShutdownDestroyMessage(
       &_Value_default_instance_);_KeyValue_default_instance_._instance.DefaultConstruct();
   ::google::protobuf::internal::OnShutdownDestroyMessage(
-      &_KeyValue_default_instance_);_StoreIdent_default_instance_._instance.DefaultConstruct();
+      &_KeyValue_default_instance_);_KVS_default_instance_._instance.DefaultConstruct();
+  ::google::protobuf::internal::OnShutdownDestroyMessage(
+      &_KVS_default_instance_);_StoreIdent_default_instance_._instance.DefaultConstruct();
   ::google::protobuf::internal::OnShutdownDestroyMessage(
       &_StoreIdent_default_instance_);_SplitTrigger_default_instance_._instance.DefaultConstruct();
   ::google::protobuf::internal::OnShutdownDestroyMessage(
@@ -1259,6 +1267,235 @@ void KeyValue::set_allocated_value(::cockroach::roachpb::Value* value) {
     
   }
   // @@protoc_insertion_point(field_set_allocated:cockroach.roachpb.KeyValue.value)
+}
+
+#endif  // PROTOBUF_INLINE_NOT_IN_HEADERS
+
+// ===================================================================
+
+#if !defined(_MSC_VER) || _MSC_VER >= 1900
+const int KVS::kDataFieldNumber;
+#endif  // !defined(_MSC_VER) || _MSC_VER >= 1900
+
+KVS::KVS()
+  : ::google::protobuf::MessageLite(), _internal_metadata_(NULL) {
+  if (GOOGLE_PREDICT_TRUE(this != internal_default_instance())) {
+    protobuf_roachpb_2fdata_2eproto::InitDefaults();
+  }
+  SharedCtor();
+  // @@protoc_insertion_point(constructor:cockroach.roachpb.KVS)
+}
+KVS::KVS(const KVS& from)
+  : ::google::protobuf::MessageLite(),
+      _internal_metadata_(NULL),
+      data_(from.data_),
+      _cached_size_(0) {
+  _internal_metadata_.MergeFrom(from._internal_metadata_);
+  // @@protoc_insertion_point(copy_constructor:cockroach.roachpb.KVS)
+}
+
+void KVS::SharedCtor() {
+  _cached_size_ = 0;
+}
+
+KVS::~KVS() {
+  // @@protoc_insertion_point(destructor:cockroach.roachpb.KVS)
+  SharedDtor();
+}
+
+void KVS::SharedDtor() {
+}
+
+void KVS::SetCachedSize(int size) const {
+  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+  _cached_size_ = size;
+  GOOGLE_SAFE_CONCURRENT_WRITES_END();
+}
+const KVS& KVS::default_instance() {
+  protobuf_roachpb_2fdata_2eproto::InitDefaults();
+  return *internal_default_instance();
+}
+
+KVS* KVS::New(::google::protobuf::Arena* arena) const {
+  KVS* n = new KVS;
+  if (arena != NULL) {
+    arena->Own(n);
+  }
+  return n;
+}
+
+void KVS::Clear() {
+// @@protoc_insertion_point(message_clear_start:cockroach.roachpb.KVS)
+  ::google::protobuf::uint32 cached_has_bits = 0;
+  // Prevent compiler warnings about cached_has_bits being unused
+  (void) cached_has_bits;
+
+  data_.Clear();
+  _internal_metadata_.Clear();
+}
+
+bool KVS::MergePartialFromCodedStream(
+    ::google::protobuf::io::CodedInputStream* input) {
+#define DO_(EXPRESSION) if (!GOOGLE_PREDICT_TRUE(EXPRESSION)) goto failure
+  ::google::protobuf::uint32 tag;
+  ::google::protobuf::io::LazyStringOutputStream unknown_fields_string(
+      ::google::protobuf::NewPermanentCallback(&_internal_metadata_,
+          &::google::protobuf::internal::InternalMetadataWithArenaLite::
+              mutable_unknown_fields));
+  ::google::protobuf::io::CodedOutputStream unknown_fields_stream(
+      &unknown_fields_string, false);
+  // @@protoc_insertion_point(parse_start:cockroach.roachpb.KVS)
+  for (;;) {
+    ::std::pair< ::google::protobuf::uint32, bool> p = input->ReadTagWithCutoffNoLastTag(127u);
+    tag = p.first;
+    if (!p.second) goto handle_unusual;
+    switch (::google::protobuf::internal::WireFormatLite::GetTagFieldNumber(tag)) {
+      // repeated .cockroach.roachpb.KeyValue data = 1;
+      case 1: {
+        if (static_cast< ::google::protobuf::uint8>(tag) ==
+            static_cast< ::google::protobuf::uint8>(10u /* 10 & 0xFF */)) {
+          DO_(::google::protobuf::internal::WireFormatLite::ReadMessageNoVirtual(
+                input, add_data()));
+        } else {
+          goto handle_unusual;
+        }
+        break;
+      }
+
+      default: {
+      handle_unusual:
+        if (tag == 0) {
+          goto success;
+        }
+        DO_(::google::protobuf::internal::WireFormatLite::SkipField(
+            input, tag, &unknown_fields_stream));
+        break;
+      }
+    }
+  }
+success:
+  // @@protoc_insertion_point(parse_success:cockroach.roachpb.KVS)
+  return true;
+failure:
+  // @@protoc_insertion_point(parse_failure:cockroach.roachpb.KVS)
+  return false;
+#undef DO_
+}
+
+void KVS::SerializeWithCachedSizes(
+    ::google::protobuf::io::CodedOutputStream* output) const {
+  // @@protoc_insertion_point(serialize_start:cockroach.roachpb.KVS)
+  ::google::protobuf::uint32 cached_has_bits = 0;
+  (void) cached_has_bits;
+
+  // repeated .cockroach.roachpb.KeyValue data = 1;
+  for (unsigned int i = 0,
+      n = static_cast<unsigned int>(this->data_size()); i < n; i++) {
+    ::google::protobuf::internal::WireFormatLite::WriteMessage(
+      1, this->data(static_cast<int>(i)), output);
+  }
+
+  output->WriteRaw((::google::protobuf::internal::GetProto3PreserveUnknownsDefault()   ? _internal_metadata_.unknown_fields()   : _internal_metadata_.default_instance()).data(),
+                   static_cast<int>((::google::protobuf::internal::GetProto3PreserveUnknownsDefault()   ? _internal_metadata_.unknown_fields()   : _internal_metadata_.default_instance()).size()));
+  // @@protoc_insertion_point(serialize_end:cockroach.roachpb.KVS)
+}
+
+size_t KVS::ByteSizeLong() const {
+// @@protoc_insertion_point(message_byte_size_start:cockroach.roachpb.KVS)
+  size_t total_size = 0;
+
+  total_size += (::google::protobuf::internal::GetProto3PreserveUnknownsDefault()   ? _internal_metadata_.unknown_fields()   : _internal_metadata_.default_instance()).size();
+
+  // repeated .cockroach.roachpb.KeyValue data = 1;
+  {
+    unsigned int count = static_cast<unsigned int>(this->data_size());
+    total_size += 1UL * count;
+    for (unsigned int i = 0; i < count; i++) {
+      total_size +=
+        ::google::protobuf::internal::WireFormatLite::MessageSizeNoVirtual(
+          this->data(static_cast<int>(i)));
+    }
+  }
+
+  int cached_size = ::google::protobuf::internal::ToCachedSize(total_size);
+  GOOGLE_SAFE_CONCURRENT_WRITES_BEGIN();
+  _cached_size_ = cached_size;
+  GOOGLE_SAFE_CONCURRENT_WRITES_END();
+  return total_size;
+}
+
+void KVS::CheckTypeAndMergeFrom(
+    const ::google::protobuf::MessageLite& from) {
+  MergeFrom(*::google::protobuf::down_cast<const KVS*>(&from));
+}
+
+void KVS::MergeFrom(const KVS& from) {
+// @@protoc_insertion_point(class_specific_merge_from_start:cockroach.roachpb.KVS)
+  GOOGLE_DCHECK_NE(&from, this);
+  _internal_metadata_.MergeFrom(from._internal_metadata_);
+  ::google::protobuf::uint32 cached_has_bits = 0;
+  (void) cached_has_bits;
+
+  data_.MergeFrom(from.data_);
+}
+
+void KVS::CopyFrom(const KVS& from) {
+// @@protoc_insertion_point(class_specific_copy_from_start:cockroach.roachpb.KVS)
+  if (&from == this) return;
+  Clear();
+  MergeFrom(from);
+}
+
+bool KVS::IsInitialized() const {
+  return true;
+}
+
+void KVS::Swap(KVS* other) {
+  if (other == this) return;
+  InternalSwap(other);
+}
+void KVS::InternalSwap(KVS* other) {
+  using std::swap;
+  data_.InternalSwap(&other->data_);
+  _internal_metadata_.Swap(&other->_internal_metadata_);
+  swap(_cached_size_, other->_cached_size_);
+}
+
+::std::string KVS::GetTypeName() const {
+  return "cockroach.roachpb.KVS";
+}
+
+#if PROTOBUF_INLINE_NOT_IN_HEADERS
+// KVS
+
+// repeated .cockroach.roachpb.KeyValue data = 1;
+int KVS::data_size() const {
+  return data_.size();
+}
+void KVS::clear_data() {
+  data_.Clear();
+}
+const ::cockroach::roachpb::KeyValue& KVS::data(int index) const {
+  // @@protoc_insertion_point(field_get:cockroach.roachpb.KVS.data)
+  return data_.Get(index);
+}
+::cockroach::roachpb::KeyValue* KVS::mutable_data(int index) {
+  // @@protoc_insertion_point(field_mutable:cockroach.roachpb.KVS.data)
+  return data_.Mutable(index);
+}
+::cockroach::roachpb::KeyValue* KVS::add_data() {
+  // @@protoc_insertion_point(field_add:cockroach.roachpb.KVS.data)
+  return data_.Add();
+}
+::google::protobuf::RepeatedPtrField< ::cockroach::roachpb::KeyValue >*
+KVS::mutable_data() {
+  // @@protoc_insertion_point(field_mutable_list:cockroach.roachpb.KVS.data)
+  return &data_;
+}
+const ::google::protobuf::RepeatedPtrField< ::cockroach::roachpb::KeyValue >&
+KVS::data() const {
+  // @@protoc_insertion_point(field_list:cockroach.roachpb.KVS.data)
+  return data_;
 }
 
 #endif  // PROTOBUF_INLINE_NOT_IN_HEADERS

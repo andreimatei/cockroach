@@ -22,6 +22,11 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/storage/engine"
 )
 
+// func init() {
+//   RegisterCommand(roachpb.Scan, DefaultDeclareKeys, Scan)
+//   RegisterCommand(roachpb.ScanHack, DefaultDeclareKeys, ScanHack)
+// }
+
 // Scan scans the key range specified by start key through end key
 // in ascending order up to some maximum number of results. maxKeys
 // stores the number of scan results remaining for this batch
@@ -34,6 +39,31 @@ func Scan(
 	reply := resp.(*roachpb.ScanResponse)
 
 	rows, resumeSpan, intents, err := engine.MVCCScan(ctx, batch, args.Key, args.EndKey,
+		cArgs.MaxKeys, h.Timestamp, h.ReadConsistency == roachpb.CONSISTENT, h.Txn)
+	if err != nil {
+		return result.Result{}, err
+	}
+
+	reply.NumKeys = int64(len(rows))
+	if resumeSpan != nil {
+		reply.ResumeSpan = resumeSpan
+		reply.ResumeReason = roachpb.RESUME_KEY_LIMIT
+	}
+	reply.Rows = rows
+	if args.ReturnIntents {
+		reply.IntentRows, err = CollectIntentRows(ctx, batch, cArgs, intents)
+	}
+	return result.FromIntents(intents, args, true /* alwaysReturn */), err
+}
+
+func ScanHack(
+	ctx context.Context, batch engine.ReadWriter, cArgs CommandArgs, resp roachpb.Response,
+) (result.Result, error) {
+	args := cArgs.Args.(*roachpb.ScanRequest)
+	h := cArgs.Header
+	reply := resp.(*roachpb.ScanResponse)
+
+	rows, resumeSpan, intents, err := engine.MVCCScanHack(ctx, batch, args.Key, args.EndKey,
 		cArgs.MaxKeys, h.Timestamp, h.ReadConsistency == roachpb.CONSISTENT, h.Txn)
 	if err != nil {
 		return result.Result{}, err

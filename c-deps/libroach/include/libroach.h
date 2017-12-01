@@ -168,6 +168,8 @@ DBEngine* DBNewBatch(DBEngine* db, bool writeOnly);
 // DBIterDestroy().
 DBIterator* DBNewIter(DBEngine* db, bool prefix);
 
+DBStatus DBScanHack(DBEngine* db, bool prefix, DBKey startKey, DBKey endKey);
+
 DBIterator* DBNewTimeBoundIter(DBEngine* db, DBTimestamp min_ts, DBTimestamp max_ts);
 
 // Destroys an iterator, freeing up any associated memory.

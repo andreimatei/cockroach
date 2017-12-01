@@ -47,6 +47,9 @@ extern IntentDefaultTypeInternal _Intent_default_instance_;
 class InternalCommitTrigger;
 class InternalCommitTriggerDefaultTypeInternal;
 extern InternalCommitTriggerDefaultTypeInternal _InternalCommitTrigger_default_instance_;
+class KVS;
+class KVSDefaultTypeInternal;
+extern KVSDefaultTypeInternal _KVS_default_instance_;
 class KeyValue;
 class KeyValueDefaultTypeInternal;
 extern KeyValueDefaultTypeInternal _KeyValue_default_instance_;
@@ -483,6 +486,107 @@ class KeyValue : public ::google::protobuf::MessageLite /* @@protoc_insertion_po
 };
 // -------------------------------------------------------------------
 
+class KVS : public ::google::protobuf::MessageLite /* @@protoc_insertion_point(class_definition:cockroach.roachpb.KVS) */ {
+ public:
+  KVS();
+  virtual ~KVS();
+
+  KVS(const KVS& from);
+
+  inline KVS& operator=(const KVS& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  #if LANG_CXX11
+  KVS(KVS&& from) noexcept
+    : KVS() {
+    *this = ::std::move(from);
+  }
+
+  inline KVS& operator=(KVS&& from) noexcept {
+    if (GetArenaNoVirtual() == from.GetArenaNoVirtual()) {
+      if (this != &from) InternalSwap(&from);
+    } else {
+      CopyFrom(from);
+    }
+    return *this;
+  }
+  #endif
+  static const KVS& default_instance();
+
+  static inline const KVS* internal_default_instance() {
+    return reinterpret_cast<const KVS*>(
+               &_KVS_default_instance_);
+  }
+  static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
+    3;
+
+  void Swap(KVS* other);
+  friend void swap(KVS& a, KVS& b) {
+    a.Swap(&b);
+  }
+
+  // implements Message ----------------------------------------------
+
+  inline KVS* New() const PROTOBUF_FINAL { return New(NULL); }
+
+  KVS* New(::google::protobuf::Arena* arena) const PROTOBUF_FINAL;
+  void CheckTypeAndMergeFrom(const ::google::protobuf::MessageLite& from)
+    PROTOBUF_FINAL;
+  void CopyFrom(const KVS& from);
+  void MergeFrom(const KVS& from);
+  void Clear() PROTOBUF_FINAL;
+  bool IsInitialized() const PROTOBUF_FINAL;
+
+  size_t ByteSizeLong() const PROTOBUF_FINAL;
+  bool MergePartialFromCodedStream(
+      ::google::protobuf::io::CodedInputStream* input) PROTOBUF_FINAL;
+  void SerializeWithCachedSizes(
+      ::google::protobuf::io::CodedOutputStream* output) const PROTOBUF_FINAL;
+  void DiscardUnknownFields();
+  int GetCachedSize() const PROTOBUF_FINAL { return _cached_size_; }
+  private:
+  void SharedCtor();
+  void SharedDtor();
+  void SetCachedSize(int size) const;
+  void InternalSwap(KVS* other);
+  private:
+  inline ::google::protobuf::Arena* GetArenaNoVirtual() const {
+    return NULL;
+  }
+  inline void* MaybeArenaPtr() const {
+    return NULL;
+  }
+  public:
+
+  ::std::string GetTypeName() const PROTOBUF_FINAL;
+
+  // nested types ----------------------------------------------------
+
+  // accessors -------------------------------------------------------
+
+  // repeated .cockroach.roachpb.KeyValue data = 1;
+  int data_size() const;
+  void clear_data();
+  static const int kDataFieldNumber = 1;
+  const ::cockroach::roachpb::KeyValue& data(int index) const;
+  ::cockroach::roachpb::KeyValue* mutable_data(int index);
+  ::cockroach::roachpb::KeyValue* add_data();
+  ::google::protobuf::RepeatedPtrField< ::cockroach::roachpb::KeyValue >*
+      mutable_data();
+  const ::google::protobuf::RepeatedPtrField< ::cockroach::roachpb::KeyValue >&
+      data() const;
+
+  // @@protoc_insertion_point(class_scope:cockroach.roachpb.KVS)
+ private:
+
+  ::google::protobuf::internal::InternalMetadataWithArenaLite _internal_metadata_;
+  ::google::protobuf::RepeatedPtrField< ::cockroach::roachpb::KeyValue > data_;
+  mutable int _cached_size_;
+  friend struct protobuf_roachpb_2fdata_2eproto::TableStruct;
+};
+// -------------------------------------------------------------------
+
 class StoreIdent : public ::google::protobuf::MessageLite /* @@protoc_insertion_point(class_definition:cockroach.roachpb.StoreIdent) */ {
  public:
   StoreIdent();
@@ -516,7 +620,7 @@ class StoreIdent : public ::google::protobuf::MessageLite /* @@protoc_insertion_
                &_StoreIdent_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    3;
+    4;
 
   void Swap(StoreIdent* other);
   friend void swap(StoreIdent& a, StoreIdent& b) {
@@ -630,7 +734,7 @@ class SplitTrigger : public ::google::protobuf::MessageLite /* @@protoc_insertio
                &_SplitTrigger_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    4;
+    5;
 
   void Swap(SplitTrigger* other);
   friend void swap(SplitTrigger& a, SplitTrigger& b) {
@@ -736,7 +840,7 @@ class MergeTrigger : public ::google::protobuf::MessageLite /* @@protoc_insertio
                &_MergeTrigger_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    5;
+    6;
 
   void Swap(MergeTrigger* other);
   friend void swap(MergeTrigger& a, MergeTrigger& b) {
@@ -842,7 +946,7 @@ class ChangeReplicasTrigger : public ::google::protobuf::MessageLite /* @@protoc
                &_ChangeReplicasTrigger_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    6;
+    7;
 
   void Swap(ChangeReplicasTrigger* other);
   friend void swap(ChangeReplicasTrigger& a, ChangeReplicasTrigger& b) {
@@ -964,7 +1068,7 @@ class ModifiedSpanTrigger : public ::google::protobuf::MessageLite /* @@protoc_i
                &_ModifiedSpanTrigger_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    7;
+    8;
 
   void Swap(ModifiedSpanTrigger* other);
   friend void swap(ModifiedSpanTrigger& a, ModifiedSpanTrigger& b) {
@@ -1069,7 +1173,7 @@ class InternalCommitTrigger : public ::google::protobuf::MessageLite /* @@protoc
                &_InternalCommitTrigger_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    8;
+    9;
 
   void Swap(InternalCommitTrigger* other);
   friend void swap(InternalCommitTrigger& a, InternalCommitTrigger& b) {
@@ -1197,7 +1301,7 @@ class ObservedTimestamp : public ::google::protobuf::MessageLite /* @@protoc_ins
                &_ObservedTimestamp_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    9;
+    10;
 
   void Swap(ObservedTimestamp* other);
   friend void swap(ObservedTimestamp& a, ObservedTimestamp& b) {
@@ -1300,7 +1404,7 @@ class Transaction : public ::google::protobuf::MessageLite /* @@protoc_insertion
                &_Transaction_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    10;
+    11;
 
   void Swap(Transaction* other);
   friend void swap(Transaction& a, Transaction& b) {
@@ -1491,7 +1595,7 @@ class Intent : public ::google::protobuf::MessageLite /* @@protoc_insertion_poin
                &_Intent_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    11;
+    12;
 
   void Swap(Intent* other);
   friend void swap(Intent& a, Intent& b) {
@@ -1604,7 +1708,7 @@ class Lease : public ::google::protobuf::MessageLite /* @@protoc_insertion_point
                &_Lease_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    12;
+    13;
 
   void Swap(Lease* other);
   friend void swap(Lease& a, Lease& b) {
@@ -1744,7 +1848,7 @@ class AbortSpanEntry : public ::google::protobuf::MessageLite /* @@protoc_insert
                &_AbortSpanEntry_default_instance_);
   }
   static PROTOBUF_CONSTEXPR int const kIndexInFileMessages =
-    13;
+    14;
 
   void Swap(AbortSpanEntry* other);
   friend void swap(AbortSpanEntry& a, AbortSpanEntry& b) {
@@ -2132,6 +2236,40 @@ inline void KeyValue::set_allocated_value(::cockroach::roachpb::Value* value) {
     
   }
   // @@protoc_insertion_point(field_set_allocated:cockroach.roachpb.KeyValue.value)
+}
+
+// -------------------------------------------------------------------
+
+// KVS
+
+// repeated .cockroach.roachpb.KeyValue data = 1;
+inline int KVS::data_size() const {
+  return data_.size();
+}
+inline void KVS::clear_data() {
+  data_.Clear();
+}
+inline const ::cockroach::roachpb::KeyValue& KVS::data(int index) const {
+  // @@protoc_insertion_point(field_get:cockroach.roachpb.KVS.data)
+  return data_.Get(index);
+}
+inline ::cockroach::roachpb::KeyValue* KVS::mutable_data(int index) {
+  // @@protoc_insertion_point(field_mutable:cockroach.roachpb.KVS.data)
+  return data_.Mutable(index);
+}
+inline ::cockroach::roachpb::KeyValue* KVS::add_data() {
+  // @@protoc_insertion_point(field_add:cockroach.roachpb.KVS.data)
+  return data_.Add();
+}
+inline ::google::protobuf::RepeatedPtrField< ::cockroach::roachpb::KeyValue >*
+KVS::mutable_data() {
+  // @@protoc_insertion_point(field_mutable_list:cockroach.roachpb.KVS.data)
+  return &data_;
+}
+inline const ::google::protobuf::RepeatedPtrField< ::cockroach::roachpb::KeyValue >&
+KVS::data() const {
+  // @@protoc_insertion_point(field_list:cockroach.roachpb.KVS.data)
+  return data_;
 }
 
 // -------------------------------------------------------------------
@@ -3506,6 +3644,8 @@ inline void AbortSpanEntry::set_priority(::google::protobuf::int32 value) {
   #pragma GCC diagnostic pop
 #endif  // __GNUC__
 #endif  // !PROTOBUF_INLINE_NOT_IN_HEADERS
+// -------------------------------------------------------------------
+
 // -------------------------------------------------------------------
 
 // -------------------------------------------------------------------

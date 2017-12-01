@@ -4,9 +4,9 @@ package roachpb
 
 import "fmt"
 
-const _Method_name = "GetPutConditionalPutIncrementDeleteDeleteRangeScanReverseScanBeginTransactionEndTransactionAdminSplitAdminMergeAdminTransferLeaseAdminChangeReplicasHeartbeatTxnGCPushTxnQueryTxnRangeLookupResolveIntentResolveIntentRangeNoopMergeTruncateLogRequestLeaseTransferLeaseLeaseInfoComputeChecksumDeprecatedVerifyChecksumCheckConsistencyInitPutWriteBatchExportImportAdminScatterAddSSTable"
+const _Method_name = "GetPutConditionalPutIncrementDeleteDeleteRangeScanScanHackReverseScanBeginTransactionEndTransactionAdminSplitAdminMergeAdminTransferLeaseAdminChangeReplicasHeartbeatTxnGCPushTxnQueryTxnRangeLookupResolveIntentResolveIntentRangeNoopMergeTruncateLogRequestLeaseTransferLeaseLeaseInfoComputeChecksumDeprecatedVerifyChecksumCheckConsistencyInitPutWriteBatchExportImportAdminScatterAddSSTable"
 
-var _Method_index = [...]uint16{0, 3, 6, 20, 29, 35, 46, 50, 61, 77, 91, 101, 111, 129, 148, 160, 162, 169, 177, 188, 201, 219, 223, 228, 239, 251, 264, 273, 288, 312, 328, 335, 345, 351, 357, 369, 379}
+var _Method_index = [...]uint16{0, 3, 6, 20, 29, 35, 46, 50, 58, 69, 85, 99, 109, 119, 137, 156, 168, 170, 177, 185, 196, 209, 227, 231, 236, 247, 259, 272, 281, 296, 320, 336, 343, 353, 359, 365, 377, 387}
 
 func (i Method) String() string {
 	if i < 0 || i >= Method(len(_Method_index)-1) {

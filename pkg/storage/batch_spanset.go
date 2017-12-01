@@ -21,7 +21,9 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/storage/engine/enginepb"
 	"github.com/cockroachdb/cockroach/pkg/storage/spanset"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/protoutil"
+	"golang.org/x/net/context"
 )
 
 // SpanSetIterator wraps an engine.Iterator and ensures that it can
@@ -167,6 +169,11 @@ type spanSetReader struct {
 }
 
 var _ engine.Reader = spanSetReader{}
+
+func (s spanSetReader) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error) {
+	log.Infof(context.TODO(), "!!! spanSetReader.ScanHack()")
+	return s.r.ScanHack(prefix, startKey, endKey)
+}
 
 func (s spanSetReader) Close() {
 	s.r.Close()

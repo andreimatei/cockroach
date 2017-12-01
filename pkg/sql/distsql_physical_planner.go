@@ -671,6 +671,10 @@ func initTableReaderSpec(
 	post := distsqlrun.PostProcessSpec{
 		Filter: distsqlplan.MakeExpression(n.filter, evalCtx, nil),
 	}
+	hack := strings.Contains(post.Filter.Expr, "hack")
+	if hack {
+		s.Hack = true
+	}
 
 	if n.hardLimit != 0 {
 		post.Limit = uint64(n.hardLimit)

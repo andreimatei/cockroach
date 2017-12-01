@@ -82,6 +82,7 @@ var commands = map[roachpb.Method]Command{
 	roachpb.Delete:             {DeclareKeys: batcheval.DefaultDeclareKeys, Eval: batcheval.Delete},
 	roachpb.DeleteRange:        {DeclareKeys: batcheval.DefaultDeclareKeys, Eval: batcheval.DeleteRange},
 	roachpb.Scan:               {DeclareKeys: batcheval.DefaultDeclareKeys, Eval: batcheval.Scan},
+	roachpb.ScanHack:           {DeclareKeys: batcheval.DefaultDeclareKeys, Eval: batcheval.ScanHack},
 	roachpb.ReverseScan:        {DeclareKeys: batcheval.DefaultDeclareKeys, Eval: batcheval.ReverseScan},
 	roachpb.BeginTransaction:   {DeclareKeys: declareKeysBeginTransaction, Eval: batcheval.BeginTransaction},
 	roachpb.EndTransaction:     {DeclareKeys: declareKeysEndTransaction, Eval: evalEndTransaction},

@@ -16,6 +16,7 @@ package engine
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"sync"
@@ -29,6 +30,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/storage/engine/enginepb"
 	"github.com/cockroachdb/cockroach/pkg/util/bufalloc"
+	"github.com/cockroachdb/cockroach/pkg/util/encoding"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/protoutil"
@@ -1593,6 +1595,74 @@ func MVCCScan(
 ) ([]roachpb.KeyValue, *roachpb.Span, []roachpb.Intent, error) {
 	return mvccScanInternal(ctx, engine, key, endKey, max, timestamp,
 		consistent, txn, false /* reverse */)
+}
+
+func MVCCScanHack(
+	ctx context.Context,
+	engine Reader,
+	key,
+	endKey roachpb.Key,
+	max int64,
+	timestamp hlc.Timestamp,
+	consistent bool,
+	txn *roachpb.Transaction,
+) ([]roachpb.KeyValue, *roachpb.Span, []roachpb.Intent, error) {
+
+	// !!!
+	log.Infof(ctx, "!!! MVCCScanHack calling into engine")
+	_, err := engine.ScanHack(false /* prefix */, key, endKey)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	kvs := make([]roachpb.KeyValue, 0)
+	kv := roachpb.KeyValue{}
+	src := []byte("bb8989880014f8d7f75fc2679f09")
+	buf := make([]byte, hex.DecodedLen(len(src)))
+	if _, err := hex.Decode(buf, src); err != nil {
+		return nil, nil, nil, err
+	}
+	log.Infof(ctx, "!!! decoded into buf: %+v", buf)
+	key, ts, err := splitKey(buf)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	log.Infof(ctx, "!!! split buf into: key: %+v ts: %+v", key, ts)
+	kv.Key = roachpb.Key(key)
+	src = []byte("cc0fecfb0a")
+	kv.Value.RawBytes = make([]byte, hex.DecodedLen(len(src)))
+	if _, err := hex.Decode(kv.Value.RawBytes, src); err != nil {
+		return nil, nil, nil, err
+	}
+
+	ts, physical, err := encoding.DecodeUint64Ascending(ts)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	log.Infof(ctx, "!!! got physical: %d remaining: %+v", physical, ts)
+	var logical uint32
+	if len(ts) > 0 {
+		_, logical, err = encoding.DecodeUint32Ascending(ts)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	kv.Value.Timestamp = hlc.Timestamp{WallTime: int64(physical), Logical: int32(logical)}
+
+	kvs = append(kvs, kv)
+	log.Infof(ctx, "!!! scan hack returning data: %+v", kvs)
+	return kvs, nil, nil, nil
+}
+
+func splitKey(buf []byte) (key []byte, ts []byte, err error) {
+	var tsSize int = int(buf[len(buf)-1])
+	if tsSize >= len(buf) {
+		return nil, nil, errors.Errorf("ts too large: %d. buf len: %d", tsSize, len(buf))
+	}
+	key = buf[0 : len(buf)-tsSize-1]
+	// We skip a byte because that's the timestamp's "NUL prefix".
+	ts = buf[len(buf)-tsSize : len(buf)-1]
+	return key, ts, nil
 }
 
 // MVCCReverseScan scans the key range [start,end) key up to some maximum
