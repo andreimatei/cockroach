@@ -139,6 +139,8 @@ type Reader interface {
 	// efficiently skip over SSTs that contain no MVCC keys in the time range
 	// (start, end].
 	NewTimeBoundIterator(start, end hlc.Timestamp) Iterator
+
+	ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error)
 }
 
 // Writer is the write interface to an engine's data.

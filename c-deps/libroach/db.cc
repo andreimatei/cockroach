@@ -84,6 +84,7 @@ struct DBEngine {
   virtual DBStatus GetStats(DBStatsResult* stats) = 0;
   virtual DBString GetCompactionStats() = 0;
   virtual DBStatus EnvWriteFile(DBSlice path, DBSlice contents) = 0;
+  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey) = 0;
 
   DBSSTable* GetSSTables(int* n);
   DBString GetUserProperties();
@@ -128,6 +129,7 @@ struct DBImpl : public DBEngine {
   virtual DBStatus GetStats(DBStatsResult* stats);
   virtual DBString GetCompactionStats();
   virtual DBStatus EnvWriteFile(DBSlice path, DBSlice contents);
+  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey);
 };
 
 struct DBBatch : public DBEngine {
@@ -150,6 +152,7 @@ struct DBBatch : public DBEngine {
   virtual DBStatus GetStats(DBStatsResult* stats);
   virtual DBString GetCompactionStats();
   virtual DBStatus EnvWriteFile(DBSlice path, DBSlice contents);
+  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey);
 };
 
 struct DBWriteOnlyBatch : public DBEngine {
@@ -172,6 +175,7 @@ struct DBWriteOnlyBatch : public DBEngine {
   virtual DBStatus GetStats(DBStatsResult* stats);
   virtual DBString GetCompactionStats();
   virtual DBStatus EnvWriteFile(DBSlice path, DBSlice contents);
+  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey);
 };
 
 struct DBSnapshot : public DBEngine {
@@ -196,6 +200,7 @@ struct DBSnapshot : public DBEngine {
   virtual DBStatus GetStats(DBStatsResult* stats);
   virtual DBString GetCompactionStats();
   virtual DBStatus EnvWriteFile(DBSlice path, DBSlice contents);
+  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey);
 };
 
 struct DBIterator {
@@ -1824,6 +1829,72 @@ DBStatus DBImpl::Get(DBKey key, DBString* value) {
   return base.Get(value);
 }
 
+DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
+  it->rep->Seek(EncodeKey(startKey));
+  DBStatus status(DBIterGetState(it).status);
+  if (status.data != NULL) {
+    return status;
+  }
+
+  cockroach::roachpb::KVS kvs;
+  for (;;) {
+    rocksdb::Slice k = it->rep->key();
+    rocksdb::Slice v = it->rep->value();
+    // !!! int k_len = k.size();
+    // !!! const char* k_ptr = const_cast<char*>(k.data());
+
+    // If it passes the filter:
+
+    // !!!
+    // DBString k_str = ToDBString(k);
+    // DBString v_str = ToDBString(v);
+    // Extract the timestamp out of k.
+    rocksdb::Slice key;
+    rocksdb::Slice ts;
+
+    int64_t wall_time = 0;
+    int32_t logical = 0;
+    if (!DecodeKey(k, &key, &wall_time, &logical)) {
+      return FmtStatus("unable to decode key");
+    }
+
+    // Fill in a KeyValue proto to be returned to Go.
+    cockroach::roachpb::KeyValue* kv_proto = kvs.add_data();
+    kv_proto->set_key(key.ToString());
+    // Construct the value.
+    auto* value = kv_proto->mutable_value();
+    value->set_raw_bytes(v.ToString());
+    value->mutable_timestamp()->set_wall_time(wall_time);
+    value->mutable_timestamp()->set_logical(logical);
+
+    // !!! continue until the end key
+    break;
+  }
+
+  // for (;
+  //      it->Valid() && it->key().ToString() > endKey;
+  //      it->Next()) {
+  //   // !!!
+  // }
+  assert(it->status().ok()); // Check for any errors found during the scan
+  return DBIterGetState(it).status;
+}
+
+DBStatus DBSnapshot::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
+  assert(false);
+  return FmtStatus("ScanHack unexpected on snapshot");
+}
+
+DBStatus DBWriteOnlyBatch::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
+  assert(false);
+  return FmtStatus("ScanHack unexpected on DBWriteOnlyBatch");
+}
+
+DBStatus DBBatch::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
+  assert(false);
+  return FmtStatus("ScanHack unexpected on DBBatch");
+}
+
 DBStatus DBBatch::Get(DBKey key, DBString* value) {
   rocksdb::ReadOptions read_opts;
   DBGetter base(rep, read_opts, EncodeKey(key));
@@ -2154,6 +2225,14 @@ DBIterator* DBNewIter(DBEngine* db, bool prefix) {
   opts.prefix_same_as_start = prefix;
   opts.total_order_seek = !prefix;
   return db->NewIter(&opts);
+}
+
+DBStatus DBScanHack(DBEngine* db, bool prefix, DBKey startKey, DBKey endKey) {
+  rocksdb::ReadOptions opts;
+  opts.prefix_same_as_start = prefix;
+  opts.total_order_seek = !prefix;
+  DBIterator* iter(db->NewIter(&opts));
+  return db->ScanHack(iter, startKey, endKey);
 }
 
 DBIterator* DBNewTimeBoundIter(DBEngine* db, DBTimestamp min_ts, DBTimestamp max_ts) {

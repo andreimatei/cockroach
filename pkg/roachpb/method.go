@@ -45,6 +45,8 @@ const (
 	// args.RequestHeader.Key and args.RequestHeader.EndKey, with
 	// the latter endpoint excluded.
 	Scan
+	// !!!
+	ScanHack
 	// ReverseScan fetches the values for all keys which fall between
 	// args.RequestHeader.Key and args.RequestHeader.EndKey, with
 	// the latter endpoint excluded.

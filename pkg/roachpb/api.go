@@ -423,7 +423,13 @@ func (*DeleteRequest) Method() Method { return Delete }
 func (*DeleteRangeRequest) Method() Method { return DeleteRange }
 
 // Method implements the Request interface.
-func (*ScanRequest) Method() Method { return Scan }
+func (sr *ScanRequest) Method() Method {
+	if !sr.Hack {
+		return Scan
+	} else {
+		return ScanHack
+	}
+}
 
 // Method implements the Request interface.
 func (*ReverseScanRequest) Method() Method { return ReverseScan }

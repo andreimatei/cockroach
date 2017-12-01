@@ -104,6 +104,8 @@ type scanNode struct {
 	//
 	//lint:ignore U1000 this marker prevents by-value copies.
 	noCopy util.NoCopy
+
+	scan bool
 }
 
 // scanVisibility represents which table columns should be included in a scan.

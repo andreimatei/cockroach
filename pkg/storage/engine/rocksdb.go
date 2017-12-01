@@ -717,6 +717,17 @@ func (r *RocksDB) NewIterator(prefix bool) Iterator {
 	return newRocksDBIterator(r.rdb, prefix, r)
 }
 
+func (r *RocksDB) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error) {
+	log.Infof(context.TODO(), "!!! RocksDB.ScanHack()")
+	sk := goToCKey(MVCCKey{Key: startKey})
+	ek := goToCKey(MVCCKey{Key: endKey})
+	var status C.DBStatus = C.DBScanHack(r.rdb, C.bool(prefix), sk, ek)
+	if err := statusToError(status); err != nil {
+		return roachpb.KVS{}, err
+	}
+	return roachpb.KVS{}, nil
+}
+
 // NewTimeBoundIterator is like NewIterator, but returns a time-bound iterator.
 func (r *RocksDB) NewTimeBoundIterator(start, end hlc.Timestamp) Iterator {
 	it := &rocksDBIterator{}
@@ -749,6 +760,11 @@ type rocksDBReadOnly struct {
 	prefixIter reusableIterator
 	normalIter reusableIterator
 	isClosed   bool
+}
+
+func (r *rocksDBReadOnly) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error) {
+	log.Infof(context.TODO(), "!!! rocksDBReadOnly.ScanHack()")
+	return r.parent.ScanHack(prefix, startKey, endKey)
 }
 
 func (r *rocksDBReadOnly) Close() {
@@ -942,6 +958,11 @@ func (r *RocksDB) GetCompactionStats() string {
 type rocksDBSnapshot struct {
 	parent *RocksDB
 	handle *C.DBEngine
+}
+
+func (r *rocksDBSnapshot) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error) {
+	log.Infof(context.TODO(), "!!! rocksDBSnapshot.ScanHack()")
+	return r.parent.ScanHack(prefix, startKey, endKey)
 }
 
 // Close releases the snapshot handle.
@@ -1213,6 +1234,11 @@ type rocksDBBatch struct {
 	committed          bool
 	commitErr          error
 	commitWG           sync.WaitGroup
+}
+
+func (r *rocksDBBatch) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error) {
+	log.Infof(context.TODO(), "!!! rocksDBBatch.ScanHack()")
+	return r.parent.ScanHack(prefix, startKey, endKey)
 }
 
 func newRocksDBBatch(parent *RocksDB, writeOnly bool) *rocksDBBatch {
