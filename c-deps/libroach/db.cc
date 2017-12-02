@@ -1836,46 +1836,52 @@ DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
     return status;
   }
 
-  cockroach::roachpb::KVS kvs;
-  for (;;) {
-    rocksdb::Slice k = it->rep->key();
-    rocksdb::Slice v = it->rep->value();
-    // !!! int k_len = k.size();
-    // !!! const char* k_ptr = const_cast<char*>(k.data());
-
-    // If it passes the filter:
-
-    // !!!
-    // DBString k_str = ToDBString(k);
-    // DBString v_str = ToDBString(v);
-    // Extract the timestamp out of k.
-    rocksdb::Slice key;
-    rocksdb::Slice ts;
-
-    int64_t wall_time = 0;
-    int32_t logical = 0;
-    if (!DecodeKey(k, &key, &wall_time, &logical)) {
-      return FmtStatus("unable to decode key");
-    }
-
-    // Fill in a KeyValue proto to be returned to Go.
-    cockroach::roachpb::KeyValue* kv_proto = kvs.add_data();
-    kv_proto->set_key(key.ToString());
-    // Construct the value.
-    auto* value = kv_proto->mutable_value();
-    value->set_raw_bytes(v.ToString());
-    value->mutable_timestamp()->set_wall_time(wall_time);
-    value->mutable_timestamp()->set_logical(logical);
-
-    // !!! continue until the end key
-    break;
-  }
-
-  // for (;
-  //      it->Valid() && it->key().ToString() > endKey;
-  //      it->Next()) {
+  // cockroach::roachpb::KVS kvs;
+  // for (;;) {
+  //   rocksdb::Slice k = it->rep->key();
+  //   rocksdb::Slice v = it->rep->value();
+  //   // !!! int k_len = k.size();
+  //   // !!! const char* k_ptr = const_cast<char*>(k.data());
+  //
+  //   // If it passes the filter:
+  //
   //   // !!!
+  //   // DBString k_str = ToDBString(k);
+  //   // DBString v_str = ToDBString(v);
+  //   // Extract the timestamp out of k.
+  //   rocksdb::Slice key;
+  //   rocksdb::Slice ts;
+  //
+  //   int64_t wall_time = 0;
+  //   int32_t logical = 0;
+  //   if (!DecodeKey(k, &key, &wall_time, &logical)) {
+  //     return FmtStatus("unable to decode key");
+  //   }
+  //
+  //   // Fill in a KeyValue proto to be returned to Go.
+  //   cockroach::roachpb::KeyValue* kv_proto = kvs.add_data();
+  //   kv_proto->set_key(key.ToString());
+  //   // Construct the value.
+  //   auto* value = kv_proto->mutable_value();
+  //   value->set_raw_bytes(v.ToString());
+  //   value->mutable_timestamp()->set_wall_time(wall_time);
+  //   value->mutable_timestamp()->set_logical(logical);
+  //
+  //   // !!! continue until the end key
+  //   break;
   // }
+
+  int num_kvs = 0;
+  // std::string endStr = ToString(endKey.key);
+  std::string endStr = EncodeKey(endKey);
+  for (;
+       it->rep->Valid() && it->rep->key().ToString() < endStr;
+       it->rep->Next()) {
+    num_kvs++;
+    // !!!
+  }
+  rocksdb::Info(rep->GetOptions().info_log, "!!! scanned #KVS: %d", num_kvs);
+
   assert(it->status().ok()); // Check for any errors found during the scan
   return DBIterGetState(it).status;
 }
