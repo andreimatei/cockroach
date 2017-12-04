@@ -1864,6 +1864,7 @@ filterType getFilter() {
 }
 
 cockroach::roachpb::KVS kvs;
+bool programCompiled = false;
 
 DBString DBHackGetLastKVS() {
   std::string str;
@@ -1915,15 +1916,19 @@ DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::str
   // }
 
 
-  fprintf(stderr, "!!! about to compile\n");
-  CompileStr(prog);
-  fprintf(stderr, "!!! about to InitParser\n");
-  InitParser();
-  fprintf(stderr, "!!! about to InitLLVM\n");
-  InitLLVM();
-  MainLoop();
-  // Print out all of the generated code.
-  TheModule->print(llvm::errs(), nullptr);
+  if (!programCompiled) {
+    fprintf(stderr, "!!! about to compile\n");
+    CompileStr(prog);
+    fprintf(stderr, "!!! about to InitParser\n");
+    InitParser();
+    fprintf(stderr, "!!! about to InitLLVM\n");
+    InitLLVM();
+    MainLoop();
+    // Print out all of the generated code.
+    TheModule->print(llvm::errs(), nullptr);
+    programCompiled = true;
+  }
+  
   auto filter = getFilter();
   if (filter == nullptr) {
     fprintf(stderr, "!!! missing filter\n");
