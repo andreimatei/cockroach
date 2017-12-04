@@ -175,11 +175,12 @@ def byte prog_main(byte_ptr k, byte_ptr v) {
   v = skip_byte(v);  # int col tag 
   v = skip_int(v);   # l_linenumber int
   v = skip_byte(v);  # decimal col tag 
-  var exp_quantity byte_ptr = "\x04348A06A4"
+	#var exp_quantity byte_ptr = "\x04348A06A4"
+  var exp_quantity byte_ptr = "\x03348A11"
   var exp_extended_price byte_ptr = "\x1505348D204CD7";
   # compare with literal 
-  if (streq(exp_quantity, 5, v, 5)) then {
-    v = skip_bytes(v, 5);
+  if (streq(exp_quantity, 4, v, 4)) then {
+    v = skip_bytes(v, 4);
     if (streq(exp_extended_price, 7, v, 7)) then {
       return 1;
     } else {

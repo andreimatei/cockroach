@@ -169,6 +169,7 @@ DBEngine* DBNewBatch(DBEngine* db, bool writeOnly);
 DBIterator* DBNewIter(DBEngine* db, bool prefix);
 
 DBStatus DBScanHack(DBEngine* db, bool prefix, DBKey startKey, DBKey endKey, DBSlice prog);
+DBString DBHackGetLastKVS();
 
 DBIterator* DBNewTimeBoundIter(DBEngine* db, DBTimestamp min_ts, DBTimestamp max_ts);
 

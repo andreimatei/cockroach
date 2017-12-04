@@ -710,7 +710,12 @@ func (r *RocksDB) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key
 	if err := statusToError(status); err != nil {
 		return roachpb.KVS{}, err
 	}
-	return roachpb.KVS{}, nil
+	var kvsStr = cStringToGoString(C.DBHackGetLastKVS())
+	kvs := roachpb.KVS{}
+	if err := protoutil.Unmarshal([]byte(kvsStr), &kvs); err != nil {
+		return roachpb.KVS{}, err
+	}
+	return kvs, nil
 }
 
 // NewTimeBoundIterator is like NewIterator, but returns a time-bound iterator.

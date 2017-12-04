@@ -1761,6 +1761,7 @@ func MVCCScanHack(
 	for _, d := range kvs.Data {
 		arr = append(arr, *d)
 	}
+	log.Infof(ctx, "!!! got %d kvs from C", len(kvs.Data))
 	return arr, nil, nil, nil
 
 	// kvs := make([]roachpb.KeyValue, 0)

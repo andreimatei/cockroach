@@ -1820,6 +1820,23 @@ DBStatus DBImpl::Get(DBKey key, DBString* value) {
   return base.Get(value);
 }
 
+std::string string_to_hex(const std::string& input)
+{
+    static const char* const lut = "0123456789ABCDEF";
+    size_t len = input.length();
+
+    std::string output;
+    output.reserve(2 * len);
+    for (size_t i = 0; i < len; ++i)
+    {
+        const unsigned char c = input[i];
+        output.push_back(lut[c >> 4]);
+        output.push_back(lut[c & 15]);
+    }
+    return output;
+}
+
+
 typedef char (*filterType)(const char*,const char*);
 
 filterType getFilter() {
@@ -1846,6 +1863,14 @@ filterType getFilter() {
  return fp;
 }
 
+cockroach::roachpb::KVS kvs;
+
+DBString DBHackGetLastKVS() {
+  std::string str;
+  kvs.SerializeToString(&str);
+  // TODO(andrei): the result leaks memory
+  return ToDBString(str);
+}
 
 DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::string prog) {
   it->rep->Seek(EncodeKey(startKey));
@@ -1906,21 +1931,22 @@ DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::str
   }
   fprintf(stderr, "!!! getFilter done\n");
 
-  cockroach::roachpb::KVS kvs;
   int num_kvs = 0;
   // std::string endStr = ToString(endKey.key);
   std::string endStr = EncodeKey(endKey);
+  kvs.Clear();
   for (;
        it->rep->Valid() && it->rep->key().ToString() < endStr;
        it->rep->Next()) {
     num_kvs++;
-    std::string v = it->rep->key().ToString();
-    fprintf(stderr, "!!! about to run filter\n");
+    std::string v = it->rep->value().ToString();
+    // fprintf(stderr, "!!! calling filter on value: %s\n", string_to_hex(v).c_str());
+    // return FmtStatus("!!! early");
     char res = filter(nullptr, v.c_str());
-    fprintf(stderr, "!!! filter done\n");
     if (res != 1) {
       continue;
     }
+    fprintf(stderr, "!!! filter passed\n");
 
     // Fill in a KeyValue proto to be returned to Go.
     int64_t wall_time = 0;
