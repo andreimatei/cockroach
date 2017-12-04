@@ -699,11 +699,14 @@ func (r *RocksDB) NewIterator(prefix bool) Iterator {
 	return newRocksDBIterator(r.rdb, prefix, r)
 }
 
-func (r *RocksDB) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error) {
+func (r *RocksDB) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key, prog string) (roachpb.KVS, error) {
 	log.Infof(context.TODO(), "!!! RocksDB.ScanHack()")
 	sk := goToCKey(MVCCKey{Key: startKey})
 	ek := goToCKey(MVCCKey{Key: endKey})
-	var status C.DBStatus = C.DBScanHack(r.rdb, C.bool(prefix), sk, ek)
+	progBytes := []byte(prog)
+	progBytes = append(progBytes, 0)
+	cProg := goToCSlice(progBytes)
+	var status C.DBStatus = C.DBScanHack(r.rdb, C.bool(prefix), sk, ek, cProg)
 	if err := statusToError(status); err != nil {
 		return roachpb.KVS{}, err
 	}
@@ -744,9 +747,9 @@ type rocksDBReadOnly struct {
 	isClosed   bool
 }
 
-func (r *rocksDBReadOnly) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error) {
+func (r *rocksDBReadOnly) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key, prog string) (roachpb.KVS, error) {
 	log.Infof(context.TODO(), "!!! rocksDBReadOnly.ScanHack()")
-	return r.parent.ScanHack(prefix, startKey, endKey)
+	return r.parent.ScanHack(prefix, startKey, endKey, prog)
 }
 
 func (r *rocksDBReadOnly) Close() {
@@ -942,9 +945,9 @@ type rocksDBSnapshot struct {
 	handle *C.DBEngine
 }
 
-func (r *rocksDBSnapshot) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error) {
+func (r *rocksDBSnapshot) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key, prog string) (roachpb.KVS, error) {
 	log.Infof(context.TODO(), "!!! rocksDBSnapshot.ScanHack()")
-	return r.parent.ScanHack(prefix, startKey, endKey)
+	return r.parent.ScanHack(prefix, startKey, endKey, prog)
 }
 
 // Close releases the snapshot handle.
@@ -1218,9 +1221,9 @@ type rocksDBBatch struct {
 	commitWG           sync.WaitGroup
 }
 
-func (r *rocksDBBatch) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error) {
+func (r *rocksDBBatch) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key, prog string) (roachpb.KVS, error) {
 	log.Infof(context.TODO(), "!!! rocksDBBatch.ScanHack()")
-	return r.parent.ScanHack(prefix, startKey, endKey)
+	return r.parent.ScanHack(prefix, startKey, endKey, prog)
 }
 
 func newRocksDBBatch(parent *RocksDB, writeOnly bool) *rocksDBBatch {

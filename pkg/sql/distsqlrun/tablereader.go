@@ -148,10 +148,49 @@ func initRowFetcher(
 		return nil, false, err
 	}
 	if hack {
-		fetcher.SetHack(true)
+		fetcher.SetHack(true, makeHackProgram())
 	}
 
 	return index, isSecondaryIndex, nil
+}
+
+func makeHackProgram() string {
+	return `
+extern byte my_strcmp(byte_ptr s1, byte l1, byte_ptr s2, byte l2);
+extern byte streq(byte_ptr s1, byte l1, byte_ptr s2, byte l2);
+extern byte_ptr skip_checksum(byte_ptr s);
+extern byte_ptr skip_int(byte_ptr s);
+extern byte_ptr skip_byte(byte_ptr s);
+extern byte_ptr skip_bytes(byte_ptr s, byte num);
+
+def byte prog_main(byte_ptr k, byte_ptr v) {
+  v = skip_checksum(v);
+  v = skip_byte(v);  # tuple tag 
+  v = skip_byte(v);  # int col tag 
+  v = skip_int(v);   # l_orderkey int
+  v = skip_byte(v);  # int col tag 
+  v = skip_int(v);   # l_partkey int
+  v = skip_byte(v);  # int col tag 
+  v = skip_int(v);   # l_suppkey int
+  v = skip_byte(v);  # int col tag 
+  v = skip_int(v);   # l_linenumber int
+  v = skip_byte(v);  # decimal col tag 
+  var exp_quantity byte_ptr = "\x04348A06A4"
+  var exp_extended_price byte_ptr = "\x1505348D204CD7";
+  # compare with literal 
+  if (streq(exp_quantity, 5, v, 5)) then {
+    v = skip_bytes(v, 5);
+    if (streq(exp_extended_price, 7, v, 7)) then {
+      return 1;
+    } else {
+      return 0;
+    }
+  } else {
+    return 0;
+  }
+  return 0;
+}
+	`
 }
 
 // sendMisplannedRangesMetadata sends information about the non-local ranges

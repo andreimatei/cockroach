@@ -170,9 +170,9 @@ type spanSetReader struct {
 
 var _ engine.Reader = spanSetReader{}
 
-func (s spanSetReader) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key) (roachpb.KVS, error) {
+func (s spanSetReader) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key, prog string) (roachpb.KVS, error) {
 	log.Infof(context.TODO(), "!!! spanSetReader.ScanHack()")
-	return s.r.ScanHack(prefix, startKey, endKey)
+	return s.r.ScanHack(prefix, startKey, endKey, prog)
 }
 
 func (s spanSetReader) Close() {

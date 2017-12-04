@@ -166,11 +166,13 @@ type MultiRowFetcher struct {
 	// Buffered allocation of decoded datums.
 	alloc *DatumAlloc
 
-	hack bool
+	hack     bool
+	hackProg string
 }
 
-func (mrf *MultiRowFetcher) SetHack(hack bool) {
+func (mrf *MultiRowFetcher) SetHack(hack bool, prog string) {
 	mrf.hack = hack
+	mrf.hackProg = prog
 }
 
 // Init sets up a MultiRowFetcher for a given table and index. If we are using a
@@ -347,6 +349,7 @@ func (mrf *MultiRowFetcher) StartScan(
 
 	f, err := makeKVFetcher(txn, spans, mrf.reverse, limitBatches, firstBatchLimit, mrf.returnRangeInfo)
 	f.hack = mrf.hack
+	f.hackProg = mrf.hackProg
 	if err != nil {
 		return err
 	}

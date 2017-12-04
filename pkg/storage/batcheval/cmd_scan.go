@@ -64,7 +64,7 @@ func ScanHack(
 	reply := resp.(*roachpb.ScanResponse)
 
 	rows, resumeSpan, intents, err := engine.MVCCScanHack(ctx, batch, args.Key, args.EndKey,
-		cArgs.MaxKeys, h.Timestamp, h.ReadConsistency == roachpb.CONSISTENT, h.Txn)
+		cArgs.MaxKeys, h.Timestamp, h.ReadConsistency == roachpb.CONSISTENT, h.Txn, args.HackProgram)
 	if err != nil {
 		return result.Result{}, err
 	}

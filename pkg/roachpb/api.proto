@@ -300,6 +300,7 @@ message ScanRequest {
   bool return_intents = 3;
 
   bool hack = 4;
+  string hack_program = 5;
 }
 
 // A ScanResponse is the return value from the Scan() method.

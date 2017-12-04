@@ -34,6 +34,12 @@ add_library(roach
   db.cc
   encoding.cc
   eventlistener.cc
+  parser.cc
+  lexer.cc
+  compiler.cc
+  ast.cc
+  builtin.cc
+  main.cc
   protos/roachpb/data.pb.cc
   protos/roachpb/internal.pb.cc
   protos/roachpb/metadata.pb.cc
@@ -60,7 +66,7 @@ target_include_directories(roachccl
 target_link_libraries(roachccl roach)
 
 set_target_properties(roach roachccl PROPERTIES
-  CXX_STANDARD 11
+  CXX_STANDARD 14
   CXX_STANDARD_REQUIRED YES
   CXX_EXTENSIONS NO
   COMPILE_OPTIONS "-Werror;-Wall;-Wno-sign-compare"

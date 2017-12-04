@@ -104,7 +104,8 @@ type txnKVFetcher struct {
 	// they don't map to kvFetcher.spans in any particular way.
 	rangeInfos []roachpb.RangeInfo
 
-	hack bool
+	hack     bool
+	hackProg string
 }
 
 func (f *txnKVFetcher) getRangesInfo() []roachpb.RangeInfo {
@@ -222,6 +223,9 @@ func (f *txnKVFetcher) fetch(ctx context.Context) error {
 		scans := make([]roachpb.ScanRequest, len(f.spans))
 		for i := range f.spans {
 			scans[i].Hack = f.hack
+			if f.hack {
+				scans[i].HackProgram = f.hackProg
+			}
 			scans[i].Span = f.spans[i]
 			ba.Requests[i].MustSetInner(&scans[i])
 		}

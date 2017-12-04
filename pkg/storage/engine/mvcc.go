@@ -14,9 +14,153 @@
 
 package engine
 
+// #cgo CPPFLAGS: -I../../../c-deps/libroach/include
+// #cgo CPPFLAGS: -I../../../../c-deps/llvm/include
+// #cgo LDFLAGS: -lroach
+//
+// // From `llvm-config --ldflags`
+// #cgo LDFLAGS: -Wl,-search_paths_first -Wl,-headerpad_max_install_names
+//
+// // From `llvm-config --system-libs`
+// #cgo LDFLAGS: -lcurses -lz -lm
+//
+// // Just link ... everything (definitely not necessary).
+// // From `for i in $(llvm-config --libs); do echo "// #cgo LDFLAGS: $i"; done`
+// #cgo LDFLAGS: -lLLVMLTO
+// #cgo LDFLAGS: -lLLVMPasses
+// #cgo LDFLAGS: -lLLVMObjCARCOpts
+// #cgo LDFLAGS: -lLLVMSymbolize
+// #cgo LDFLAGS: -lLLVMDebugInfoPDB
+// #cgo LDFLAGS: -lLLVMDebugInfoDWARF
+// #cgo LDFLAGS: -lLLVMMIRParser
+// #cgo LDFLAGS: -lLLVMCoverage
+// #cgo LDFLAGS: -lLLVMTableGen
+// #cgo LDFLAGS: -lLLVMDlltoolDriver
+// #cgo LDFLAGS: -lLLVMOrcJIT
+// #cgo LDFLAGS: -lLLVMTestingSupport
+// #cgo LDFLAGS: -lLLVMXCoreDisassembler
+// #cgo LDFLAGS: -lLLVMXCoreCodeGen
+// #cgo LDFLAGS: -lLLVMXCoreDesc
+// #cgo LDFLAGS: -lLLVMXCoreInfo
+// #cgo LDFLAGS: -lLLVMXCoreAsmPrinter
+// #cgo LDFLAGS: -lLLVMSystemZDisassembler
+// #cgo LDFLAGS: -lLLVMSystemZCodeGen
+// #cgo LDFLAGS: -lLLVMSystemZAsmParser
+// #cgo LDFLAGS: -lLLVMSystemZDesc
+// #cgo LDFLAGS: -lLLVMSystemZInfo
+// #cgo LDFLAGS: -lLLVMSystemZAsmPrinter
+// #cgo LDFLAGS: -lLLVMSparcDisassembler
+// #cgo LDFLAGS: -lLLVMSparcCodeGen
+// #cgo LDFLAGS: -lLLVMSparcAsmParser
+// #cgo LDFLAGS: -lLLVMSparcDesc
+// #cgo LDFLAGS: -lLLVMSparcInfo
+// #cgo LDFLAGS: -lLLVMSparcAsmPrinter
+// #cgo LDFLAGS: -lLLVMPowerPCDisassembler
+// #cgo LDFLAGS: -lLLVMPowerPCCodeGen
+// #cgo LDFLAGS: -lLLVMPowerPCAsmParser
+// #cgo LDFLAGS: -lLLVMPowerPCDesc
+// #cgo LDFLAGS: -lLLVMPowerPCInfo
+// #cgo LDFLAGS: -lLLVMPowerPCAsmPrinter
+// #cgo LDFLAGS: -lLLVMNVPTXCodeGen
+// #cgo LDFLAGS: -lLLVMNVPTXDesc
+// #cgo LDFLAGS: -lLLVMNVPTXInfo
+// #cgo LDFLAGS: -lLLVMNVPTXAsmPrinter
+// #cgo LDFLAGS: -lLLVMMSP430CodeGen
+// #cgo LDFLAGS: -lLLVMMSP430Desc
+// #cgo LDFLAGS: -lLLVMMSP430Info
+// #cgo LDFLAGS: -lLLVMMSP430AsmPrinter
+// #cgo LDFLAGS: -lLLVMMipsDisassembler
+// #cgo LDFLAGS: -lLLVMMipsCodeGen
+// #cgo LDFLAGS: -lLLVMMipsAsmParser
+// #cgo LDFLAGS: -lLLVMMipsDesc
+// #cgo LDFLAGS: -lLLVMMipsInfo
+// #cgo LDFLAGS: -lLLVMMipsAsmPrinter
+// #cgo LDFLAGS: -lLLVMLanaiDisassembler
+// #cgo LDFLAGS: -lLLVMLanaiCodeGen
+// #cgo LDFLAGS: -lLLVMLanaiAsmParser
+// #cgo LDFLAGS: -lLLVMLanaiDesc
+// #cgo LDFLAGS: -lLLVMLanaiAsmPrinter
+// #cgo LDFLAGS: -lLLVMLanaiInfo
+// #cgo LDFLAGS: -lLLVMHexagonDisassembler
+// #cgo LDFLAGS: -lLLVMHexagonCodeGen
+// #cgo LDFLAGS: -lLLVMHexagonAsmParser
+// #cgo LDFLAGS: -lLLVMHexagonDesc
+// #cgo LDFLAGS: -lLLVMHexagonInfo
+// #cgo LDFLAGS: -lLLVMBPFDisassembler
+// #cgo LDFLAGS: -lLLVMBPFCodeGen
+// #cgo LDFLAGS: -lLLVMBPFDesc
+// #cgo LDFLAGS: -lLLVMBPFInfo
+// #cgo LDFLAGS: -lLLVMBPFAsmPrinter
+// #cgo LDFLAGS: -lLLVMARMDisassembler
+// #cgo LDFLAGS: -lLLVMARMCodeGen
+// #cgo LDFLAGS: -lLLVMARMAsmParser
+// #cgo LDFLAGS: -lLLVMARMDesc
+// #cgo LDFLAGS: -lLLVMARMInfo
+// #cgo LDFLAGS: -lLLVMARMAsmPrinter
+// #cgo LDFLAGS: -lLLVMAMDGPUDisassembler
+// #cgo LDFLAGS: -lLLVMAMDGPUCodeGen
+// #cgo LDFLAGS: -lLLVMAMDGPUAsmParser
+// #cgo LDFLAGS: -lLLVMAMDGPUDesc
+// #cgo LDFLAGS: -lLLVMAMDGPUInfo
+// #cgo LDFLAGS: -lLLVMAMDGPUAsmPrinter
+// #cgo LDFLAGS: -lLLVMAMDGPUUtils
+// #cgo LDFLAGS: -lLLVMAArch64Disassembler
+// #cgo LDFLAGS: -lLLVMAArch64CodeGen
+// #cgo LDFLAGS: -lLLVMAArch64AsmParser
+// #cgo LDFLAGS: -lLLVMAArch64Desc
+// #cgo LDFLAGS: -lLLVMAArch64Info
+// #cgo LDFLAGS: -lLLVMAArch64AsmPrinter
+// #cgo LDFLAGS: -lLLVMAArch64Utils
+// #cgo LDFLAGS: -lLLVMObjectYAML
+// #cgo LDFLAGS: -lLLVMLibDriver
+// #cgo LDFLAGS: -lLLVMOption
+// #cgo LDFLAGS: -lgtest_main
+// #cgo LDFLAGS: -lgtest
+// #cgo LDFLAGS: -lLLVMX86Disassembler
+// #cgo LDFLAGS: -lLLVMX86AsmParser
+// #cgo LDFLAGS: -lLLVMX86CodeGen
+// #cgo LDFLAGS: -lLLVMGlobalISel
+// #cgo LDFLAGS: -lLLVMSelectionDAG
+// #cgo LDFLAGS: -lLLVMAsmPrinter
+// #cgo LDFLAGS: -lLLVMDebugInfoCodeView
+// #cgo LDFLAGS: -lLLVMDebugInfoMSF
+// #cgo LDFLAGS: -lLLVMX86Desc
+// #cgo LDFLAGS: -lLLVMMCDisassembler
+// #cgo LDFLAGS: -lLLVMX86Info
+// #cgo LDFLAGS: -lLLVMX86AsmPrinter
+// #cgo LDFLAGS: -lLLVMX86Utils
+// #cgo LDFLAGS: -lLLVMMCJIT
+// #cgo LDFLAGS: -lLLVMLineEditor
+// #cgo LDFLAGS: -lLLVMInterpreter
+// #cgo LDFLAGS: -lLLVMExecutionEngine
+// #cgo LDFLAGS: -lLLVMRuntimeDyld
+// #cgo LDFLAGS: -lLLVMCodeGen
+// #cgo LDFLAGS: -lLLVMTarget
+// #cgo LDFLAGS: -lLLVMCoroutines
+// #cgo LDFLAGS: -lLLVMipo
+// #cgo LDFLAGS: -lLLVMInstrumentation
+// #cgo LDFLAGS: -lLLVMVectorize
+// #cgo LDFLAGS: -lLLVMScalarOpts
+// #cgo LDFLAGS: -lLLVMLinker
+// #cgo LDFLAGS: -lLLVMIRReader
+// #cgo LDFLAGS: -lLLVMAsmParser
+// #cgo LDFLAGS: -lLLVMInstCombine
+// #cgo LDFLAGS: -lLLVMTransformUtils
+// #cgo LDFLAGS: -lLLVMBitWriter
+// #cgo LDFLAGS: -lLLVMAnalysis
+// #cgo LDFLAGS: -lLLVMProfileData
+// #cgo LDFLAGS: -lLLVMObject
+// #cgo LDFLAGS: -lLLVMMCParser
+// #cgo LDFLAGS: -lLLVMMC
+// #cgo LDFLAGS: -lLLVMBitReader
+// #cgo LDFLAGS: -lLLVMCore
+// #cgo LDFLAGS: -lLLVMBinaryFormat
+// #cgo LDFLAGS: -lLLVMSupport
+// #cgo LDFLAGS: -lLLVMDemangle
+import "C"
+
 import (
 	"bytes"
-	"encoding/hex"
 	"fmt"
 	"math"
 	"sync"
@@ -30,7 +174,6 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/storage/engine/enginepb"
 	"github.com/cockroachdb/cockroach/pkg/util/bufalloc"
-	"github.com/cockroachdb/cockroach/pkg/util/encoding"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/protoutil"
@@ -1606,52 +1749,57 @@ func MVCCScanHack(
 	timestamp hlc.Timestamp,
 	consistent bool,
 	txn *roachpb.Transaction,
+	prog string,
 ) ([]roachpb.KeyValue, *roachpb.Span, []roachpb.Intent, error) {
 
-	// !!!
 	log.Infof(ctx, "!!! MVCCScanHack calling into engine")
-	_, err := engine.ScanHack(false /* prefix */, key, endKey)
+	kvs, err := engine.ScanHack(false /* prefix */, key, endKey, prog)
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	arr := make([]roachpb.KeyValue, 0)
+	for _, d := range kvs.Data {
+		arr = append(arr, *d)
+	}
+	return arr, nil, nil, nil
 
-	kvs := make([]roachpb.KeyValue, 0)
-	kv := roachpb.KeyValue{}
-	src := []byte("bb8989880014f8d7f75fc2679f09")
-	buf := make([]byte, hex.DecodedLen(len(src)))
-	if _, err := hex.Decode(buf, src); err != nil {
-		return nil, nil, nil, err
-	}
-	log.Infof(ctx, "!!! decoded into buf: %+v", buf)
-	key, ts, err := splitKey(buf)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	log.Infof(ctx, "!!! split buf into: key: %+v ts: %+v", key, ts)
-	kv.Key = roachpb.Key(key)
-	src = []byte("cc0fecfb0a")
-	kv.Value.RawBytes = make([]byte, hex.DecodedLen(len(src)))
-	if _, err := hex.Decode(kv.Value.RawBytes, src); err != nil {
-		return nil, nil, nil, err
-	}
-
-	ts, physical, err := encoding.DecodeUint64Ascending(ts)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	log.Infof(ctx, "!!! got physical: %d remaining: %+v", physical, ts)
-	var logical uint32
-	if len(ts) > 0 {
-		_, logical, err = encoding.DecodeUint32Ascending(ts)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	}
-	kv.Value.Timestamp = hlc.Timestamp{WallTime: int64(physical), Logical: int32(logical)}
-
-	kvs = append(kvs, kv)
-	log.Infof(ctx, "!!! scan hack returning data: %+v", kvs)
-	return kvs, nil, nil, nil
+	// kvs := make([]roachpb.KeyValue, 0)
+	// kv := roachpb.KeyValue{}
+	// src := []byte("bb8989880014f8d7f75fc2679f09")
+	// buf := make([]byte, hex.DecodedLen(len(src)))
+	// if _, err := hex.Decode(buf, src); err != nil {
+	//   return nil, nil, nil, err
+	// }
+	// log.Infof(ctx, "!!! decoded into buf: %+v", buf)
+	// key, ts, err := splitKey(buf)
+	// if err != nil {
+	//   return nil, nil, nil, err
+	// }
+	// log.Infof(ctx, "!!! split buf into: key: %+v ts: %+v", key, ts)
+	// kv.Key = roachpb.Key(key)
+	// src = []byte("cc0fecfb0a")
+	// kv.Value.RawBytes = make([]byte, hex.DecodedLen(len(src)))
+	// if _, err := hex.Decode(kv.Value.RawBytes, src); err != nil {
+	//   return nil, nil, nil, err
+	// }
+	//
+	// ts, physical, err := encoding.DecodeUint64Ascending(ts)
+	// if err != nil {
+	//   return nil, nil, nil, err
+	// }
+	// log.Infof(ctx, "!!! got physical: %d remaining: %+v", physical, ts)
+	// var logical uint32
+	// if len(ts) > 0 {
+	//   _, logical, err = encoding.DecodeUint32Ascending(ts)
+	//   if err != nil {
+	//     return nil, nil, nil, err
+	//   }
+	// }
+	// kv.Value.Timestamp = hlc.Timestamp{WallTime: int64(physical), Logical: int32(logical)}
+	//
+	// kvs = append(kvs, kv)
+	// log.Infof(ctx, "!!! scan hack returning data: %+v", kvs)
+	// return kvs, nil, nil, nil
 }
 
 func splitKey(buf []byte) (key []byte, ts []byte, err error) {

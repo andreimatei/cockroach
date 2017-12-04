@@ -35,6 +35,9 @@
 #include "encoding.h"
 #include "eventlistener.h"
 #include "keys.h"
+#include "parser.h"
+#include "global.h"
+#include "compiler_main.h"
 
 extern "C" {
 static void __attribute__((noreturn)) die_missing_symbol(const char* name) {
@@ -83,7 +86,7 @@ struct DBEngine {
   virtual DBStatus GetStats(DBStatsResult* stats) = 0;
   virtual DBString GetCompactionStats() = 0;
   virtual DBStatus EnvWriteFile(DBSlice path, DBSlice contents) = 0;
-  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey) = 0;
+  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey, std::string prog) = 0;
 
   DBSSTable* GetSSTables(int* n);
   DBString GetUserProperties();
@@ -126,7 +129,7 @@ struct DBImpl : public DBEngine {
   virtual DBStatus GetStats(DBStatsResult* stats);
   virtual DBString GetCompactionStats();
   virtual DBStatus EnvWriteFile(DBSlice path, DBSlice contents);
-  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey);
+  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey, std::string prog);
 };
 
 struct DBBatch : public DBEngine {
@@ -149,7 +152,7 @@ struct DBBatch : public DBEngine {
   virtual DBStatus GetStats(DBStatsResult* stats);
   virtual DBString GetCompactionStats();
   virtual DBStatus EnvWriteFile(DBSlice path, DBSlice contents);
-  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey);
+  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey, std::string prog);
 };
 
 struct DBWriteOnlyBatch : public DBEngine {
@@ -172,7 +175,7 @@ struct DBWriteOnlyBatch : public DBEngine {
   virtual DBStatus GetStats(DBStatsResult* stats);
   virtual DBString GetCompactionStats();
   virtual DBStatus EnvWriteFile(DBSlice path, DBSlice contents);
-  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey);
+  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey, std::string prog);
 };
 
 struct DBSnapshot : public DBEngine {
@@ -197,7 +200,7 @@ struct DBSnapshot : public DBEngine {
   virtual DBStatus GetStats(DBStatsResult* stats);
   virtual DBString GetCompactionStats();
   virtual DBStatus EnvWriteFile(DBSlice path, DBSlice contents);
-  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey);
+  virtual DBStatus ScanHack(DBIterator* iter, DBKey startKey, DBKey endKey, std::string prog);
 };
 
 struct DBIterator {
@@ -1817,7 +1820,34 @@ DBStatus DBImpl::Get(DBKey key, DBString* value) {
   return base.Get(value);
 }
 
-DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
+typedef char (*filterType)(const char*,const char*);
+
+filterType getFilter() {
+  fprintf(stderr, "!!! getFilter\n");
+  llvm::JITSymbol exprSymbol = TheJIT->findSymbol("prog_main");
+  if (!exprSymbol) {
+    fprintf(stderr, "!!! !exprSymbol\n");
+    return nullptr;
+  }
+
+  if (auto Err = exprSymbol.takeError()) {
+    fprintf(stderr, "!!! getFilter returning error\n");
+    return nullptr;
+  }
+  auto xxx = exprSymbol.getAddress();
+  if (auto Err = xxx.takeError()) {
+    return nullptr;
+  }
+
+  assert(exprSymbol && "Function not found");
+  char (*fp)(const char*,const char*) = 
+    (char(*)(const char*, const char*))(intptr_t)(*xxx);
+    //(char(*)(const char*, const char*))(intptr_t)(*exprSymbol.getAddress());
+ return fp;
+}
+
+
+DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::string prog) {
   it->rep->Seek(EncodeKey(startKey));
   DBStatus status(DBIterGetState(it).status);
   if (status.data != NULL) {
@@ -1859,6 +1889,24 @@ DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
   //   break;
   // }
 
+
+  fprintf(stderr, "!!! about to compile\n");
+  CompileStr(prog);
+  fprintf(stderr, "!!! about to InitParser\n");
+  InitParser();
+  fprintf(stderr, "!!! about to InitLLVM\n");
+  InitLLVM();
+  MainLoop();
+  // Print out all of the generated code.
+  TheModule->print(llvm::errs(), nullptr);
+  auto filter = getFilter();
+  if (filter == nullptr) {
+    fprintf(stderr, "!!! missing filter\n");
+    return FmtStatus("missing filter");
+  }
+  fprintf(stderr, "!!! getFilter done\n");
+
+  cockroach::roachpb::KVS kvs;
   int num_kvs = 0;
   // std::string endStr = ToString(endKey.key);
   std::string endStr = EncodeKey(endKey);
@@ -1866,7 +1914,29 @@ DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
        it->rep->Valid() && it->rep->key().ToString() < endStr;
        it->rep->Next()) {
     num_kvs++;
-    // !!!
+    std::string v = it->rep->key().ToString();
+    fprintf(stderr, "!!! about to run filter\n");
+    char res = filter(nullptr, v.c_str());
+    fprintf(stderr, "!!! filter done\n");
+    if (res != 1) {
+      continue;
+    }
+
+    // Fill in a KeyValue proto to be returned to Go.
+    int64_t wall_time = 0;
+    int32_t logical = 0;
+    rocksdb::Slice key;
+    rocksdb::Slice ts;
+    if (!DecodeKey(it->rep->key(), &key, &wall_time, &logical)) {
+      return FmtStatus("unable to decode key");
+    }
+    cockroach::roachpb::KeyValue* kv_proto = kvs.add_data();
+    kv_proto->set_key(key.ToString());
+    // Construct the value.
+    auto* value = kv_proto->mutable_value();
+    value->set_raw_bytes(it->rep->value().ToString());
+    value->mutable_timestamp()->set_wall_time(wall_time);
+    value->mutable_timestamp()->set_logical(logical);
   }
   rocksdb::Info(rep->GetOptions().info_log, "!!! scanned #KVS: %d", num_kvs);
 
@@ -1874,17 +1944,17 @@ DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
   return DBIterGetState(it).status;
 }
 
-DBStatus DBSnapshot::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
+DBStatus DBSnapshot::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::string prog) {
   assert(false);
   return FmtStatus("ScanHack unexpected on snapshot");
 }
 
-DBStatus DBWriteOnlyBatch::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
+DBStatus DBWriteOnlyBatch::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::string prog) {
   assert(false);
   return FmtStatus("ScanHack unexpected on DBWriteOnlyBatch");
 }
 
-DBStatus DBBatch::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey) {
+DBStatus DBBatch::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::string prog) {
   assert(false);
   return FmtStatus("ScanHack unexpected on DBBatch");
 }
@@ -2221,12 +2291,13 @@ DBIterator* DBNewIter(DBEngine* db, bool prefix) {
   return db->NewIter(&opts);
 }
 
-DBStatus DBScanHack(DBEngine* db, bool prefix, DBKey startKey, DBKey endKey) {
+DBStatus DBScanHack(DBEngine* db, bool prefix, DBKey startKey, DBKey endKey, DBSlice prog) {
   rocksdb::ReadOptions opts;
   opts.prefix_same_as_start = prefix;
   opts.total_order_seek = !prefix;
   DBIterator* iter(db->NewIter(&opts));
-  return db->ScanHack(iter, startKey, endKey);
+  std::string progStr(prog.data);
+  return db->ScanHack(iter, startKey, endKey, progStr);
 }
 
 DBIterator* DBNewTimeBoundIter(DBEngine* db, DBTimestamp min_ts, DBTimestamp max_ts) {
