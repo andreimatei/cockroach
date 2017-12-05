@@ -378,10 +378,10 @@ Function* FunctionAST::codegen() {
     // Builder.CreateRet(bogusRet);
   }
   
-  // Validate the generated code, checking for consistency.
-  // !!!
+  fprintf(stderr, "!!! Compiled to:\n");
   f->print(llvm::errs());
 
+  // Validate the generated code, checking for consistency.
   assert(!llvm::verifyFunction(*f, &llvm::errs()));
 
   TheFPM->run(*f);

@@ -69,6 +69,7 @@ public:
 StringReader* SR;
 
 void CompileStr(const std::string& prog) {
+  fprintf(stderr, "\n\n\nreceived program: %s\n\n\n", prog.c_str());
   // TODO(andrei): sr leaks
   SR = new StringReader(prog);
   //auto sr = new StringReader(prog);

@@ -370,7 +370,7 @@ void InitParser() {
   BinopPrecedence['*'] = 40;  // highest.
 
   // Prime the first token.
-  fprintf(stderr, "ready> ");
+  //fprintf(stderr, "ready> ");
   getNextToken();
 }
 
@@ -524,7 +524,7 @@ static std::unique_ptr<FunctionAST> ParseTopLevelExpr() {
 static void HandleDefinition() {
   if (auto fnAST = ParseDefinition()) {
     if (auto* fnIR = fnAST->codegen()) {
-      fprintf(stderr, "Read function definition:");
+      fprintf(stderr, "\n\n\nGenerated function:\n\n\n");
       fnIR->print(llvm::errs());
       fprintf(stderr, "\n");
       // Add a module with this function and create a new module for future
@@ -541,9 +541,9 @@ static void HandleDefinition() {
 static void HandleExtern() {
   if (auto protoAST = ParseExtern()) {
     if (auto* fnIR = protoAST->codegen()) {
-      fprintf(stderr, "Read extern:");
-      fnIR->print(llvm::errs());
-      fprintf(stderr, "\n");
+      //fprintf(stderr, "Read extern:");
+      //fnIR->print(llvm::errs());
+      //fprintf(stderr, "\n");
       // Add the signature to the list of functions.
       FunctionProtos[protoAST->getName()] = std::move(protoAST);
     }
@@ -591,7 +591,7 @@ static void HandleTopLevelExpression() {
 /// top ::= definition | external | expression | ';'
 void MainLoop() {
   while (1) {
-    fprintf(stderr, "ready> ");
+    //fprintf(stderr, "ready> ");
     switch (CurTok) {
     case tok_eof:
       return;

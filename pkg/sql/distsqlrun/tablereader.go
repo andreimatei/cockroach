@@ -164,6 +164,7 @@ extern byte_ptr skip_byte(byte_ptr s);
 extern byte_ptr skip_bytes(byte_ptr s, byte num);
 
 def byte prog_main(byte_ptr k, byte_ptr v) {
+  # Skip over uninteresting data.
   v = skip_checksum(v);
   v = skip_byte(v);  # tuple tag 
   v = skip_byte(v);  # int col tag 
@@ -175,10 +176,11 @@ def byte prog_main(byte_ptr k, byte_ptr v) {
   v = skip_byte(v);  # int col tag 
   v = skip_int(v);   # l_linenumber int
   v = skip_byte(v);  # decimal col tag 
-	#var exp_quantity byte_ptr = "\x04348A06A4"
+  # Encoded 17
   var exp_quantity byte_ptr = "\x03348A11"
+  # Encoded 21168.23
   var exp_extended_price byte_ptr = "\x1505348D204CD7";
-  # compare with literal 
+  # compare with literals
   if (streq(exp_quantity, 4, v, 4)) then {
     v = skip_bytes(v, 4);
     if (streq(exp_extended_price, 7, v, 7)) then {

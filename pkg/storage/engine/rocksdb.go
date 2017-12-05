@@ -700,7 +700,6 @@ func (r *RocksDB) NewIterator(prefix bool) Iterator {
 }
 
 func (r *RocksDB) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key, prog string) (roachpb.KVS, error) {
-	log.Infof(context.TODO(), "!!! RocksDB.ScanHack()")
 	sk := goToCKey(MVCCKey{Key: startKey})
 	ek := goToCKey(MVCCKey{Key: endKey})
 	progBytes := []byte(prog)
@@ -753,7 +752,6 @@ type rocksDBReadOnly struct {
 }
 
 func (r *rocksDBReadOnly) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key, prog string) (roachpb.KVS, error) {
-	log.Infof(context.TODO(), "!!! rocksDBReadOnly.ScanHack()")
 	return r.parent.ScanHack(prefix, startKey, endKey, prog)
 }
 
@@ -951,7 +949,6 @@ type rocksDBSnapshot struct {
 }
 
 func (r *rocksDBSnapshot) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key, prog string) (roachpb.KVS, error) {
-	log.Infof(context.TODO(), "!!! rocksDBSnapshot.ScanHack()")
 	return r.parent.ScanHack(prefix, startKey, endKey, prog)
 }
 
@@ -1227,7 +1224,6 @@ type rocksDBBatch struct {
 }
 
 func (r *rocksDBBatch) ScanHack(prefix bool, startKey roachpb.Key, endKey roachpb.Key, prog string) (roachpb.KVS, error) {
-	log.Infof(context.TODO(), "!!! rocksDBBatch.ScanHack()")
 	return r.parent.ScanHack(prefix, startKey, endKey, prog)
 }
 

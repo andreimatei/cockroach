@@ -1752,7 +1752,6 @@ func MVCCScanHack(
 	prog string,
 ) ([]roachpb.KeyValue, *roachpb.Span, []roachpb.Intent, error) {
 
-	log.Infof(ctx, "!!! MVCCScanHack calling into engine")
 	kvs, err := engine.ScanHack(false /* prefix */, key, endKey, prog)
 	if err != nil {
 		return nil, nil, nil, err
@@ -1761,7 +1760,6 @@ func MVCCScanHack(
 	for _, d := range kvs.Data {
 		arr = append(arr, *d)
 	}
-	log.Infof(ctx, "!!! got %d kvs from C", len(kvs.Data))
 	return arr, nil, nil, nil
 
 	// kvs := make([]roachpb.KeyValue, 0)

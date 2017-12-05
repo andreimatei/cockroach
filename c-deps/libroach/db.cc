@@ -1840,7 +1840,6 @@ std::string string_to_hex(const std::string& input)
 typedef char (*filterType)(const char*,const char*);
 
 filterType getFilter() {
-  fprintf(stderr, "!!! getFilter\n");
   llvm::JITSymbol exprSymbol = TheJIT->findSymbol("prog_main");
   if (!exprSymbol) {
     fprintf(stderr, "!!! !exprSymbol\n");
@@ -1917,11 +1916,8 @@ DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::str
 
 
   if (!programCompiled) {
-    fprintf(stderr, "!!! about to compile\n");
     CompileStr(prog);
-    fprintf(stderr, "!!! about to InitParser\n");
     InitParser();
-    fprintf(stderr, "!!! about to InitLLVM\n");
     InitLLVM();
     MainLoop();
     // Print out all of the generated code.
@@ -1934,7 +1930,6 @@ DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::str
     fprintf(stderr, "!!! missing filter\n");
     return FmtStatus("missing filter");
   }
-  fprintf(stderr, "!!! getFilter done\n");
 
   int num_kvs = 0;
   // std::string endStr = ToString(endKey.key);
@@ -1945,13 +1940,10 @@ DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::str
        it->rep->Next()) {
     num_kvs++;
     std::string v = it->rep->value().ToString();
-    // fprintf(stderr, "!!! calling filter on value: %s\n", string_to_hex(v).c_str());
-    // return FmtStatus("!!! early");
     char res = filter(nullptr, v.c_str());
     if (res != 1) {
       continue;
     }
-    fprintf(stderr, "!!! filter passed\n");
 
     // Fill in a KeyValue proto to be returned to Go.
     int64_t wall_time = 0;
@@ -1969,7 +1961,7 @@ DBStatus DBImpl::ScanHack(DBIterator* it, DBKey startKey, DBKey endKey, std::str
     value->mutable_timestamp()->set_wall_time(wall_time);
     value->mutable_timestamp()->set_logical(logical);
   }
-  rocksdb::Info(rep->GetOptions().info_log, "!!! scanned #KVS: %d", num_kvs);
+  // rocksdb::Info(rep->GetOptions().info_log, "!!! scanned #KVS: %d", num_kvs);
 
   assert(it->status().ok()); // Check for any errors found during the scan
   return DBIterGetState(it).status;
