@@ -300,6 +300,7 @@ func (s *Server) recordError(err error) {
 	if err == nil {
 		return
 	}
+	log.Infof(context.TODO(), "!!! recordError: %s", err)
 	s.errorCounts.Lock()
 	if s.errorCounts.codes == nil {
 		s.errorCounts.codes = make(map[string]int64)

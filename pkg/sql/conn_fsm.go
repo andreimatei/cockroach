@@ -32,6 +32,7 @@ import (
 	// with that package; therefor this file should stay as small as possible.
 	. "github.com/cockroachdb/cockroach/pkg/util/fsm"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 )
 
 /// States.
@@ -270,6 +271,7 @@ var TxnStateTransitions = Compile(Pattern{
 			Description: "Retriable err; will auto-retry",
 			Next:        stateOpen{ImplicitTxn: Var("implicitTxn"), RetryIntent: Var("retryIntent")},
 			Action: func(args Args) error {
+				log.Infof(args.Ctx, "!!! autoretry: %s", args.Payload.(eventRetriableErrPayload).err)
 				// The caller will call rewCap.rewindAndUnlock().
 				args.Extended.(*txnState2).setAdvanceInfo(
 					rewind,

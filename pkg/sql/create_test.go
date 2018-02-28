@@ -321,6 +321,89 @@ func TestParallelCreateTables(t *testing.T) {
 	)
 }
 
+func TestParallelDropCreateTables(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+
+	// This number has to be around 10 or else testrace will take too long to
+	// finish.
+	const numberOfNodes = 3
+	const workers = 60
+	const repeat = 1000
+
+	tc := testcluster.StartTestCluster(t, numberOfNodes, base.TestClusterArgs{})
+	defer tc.Stopper().Stop(context.TODO())
+
+	if _, err := tc.ServerConn(0).Exec(`CREATE DATABASE "test"`); err != nil {
+		t.Fatal(err)
+	}
+
+	var wgStart sync.WaitGroup
+	var wgEnd sync.WaitGroup
+	wgStart.Add(workers)
+	wgEnd.Add(workers)
+	signal := make(chan struct{})
+	for i := 0; i < workers; i++ {
+		db := tc.ServerConn(i % numberOfNodes)
+		go createTestTable2(t, tc, i, repeat, db, &wgStart, &wgEnd, signal)
+	}
+
+	// Wait until all goroutines are ready.
+	wgStart.Wait()
+	// Signal the create table goroutines to start.
+	close(signal)
+	// Wait until all create tables are finished.
+	wgEnd.Wait()
+
+}
+func createTestTable2(
+	t *testing.T,
+	tc *testcluster.TestCluster,
+	id int,
+	repeat int,
+	db *gosql.DB,
+	wgStart *sync.WaitGroup,
+	wgEnd *sync.WaitGroup,
+	signal chan struct{},
+) {
+	defer wgEnd.Done()
+
+	wgStart.Done()
+	<-signal
+
+	for i := 0; i < repeat; i++ {
+		log.Infof(context.TODO(), "!!! worker %d loop %d", id, i)
+		tableName := fmt.Sprintf("%d_%d", id, i)
+		tableSQL := fmt.Sprintf(`
+		CREATE TABLE "test"."table_%s" (
+			id INT PRIMARY KEY,
+			val INT
+		)`, tableName)
+		// if i%2 == 0 {
+		//   txn, err := db.Begin()
+		//   if err != nil {
+		//     t.Errorf("table %d: could not be created. begin err: %s", id, err)
+		//     panic("!!!")
+		//     return
+		//   }
+		//   if _, err := txn.Exec(tableSQL); err != nil {
+		//     t.Errorf("table %d: could not be created: %s", id, err)
+		//     panic("!!!")
+		//     return
+		//   }
+		//   if err := txn.Commit(); err != nil {
+		//     t.Errorf("table %d: could not be created. commit err: %s", id, err)
+		//     panic("!!!")
+		//     return
+		//   }
+		// } else {
+		if _, err := db.Exec(tableSQL); err != nil {
+			t.Errorf("table %d: could not be created: %s", id, err)
+			return
+		}
+		// }
+	}
+}
+
 // TestParallelCreateConflictingTables tests that concurrent create table
 // requests with same name are only filled once. This is the same test as
 // TestParallelCreateTables but in this test the tables names are all the same
