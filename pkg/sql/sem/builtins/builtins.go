@@ -24,9 +24,11 @@ import (
 	"hash"
 	"hash/crc32"
 	"hash/fnv"
+	"io/ioutil"
 	"math"
 	"math/rand"
 	"net"
+	"reflect"
 	"regexp/syntax"
 	"strconv"
 	"strings"
@@ -34,6 +36,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/go-interpreter/wagon/exec"
+	"github.com/go-interpreter/wagon/wasm"
 	"github.com/knz/strtime"
 
 	"github.com/cockroachdb/apd"
@@ -138,6 +142,7 @@ func makeBuiltin(props tree.FunctionProperties, overloads ...tree.Overload) buil
 //
 // For use in other packages, see AllBuiltinNames and GetBuiltinProperties().
 var builtins = map[string]builtinDefinition{
+	"create_fun": createUserFun,
 	// TODO(XisiHuang): support encoding, i.e., length(str, encoding).
 	"length":           lengthImpls,
 	"char_length":      lengthImpls,
@@ -2710,6 +2715,107 @@ may increase either contention or retry errors, or both.`,
 		},
 	),
 }
+
+var createUserFun = makeBuiltin(
+	tree.FunctionProperties{Impure: true},
+	tree.Overload{
+		Types:      tree.ArgTypes{{"name", types.String}, {"file", types.String}},
+		ReturnType: tree.FixedReturnType(types.Int),
+		Fn: func(ectx *tree.EvalContext, args tree.Datums) (tree.Datum, error) {
+			name := string(*args[0].(*tree.DString))
+			file := string(*args[1].(*tree.DString))
+			src, err := ioutil.ReadFile(file)
+			if err != nil {
+				return nil, err
+			}
+
+			m, err := wasm.ReadModule(bytes.NewReader(src), func(name string) (*wasm.Module, error) {
+				switch name {
+				case "go":
+					print := func(v int32) {
+						fmt.Printf("result = %v\n", v)
+					}
+
+					m := wasm.NewModule()
+					m.Types = &wasm.SectionTypes{
+						Entries: []wasm.FunctionSig{
+							{
+								Form:       0,
+								ParamTypes: []wasm.ValueType{wasm.ValueTypeI32},
+							},
+						},
+					}
+					m.FunctionIndexSpace = []wasm.Function{
+						{
+							Sig:  &m.Types.Entries[0],
+							Host: reflect.ValueOf(print),
+							Body: &wasm.FunctionBody{},
+						},
+					}
+					m.Export = &wasm.SectionExports{
+						Entries: map[string]wasm.ExportEntry{
+							"print": {
+								FieldStr: "print",
+								Kind:     wasm.ExternalFunction,
+								Index:    0,
+							},
+						},
+					}
+
+					return m, nil
+				}
+				return nil, fmt.Errorf("module %q unknown", name)
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			fmt.Printf("!!! funcs: %+v\n", m.FunctionIndexSpace)
+
+			vm, err := exec.NewVM(m)
+			if err != nil {
+				return nil, err
+			}
+
+			const funIdx = 0 // index of function fct1
+			out, err := vm.ExecCode(funIdx, 5)
+			if err != nil {
+				return nil, err
+			}
+			log.Infof(ectx.Ctx(), "!!! fct1() -> (%T) %v\n", out, out)
+
+			def := tree.Overload{
+				Types:      tree.ArgTypes{{"n", types.Int}},
+				ReturnType: tree.FixedReturnType(types.Int),
+				Fn: func(ectx *tree.EvalContext, args tree.Datums) (tree.Datum, error) {
+					n := uint64(*args[0].(*tree.DInt))
+
+					vm, err := exec.NewVM(m)
+					if err != nil {
+						return nil, err
+					}
+
+					const funIdx = 0 // index of function fct1
+					out, err := vm.ExecCode(funIdx, n)
+					if err != nil {
+						return nil, err
+					}
+
+					return tree.NewDInt(tree.DInt(out.(uint32))), nil
+				},
+			}
+
+			tree.UserFuns = append(tree.UserFuns,
+				tree.NewFunctionDefinition(
+					name,
+					&tree.FunctionProperties{
+						Impure: true,
+					},
+					[]tree.Overload{def}))
+
+			return tree.NewDInt(tree.DInt(1)), nil
+		},
+	})
 
 var lengthImpls = makeBuiltin(tree.FunctionProperties{Category: categoryString},
 	stringOverload1(func(_ *tree.EvalContext, s string) (tree.Datum, error) {

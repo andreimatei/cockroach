@@ -425,6 +425,8 @@ func (tp *TableNamePrefix) Resolve(
 	return found, scMeta, err
 }
 
+var UserFuns []*FunctionDefinition
+
 // ResolveFunction transforms an UnresolvedName to a FunctionDefinition.
 //
 // Function resolution currently takes a "short path" using the
@@ -447,6 +449,12 @@ func (n *UnresolvedName) ResolveFunction(
 		// this method is called.
 		return nil, pgerror.NewErrorf(pgerror.CodeInvalidNameError,
 			"invalid function name: %s", n)
+	}
+
+	for _, f := range UserFuns {
+		if f.Name == n.Parts[0] {
+			return f, nil
+		}
 	}
 
 	// We ignore the catalog part. Like explained above, we currently

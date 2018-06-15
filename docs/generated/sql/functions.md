@@ -503,6 +503,7 @@ has no relationship with the commit order of concurrent transactions.</p>
 </span></td></tr>
 <tr><td><code>crc32ieee(<a href="string.html">string</a>...) &rarr; <a href="int.html">int</a></code></td><td><span class="funcdesc"><p>Calculates the CRC-32 hash using the IEEE polynomial.</p>
 </span></td></tr>
+<tr><td><code>create_fun(name: <a href="string.html">string</a>, file: <a href="string.html">string</a>) &rarr; <a href="int.html">int</a></code></td><td></td></tr>
 <tr><td><code>degrees(val: <a href="float.html">float</a>) &rarr; <a href="float.html">float</a></code></td><td><span class="funcdesc"><p>Converts <code>val</code> as a radian value to a degree value.</p>
 </span></td></tr>
 <tr><td><code>div(x: <a href="decimal.html">decimal</a>, y: <a href="decimal.html">decimal</a>) &rarr; <a href="decimal.html">decimal</a></code></td><td><span class="funcdesc"><p>Calculates the integer quotient of <code>x</code>/<code>y</code>.</p>
