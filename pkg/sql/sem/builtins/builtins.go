@@ -142,7 +142,8 @@ func makeBuiltin(props tree.FunctionProperties, overloads ...tree.Overload) buil
 //
 // For use in other packages, see AllBuiltinNames and GetBuiltinProperties().
 var builtins = map[string]builtinDefinition{
-	"create_fun": createUserFun,
+	"create_fun":     createUserFun,
+	"create_fun_str": createUserFunStr,
 	// TODO(XisiHuang): support encoding, i.e., length(str, encoding).
 	"length":           lengthImpls,
 	"char_length":      lengthImpls,
@@ -2816,6 +2817,86 @@ var createUserFun = makeBuiltin(
 			return tree.NewDInt(tree.DInt(1)), nil
 		},
 	})
+
+var createUserFunStr = makeBuiltin(
+	tree.FunctionProperties{Impure: true},
+	tree.Overload{
+		Types:      tree.ArgTypes{{"name", types.String}, {"file", types.String}},
+		ReturnType: tree.FixedReturnType(types.Int),
+		Fn: func(ectx *tree.EvalContext, args tree.Datums) (tree.Datum, error) {
+			name := string(*args[0].(*tree.DString))
+			file := string(*args[1].(*tree.DString))
+			src, err := ioutil.ReadFile(file)
+			if err != nil {
+				return nil, err
+			}
+
+			m, err := wasm.ReadModule(bytes.NewReader(src), func(name string) (*wasm.Module, error) {
+				switch name {
+				case "env":
+					m := wasm.NewModule()
+					m.LinearMemoryIndexSpace = make([][]byte, 1)
+					m.Memory.Name = "memory"
+					m.Memory.Entries = append(m.Memory.Entries, wasm.Memory{Limits: wasm.ResizableLimits{Initial: 256, Maximum: 256}})
+					m.Export = &wasm.SectionExports{
+						Entries: map[string]wasm.ExportEntry{
+							"memory": {
+								FieldStr: "memory",
+								Kind:     wasm.ExternalMemory,
+								Index:    0,
+							},
+						},
+					}
+					return m, nil
+				}
+				return nil, fmt.Errorf("module %q unknown", name)
+			})
+			if err != nil {
+				return nil, err
+			}
+
+			fmt.Printf("!!! funcs: %+v\n", m.FunctionIndexSpace)
+
+			def := tree.Overload{
+				Types:      tree.ArgTypes{{"s", types.String}},
+				ReturnType: tree.FixedReturnType(types.Int),
+				Fn: func(ectx *tree.EvalContext, args tree.Datums) (tree.Datum, error) {
+					s := string(*args[0].(*tree.DString))
+
+					vm, err := exec.NewVM(m)
+					if err != nil {
+						return nil, err
+					}
+
+					const funIdx = 1
+					copyString(vm, s)
+					out, err := vm.ExecCode(funIdx, 0 /* ptr to string */, 1, 2, 3)
+					if err != nil {
+						return nil, err
+					}
+
+					return tree.NewDInt(tree.DInt(out.(uint32))), nil
+				},
+			}
+
+			tree.UserFuns = append(tree.UserFuns,
+				tree.NewFunctionDefinition(
+					name,
+					&tree.FunctionProperties{
+						Impure: true,
+					},
+					[]tree.Overload{def}))
+
+			return tree.NewDInt(tree.DInt(1)), nil
+		},
+	})
+
+func copyString(vm *exec.VM, s string) {
+	bytes := []byte(s)
+	for i, b := range bytes {
+		vm.Memory()[i] = b
+	}
+}
 
 var lengthImpls = makeBuiltin(tree.FunctionProperties{Category: categoryString},
 	stringOverload1(func(_ *tree.EvalContext, s string) (tree.Datum, error) {
