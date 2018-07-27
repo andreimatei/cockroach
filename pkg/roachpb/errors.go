@@ -16,10 +16,12 @@ package roachpb
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 
 	"github.com/cockroachdb/cockroach/pkg/util/caller"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
 )
 
@@ -329,6 +331,7 @@ var _ ErrorDetailInterface = &HandledRetryableTxnError{}
 
 // NewTransactionAbortedError initializes a new TransactionAbortedError.
 func NewTransactionAbortedError() *TransactionAbortedError {
+	log.Infof(context.TODO(), "!!! TransactionAbortedError")
 	return &TransactionAbortedError{}
 }
 

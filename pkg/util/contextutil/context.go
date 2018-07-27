@@ -39,3 +39,19 @@ func wrap(ctx context.Context, cancel context.CancelFunc) (context.Context, cont
 		cancel()
 	}
 }
+
+type ContextStatementKey struct{}
+
+// WithStatement adds a SQL statement to the provided context.
+func WithStatement(ctx context.Context, stmt string) context.Context {
+	return context.WithValue(ctx, ContextStatementKey{}, stmt)
+}
+
+// StatementFromCtx returns the statement value from a context, or nil if unset.
+func StatementFromCtx(ctx context.Context) string {
+	stmt := ctx.Value(ContextStatementKey{})
+	if stmt == nil {
+		return "<unknown>"
+	}
+	return stmt.(string)
+}

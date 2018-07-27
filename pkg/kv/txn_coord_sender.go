@@ -26,6 +26,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/internal/client"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
+	"github.com/cockroachdb/cockroach/pkg/util/contextutil"
 	"github.com/cockroachdb/cockroach/pkg/util/duration"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
@@ -33,6 +34,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
+	"github.com/cockroachdb/cockroach/pkg/util/txnregistry"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
 )
 
@@ -209,8 +211,9 @@ type txnInterceptor interface {
 // receiving a response. It allows the entire txnInterceptor stack to operate
 // under lock without needing to worry about unlocking at the correct time.
 type txnLockGatekeeper struct {
-	wrapped client.Sender
-	mu      sync.Locker // shared with TxnCoordSender
+	wrapped  client.Sender
+	mu       sync.Locker // shared with TxnCoordSender
+	registry *txnregistry.TxnRegistry
 }
 
 // SendLocked implements the lockedSender interface.
@@ -219,7 +222,15 @@ func (gs *txnLockGatekeeper) SendLocked(
 ) (*roachpb.BatchResponse, *roachpb.Error) {
 	gs.mu.Unlock()
 	defer gs.mu.Lock()
-	return gs.wrapped.Send(ctx, ba)
+	if gs.registry != nil {
+		gs.registry.AddMsg(ctx, ba.Header.Txn.ID, "(epo: %d) sending: %s (stmt: %s)",
+			ba.Header.Txn.Epoch, ba, contextutil.StatementFromCtx(ctx))
+	}
+	br, pErr := gs.wrapped.Send(ctx, ba)
+	if gs.registry != nil {
+		gs.registry.AddMsg(ctx, ba.Header.Txn.ID, "received: err: %v. resp: %v", pErr, br)
+	}
+	return br, pErr
 }
 
 // TxnMetrics holds all metrics relating to KV transactions.
@@ -334,6 +345,7 @@ type TxnCoordSenderFactory struct {
 	linearizable      bool // enables linearizable behavior
 	stopper           *stop.Stopper
 	metrics           TxnMetrics
+	registry          *txnregistry.TxnRegistry
 
 	testingKnobs ClientTestingKnobs
 }
@@ -353,6 +365,7 @@ type TxnCoordSenderFactoryConfig struct {
 	Linearizable      bool
 	Metrics           TxnMetrics
 
+	Registry     *txnregistry.TxnRegistry
 	TestingKnobs ClientTestingKnobs
 }
 
@@ -371,6 +384,7 @@ func NewTxnCoordSenderFactory(
 		heartbeatInterval: cfg.HeartbeatInterval,
 		metrics:           cfg.Metrics,
 		testingKnobs:      cfg.TestingKnobs,
+		registry:          cfg.Registry,
 	}
 	if tcf.st == nil {
 		tcf.st = cluster.MakeTestingClusterSettings()
@@ -420,8 +434,9 @@ func (tcf *TxnCoordSenderFactory) TransactionalSender(
 		autoRetryCounter: tcs.metrics.AutoRetries,
 	}
 	tcs.interceptorAlloc.txnLockGatekeeper = txnLockGatekeeper{
-		mu:      &tcs.mu,
-		wrapped: tcs.wrapped,
+		mu:       &tcs.mu,
+		wrapped:  tcs.wrapped,
+		registry: tcs.registry,
 	}
 	tcs.interceptorStack = [...]txnInterceptor{
 		&tcs.interceptorAlloc.txnIntentCollector,

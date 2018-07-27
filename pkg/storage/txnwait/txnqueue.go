@@ -17,6 +17,7 @@ package txnwait
 import (
 	"bytes"
 	"context"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
+	"github.com/cockroachdb/cockroach/pkg/util/txnregistry"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
 )
 
@@ -162,6 +164,7 @@ type Queue struct {
 		txns    map[uuid.UUID]*pendingTxn
 		queries map[uuid.UUID][]*waitingQuery
 	}
+	txnRegistry *txnregistry.TxnRegistry
 }
 
 // NewQueue instantiates a new Queue.
@@ -169,6 +172,10 @@ func NewQueue(store StoreInterface) *Queue {
 	return &Queue{
 		store: store,
 	}
+}
+
+func (q *Queue) SetTxnRegistry(reg *txnregistry.TxnRegistry) {
+	q.txnRegistry = reg
 }
 
 // Enable allows transactions to be enqueued and waiting pushers
@@ -537,6 +544,7 @@ func (q *Queue) MaybeWaitForPush(
 			case roachpb.COMMITTED:
 				return nil, roachpb.NewErrorWithTxn(roachpb.NewTransactionStatusError("already committed"), updatedPusher)
 			case roachpb.ABORTED:
+				log.Infof(ctx, "!!! pusher was aborted: %v", updatedPusher)
 				return nil, roachpb.NewErrorWithTxn(roachpb.NewTransactionAbortedError(), updatedPusher)
 			}
 			if updatedPusher.Priority > pusherPriority {
@@ -572,6 +580,16 @@ func (q *Queue) MaybeWaitForPush(
 				// Break the deadlock if the pusher has higher priority.
 				p1, p2 := pusheePriority, pusherPriority
 				if p1 < p2 || (p1 == p2 && bytes.Compare(req.PusheeTxn.ID.GetBytes(), req.PusherTxn.ID.GetBytes()) < 0) {
+					log.Infof(
+						ctx,
+						"!!! %s breaking deadlock by force push of %s; dependencies=%s",
+						req.PusherTxn.ID.Short(),
+						req.PusheeTxn.ID.Short(),
+						dependents,
+					)
+					log.Infof(ctx, "!!! pusher history: %s\n\npushee history: %s\n\n",
+						strings.Join(q.txnRegistry.GetMsgs(req.PusherTxn.ID), "\n"),
+						strings.Join(q.txnRegistry.GetMsgs(req.PusheeTxn.ID), "\n"))
 					if log.V(1) {
 						log.Infof(
 							ctx,

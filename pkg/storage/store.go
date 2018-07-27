@@ -27,6 +27,7 @@ import (
 
 	"github.com/cockroachdb/cockroach/pkg/rpc/nodedialer"
 	"github.com/cockroachdb/cockroach/pkg/util/limit"
+	"github.com/cockroachdb/cockroach/pkg/util/txnregistry"
 
 	"github.com/coreos/etcd/raft"
 	"github.com/coreos/etcd/raft/raftpb"
@@ -565,6 +566,7 @@ type StoreConfig struct {
 	AmbientCtx log.AmbientContext
 	base.RaftConfig
 
+	TxnRegistry  *txnregistry.TxnRegistry
 	Settings     *cluster.Settings
 	Clock        *hlc.Clock
 	DB           *client.DB
@@ -3013,6 +3015,10 @@ func (s *Store) Send(
 		// retry. Other errors are returned to caller.
 		switch t := pErr.GetDetail().(type) {
 		case *roachpb.TransactionPushError:
+			if ba.IsSinglePushTxnRequest() {
+				pushReq := ba.Requests[0].GetInner().(*roachpb.PushTxnRequest)
+				log.Infof(ctx, "!!! TransactionPushError: req: %s", pushReq)
+			}
 			// On a transaction push error, retry immediately if doing so will
 			// enqueue into the txnWaitQueue in order to await further updates to
 			// the unpushed txn's status. We check ShouldPushImmediately to avoid
@@ -3124,6 +3130,13 @@ func (s *Store) maybeWaitForPushee(
 	if ba.IsSinglePushTxnRequest() {
 		pushReq := ba.Requests[0].GetInner().(*roachpb.PushTxnRequest)
 		pushResp, pErr := repl.txnWaitQueue.MaybeWaitForPush(repl.AnnotateCtx(ctx), repl, pushReq)
+		if pushResp != nil {
+			log.Infof(ctx, "!!! push: %s->%s (%s) returned success. pushee: %v",
+				pushReq.PusherTxn.Short(), pushReq.PusheeTxn.Short(), pushReq.PushType, pushResp.PusheeTxn.Status)
+		} else {
+			log.Infof(ctx, "!!! push: %s->%s (%s) returned nil or err: %v",
+				pushReq.PusherTxn.Short(), pushReq.PusheeTxn.Short(), pushReq.PushType, pErr)
+		}
 		// Copy the request in anticipation of setting the force arg and
 		// updating the Now timestamp (see below).
 		pushReqCopy := *pushReq

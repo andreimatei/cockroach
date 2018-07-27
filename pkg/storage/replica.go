@@ -637,6 +637,7 @@ func newReplica(rangeID roachpb.RangeID, store *Store) *Replica {
 		abortSpan:      abortspan.New(rangeID),
 		txnWaitQueue:   txnwait.NewQueue(store),
 	}
+	r.txnWaitQueue.SetTxnRegistry(store.cfg.TxnRegistry)
 	r.mu.pendingLeaseRequest = makePendingLeaseRequest(r)
 	r.mu.stateLoader = stateloader.Make(r.store.cfg.Settings, rangeID)
 	r.mu.quiescent = true
@@ -5632,10 +5633,10 @@ func checkIfTxnAborted(
 	}
 	if aborted {
 		// We hit the cache, so let the transaction restart.
-		if log.V(1) {
-			log.Infof(ctx, "found AbortSpan entry for %s with priority %d",
-				txn.ID.Short(), entry.Priority)
-		}
+		log.Infof(ctx, "!!! found AbortSpan entry for %s with priority %d",
+			txn.ID.Short(), entry.Priority)
+		log.VEventf(ctx, 1, "found AbortSpan entry for %s with priority %d",
+			txn.ID.Short(), entry.Priority)
 		newTxn := txn.Clone()
 		if entry.Priority > newTxn.Priority {
 			newTxn.Priority = entry.Priority
@@ -5977,6 +5978,7 @@ func evaluateBatch(
 				!ba.Requests[0].GetInner().(*roachpb.EndTransactionRequest).Commit
 			if !singleAbort && !ba.IsSingleHeartbeatTxnRequest() {
 				if pErr := checkIfTxnAborted(ctx, rec, batch, *ba.Txn); pErr != nil {
+					log.Infof(ctx, "!!! abort span hit for req: %s", batch)
 					return nil, result.Result{}, pErr
 				}
 			}

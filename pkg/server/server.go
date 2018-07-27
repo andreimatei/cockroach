@@ -84,6 +84,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/sdnotify"
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
+	"github.com/cockroachdb/cockroach/pkg/util/txnregistry"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
 )
 
@@ -276,6 +277,7 @@ func NewServer(cfg Config, stopper *stop.Stopper) (*Server, error) {
 
 	txnMetrics := kv.MakeTxnMetrics(s.cfg.HistogramWindowInterval())
 	s.registry.AddMetricStruct(txnMetrics)
+	txnRegistry := new(txnregistry.TxnRegistry)
 	txnCoordSenderFactoryCfg := kv.TxnCoordSenderFactoryConfig{
 		AmbientCtx:   s.cfg.AmbientCtx,
 		Settings:     st,
@@ -284,6 +286,7 @@ func NewServer(cfg Config, stopper *stop.Stopper) (*Server, error) {
 		Linearizable: s.cfg.Linearizable,
 		Metrics:      txnMetrics,
 		TestingKnobs: clientTestingKnobs,
+		Registry:     txnRegistry,
 	}
 	s.tcsFactory = kv.NewTxnCoordSenderFactory(txnCoordSenderFactoryCfg, s.distSender)
 
@@ -421,6 +424,7 @@ func NewServer(cfg Config, stopper *stop.Stopper) (*Server, error) {
 		SQLExecutor:             internalExecutor,
 		LogRangeEvents:          s.cfg.EventLogEnabled,
 		TimeSeriesDataStore:     s.tsDB,
+		TxnRegistry:             txnRegistry,
 
 		EnableEpochRangeLeases: true,
 	}
