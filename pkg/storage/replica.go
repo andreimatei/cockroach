@@ -2995,11 +2995,16 @@ func (r *Replica) executeWriteBatch(
 ) (*roachpb.BatchResponse, *roachpb.Error) {
 	var ambiguousResult bool
 	for count := 0; ; count++ {
+		log.Infof(ctx, "!!! executeWriteBatch (%d): %s", count, ba)
 		br, pErr, retry := r.tryExecuteWriteBatch(ctx, ba)
+		if count != 0 {
+			log.Infof(ctx, "!!! request %s at retry: %d returned err: %v", ba, count, pErr)
+		}
 		switch retry {
 		case proposalIllegalLeaseIndex:
 			continue // retry
 		case proposalAmbiguousShouldBeReevaluated:
+			log.Infof(ctx, "!!! executeWriteBatch retrying with reason ambiguous...")
 			ambiguousResult = true
 			continue // retry
 		case proposalRangeNoLongerExists, proposalErrorReproposing:
@@ -3091,6 +3096,7 @@ func (r *Replica) tryExecuteWriteBatch(
 		log.Event(ctx, "command queue")
 		var err error
 		endCmds, err = r.beginCmds(ctx, &ba, spans)
+		log.Infof(ctx, "!!! request in the command queue: %s. endCmds: %t", ba, endCmds != nil)
 		if err != nil {
 			return nil, roachpb.NewError(err), proposalNoRetry
 		}
@@ -3100,6 +3106,7 @@ func (r *Replica) tryExecuteWriteBatch(
 	// wrapped to delay pErr evaluation to its value when returning.
 	defer func() {
 		if endCmds != nil {
+			log.Infof(ctx, "!!! removing request from the cmd queue: %s", ba)
 			endCmds.done(br, pErr, retry)
 		}
 	}()
@@ -3487,6 +3494,7 @@ func (r *Replica) propose(
 	spans *spanset.SpanSet,
 ) (_ chan proposalResult, _ func() bool, _ int64, pErr *roachpb.Error) {
 	r.mu.Lock()
+	log.Infof(ctx, "!!! propose: %s", ba)
 	if !r.mu.destroyStatus.IsAlive() {
 		err := r.mu.destroyStatus.err
 		r.mu.Unlock()
@@ -3704,6 +3712,7 @@ func (r *Replica) submitProposalLocked(p *ProposalData) error {
 }
 
 func defaultSubmitProposalLocked(r *Replica, p *ProposalData) error {
+	log.Infof(context.TODO(), "!!! defaultSubmitProposalLocked")
 	data, err := protoutil.Marshal(p.command)
 	if err != nil {
 		return err
@@ -5857,6 +5866,7 @@ func (r *Replica) evaluateWriteBatch(
 	// If not transactional or there are indications that the batch's txn will
 	// require restart or retry, execute as normal.
 	if isOnePhaseCommit(ba, r.store.TestingKnobs()) {
+		log.Infof(ctx, "!!! evaluateWriteBatch detected 1PC")
 		arg, _ := ba.GetArg(roachpb.EndTransaction)
 		etArg := arg.(*roachpb.EndTransactionRequest)
 

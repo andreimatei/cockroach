@@ -21,6 +21,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/storage/batcheval/result"
 	"github.com/cockroachdb/cockroach/pkg/storage/engine"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 )
 
 func init() {
@@ -39,6 +40,7 @@ func Put(
 	if !args.Inline {
 		ts = h.Timestamp
 	}
+	log.Infof(ctx, "!!! Put %s at ts: %s", cArgs.Args, ts)
 	if h.DistinctSpans {
 		if b, ok := batch.(engine.Batch); ok {
 			// Use the distinct batch for both blind and normal ops so that we don't

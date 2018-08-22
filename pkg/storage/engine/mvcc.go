@@ -1171,6 +1171,7 @@ func mvccPutInternal(
 	if err != nil {
 		return err
 	}
+	log.Infof(ctx, "!!! mvccPutInternal for key: %s, found meta: %t", key, ok)
 
 	// Verify we're not mixing inline and non-inline values.
 	putIsInline := timestamp == (hlc.Timestamp{})
@@ -1280,6 +1281,7 @@ func mvccPutInternal(
 				timestamp = metaTimestamp
 			}
 		} else if !metaTimestamp.Less(timestamp) {
+			log.Infof(ctx, "!!! mvcc write too old")
 			// This is the case where we're trying to write under a
 			// committed value. Obviously we can't do that, but we can
 			// increment our timestamp to one logical tick past the existing

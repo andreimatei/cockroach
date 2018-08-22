@@ -8461,9 +8461,11 @@ func TestAmbiguousResultErrorOnRetry(t *testing.T) {
 				// The one phase transaction will succeed because the original command
 				// executes first. However, the response the client gets corresponds to
 				// the retried one, and that one fails because of MVCC protections.
+				log.Infof(context.TODO(), "!!! pErr: %v", pErr)
 				detail := pErr.GetDetail()
 				are, ok := detail.(*roachpb.AmbiguousResultError)
 				if !ok {
+					log.Infof(context.TODO(), "!!! 1.1")
 					return errors.Wrapf(detail, "expected AmbiguousResultError, got error %T", detail)
 				}
 				detail = are.WrappedErr.GetDetail()
@@ -8491,6 +8493,7 @@ func TestAmbiguousResultErrorOnRetry(t *testing.T) {
 			tc.repl.mu.submitProposalFn = func(p *ProposalData) error {
 				go func() {
 					// Manually refresh proposals.
+					log.Infof(context.TODO(), "!!! manually refreshing")
 
 					// Holding on to this mutex until after the
 					// defaultSubmitProposalLocked below guarantees that the "original"
@@ -8515,7 +8518,15 @@ func TestAmbiguousResultErrorOnRetry(t *testing.T) {
 					// longer listen for the result of this original proposal. However, we
 					// still want the original proposal to succeed (before the retry is
 					// processed), so submit it before releasing the lock.
+					log.Infof(context.TODO(), "!!! submitting original request")
 					originalProposalErrChan <- defaultSubmitProposalLocked(tc.repl, p)
+
+					if err := <-originalProposalErrChan; err != nil {
+						t.Fatal(err)
+					} else {
+						log.Infof(context.TODO(), "!!! original proposal succeeded")
+					}
+
 					tc.repl.mu.Unlock()
 				}()
 				return nil // pretend we proposed though we haven't yet.
@@ -8523,10 +8534,18 @@ func TestAmbiguousResultErrorOnRetry(t *testing.T) {
 			tc.repl.mu.Unlock()
 
 			_, pErr := tc.Sender().Send(context.Background(), c.ba)
-			if err := <-originalProposalErrChan; err != nil {
+			// !!!
+			// if err := <-originalProposalErrChan; err != nil {
+			//   t.Fatal(err)
+			// } else {
+			//   log.Infof(context.TODO(), "!!! original proposal succeeded")
+			// }
+			if err := c.checkFn(pErr); err != nil {
 				t.Fatal(err)
 			}
-			if err := c.checkFn(pErr); err != nil {
+			// !!! added this extra
+			if err := checkValue(
+				context.Background(), &tc, roachpb.Key("1pc"), []byte("value")); err != nil {
 				t.Fatal(err)
 			}
 		})
