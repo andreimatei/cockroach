@@ -16,6 +16,8 @@ package kv
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,9 +92,22 @@ type txnHeartbeat struct {
 		// EndTransaction can be elided - we want to allow multiple rollback attempts
 		// to be sent and the first one stops the heartbeat loop.
 		everSentBeginTxn bool
+
+		hbHistory []hbRec
 	}
 	// !!!
 	leaf bool
+}
+
+type hbRec struct {
+	sent, received time.Time
+	res            *roachpb.HeartbeatTxnResponse
+	pErr           *roachpb.Error
+}
+
+func (r *hbRec) String() string {
+	return fmt.Sprintf("hb: send: %s rec: %s (dur: %s), err: %v, resp: %v",
+		r.sent, r.received, r.received.Sub(r.sent), r.pErr, r.res)
 }
 
 // init initializes the txnHeartbeat. This method exists instead of a
@@ -107,6 +122,7 @@ func (h *txnHeartbeat) init(
 	stopper *stop.Stopper,
 	asyncAbortCallbackLocked func(context.Context),
 ) {
+	h.mu.hbHistory = make([]hbRec, 0)
 	h.stopper = stopper
 	h.clock = clock
 	h.heartbeatInterval = heartbeatInterval
@@ -436,6 +452,8 @@ func (h *txnHeartbeat) heartbeat(ctx context.Context) bool {
 	ba := roachpb.BatchRequest{}
 	ba.Txn = &txn
 
+	var rec hbRec
+	rec.sent = time.Now()
 	hb := &roachpb.HeartbeatTxnRequest{
 		RequestHeader: roachpb.RequestHeader{
 			Key: txn.Key,
@@ -446,6 +464,13 @@ func (h *txnHeartbeat) heartbeat(ctx context.Context) bool {
 
 	log.VEventf(ctx, 2, "heartbeat %s", h.mu.txn)
 	br, pErr := h.gatekeeper.SendLocked(ctx, ba)
+
+	rec.received = time.Now()
+	rec.pErr = pErr
+	if pErr == nil {
+		rec.res = br.Responses[0].GetHeartbeatTxn()
+	}
+	h.mu.hbHistory = append(h.mu.hbHistory, rec)
 
 	var respTxn *roachpb.Transaction
 	if pErr != nil {
@@ -480,7 +505,12 @@ func (h *txnHeartbeat) heartbeat(ctx context.Context) bool {
 	h.mu.txn.Update(respTxn)
 	if h.mu.txn.Status != roachpb.PENDING {
 		if h.mu.txn.Status == roachpb.ABORTED {
-			log.Infof(ctx, "!!! Heartbeat detected aborted txn %s. Cleaning up.", h.mu.txn)
+			ss := make([]string, len(h.mu.hbHistory))
+			for i, rec := range h.mu.hbHistory {
+				ss[i] = fmt.Sprintf("%d: %s", i, rec)
+			}
+			log.Infof(ctx, "!!! Heartbeat detected aborted txn %s. Cleaning up. history: %s",
+				h.mu.txn, strings.Join(ss, "\n"))
 			log.VEventf(ctx, 1, "Heartbeat detected aborted txn. Cleaning up.")
 			h.abortTxnAsyncLocked(ctx)
 		}

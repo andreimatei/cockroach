@@ -16,13 +16,10 @@ package roachpb
 
 import (
 	"bytes"
-	"context"
 	"fmt"
-	"runtime/debug"
 
 	"github.com/cockroachdb/cockroach/pkg/util/caller"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
-	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
 )
 
@@ -90,12 +87,6 @@ func NewError(err error) *Error {
 //
 // txn is cloned before being stored in Error.
 func NewErrorWithTxn(err error, txn *Transaction) *Error {
-	if _, ok := err.(*TransactionRetryError); ok {
-		if txn.Status != PENDING {
-			log.Infof(context.TODO(), "!!! making TransactionRetryError for bad txn: %s", txn)
-			debug.PrintStack() // !!!
-		}
-	}
 	e := NewError(err)
 	e.SetTxn(txn)
 	return e

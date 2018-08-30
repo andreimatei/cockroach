@@ -116,6 +116,9 @@ func (sr *txnSpanRefresher) SendLocked(
 			ba.Txn.RefreshedTimestamp.Forward(largestRefreshTS)
 			if !sr.appendRefreshSpans(ctx, ba, br) {
 				// The refresh spans are out of date, return a generic client-side retry error.
+				if br.Txn.Status != roachpb.PENDING {
+					log.Infof(context.TODO(), "!!! span refresher making TransactionRetryError for bad txn: %s. ba: %s", br.Txn, ba)
+				}
 				return nil, roachpb.NewErrorWithTxn(
 					roachpb.NewTransactionRetryError(roachpb.RETRY_SERIALIZABLE), br.Txn,
 				)
