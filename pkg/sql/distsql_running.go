@@ -439,6 +439,10 @@ func (r *DistSQLReceiver) Push(
 		if meta.TxnCoordMeta != nil {
 			if r.txn != nil {
 				if r.txn.ID() == meta.TxnCoordMeta.Txn.ID {
+					if meta.TxnCoordMeta.Txn.Status == roachpb.ABORTED {
+						log.Infof(r.ctx, "!!! DistSQLReceiver got aborted meta. err: %v. txn: %s",
+							meta.Err, r.txn.ID)
+					}
 					r.txn.AugmentTxnCoordMeta(r.ctx, *meta.TxnCoordMeta)
 				}
 			} else {

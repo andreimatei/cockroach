@@ -90,6 +90,8 @@ type txnHeartbeat struct {
 		// to be sent and the first one stops the heartbeat loop.
 		everSentBeginTxn bool
 	}
+	// !!!
+	leaf bool
 }
 
 // init initializes the txnHeartbeat. This method exists instead of a
@@ -321,6 +323,9 @@ func (h *txnHeartbeat) closeLocked() {
 
 // startHeartbeatLoopLocked starts a heartbeat loop in a different goroutine.
 func (h *txnHeartbeat) startHeartbeatLoopLocked(ctx context.Context) error {
+	if h.leaf {
+		log.Fatalf(ctx, "!!! starting heartbeat on a leaf! txn: %s", h.mu.txn.Short())
+	}
 	if h.mu.txnEnd != nil {
 		log.Fatal(ctx, "attempting to start a second heartbeat loop ")
 	}

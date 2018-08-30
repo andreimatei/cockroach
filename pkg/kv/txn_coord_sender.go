@@ -16,6 +16,7 @@ package kv
 
 import (
 	"context"
+	"runtime/debug"
 	"sync"
 	"time"
 
@@ -423,6 +424,9 @@ func (tcf *TxnCoordSenderFactory) TransactionalSender(
 		tcs.stopper,
 		tcs.cleanupTxnLocked,
 	)
+	if tcs.typ == client.LeafTxn {
+		tcs.interceptorAlloc.txnHeartbeat.leaf = true
+	}
 	tcs.interceptorAlloc.txnMetrics.init(&tcs.mu.txn, tcs.clock, &tcs.metrics)
 	tcs.interceptorAlloc.txnIntentCollector = txnIntentCollector{
 		st: tcf.st,
@@ -509,6 +513,10 @@ func (tc *TxnCoordSender) AugmentMeta(ctx context.Context, meta roachpb.TxnCoord
 }
 
 func (tc *TxnCoordSender) augmentMetaLocked(meta roachpb.TxnCoordMeta) {
+	if tc.typ == client.LeafTxn && meta.Txn.Status == roachpb.ABORTED {
+		log.Infof(context.TODO(), "!!! augmentMetaLocked to aborted on leaf. txn: %s", tc.mu.txn.Short())
+		debug.PrintStack()
+	}
 	tc.mu.txn.Update(&meta.Txn)
 	for _, reqInt := range tc.interceptorStack {
 		reqInt.augmentMetaLocked(meta)
@@ -544,7 +552,6 @@ func (tc *TxnCoordSender) Send(
 	// comes, and unlock again in the defer below.
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-
 	if pErr := tc.maybeRejectClientLocked(ctx, &ba); pErr != nil {
 		return nil, pErr
 	}
@@ -557,6 +564,13 @@ func (tc *TxnCoordSender) Send(
 
 	ctx, sp := tc.AnnotateCtxWithSpan(ctx, opTxnCoordSender)
 	defer sp.Finish()
+
+	// !!!
+	defer func() {
+		if tc.typ == client.LeafTxn && tc.mu.txn.Status == roachpb.ABORTED {
+			log.Infof(ctx, "!!! leaf txn found to be aborted at the end of %s", ba)
+		}
+	}()
 
 	// Associate the txnID with the trace.
 	if tc.mu.txn.ID == (uuid.UUID{}) {
@@ -712,6 +726,9 @@ func (tc *TxnCoordSender) maybeRejectClientLocked(
 			// priority is not used for aborted errors
 			roachpb.NormalUserPriority,
 			tc.clock)
+		if tc.typ == client.LeafTxn {
+			log.Infof(ctx, "!!! Leaf producing bad err")
+		}
 		return roachpb.NewError(roachpb.NewHandledRetryableTxnError(
 			abortedErr.Message, tc.mu.txn.ID, newTxn))
 	}
@@ -749,6 +766,9 @@ func (tc *TxnCoordSender) UpdateStateOnRemoteRetryableErr(
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 	err := tc.handleRetryableErrLocked(ctx, pErr)
+	if tc.typ == client.LeafTxn && err.Transaction.Status == roachpb.ABORTED {
+		log.Infof(context.TODO(), "!!! augmentMetaLocked to aborted on leaf. txn: %s", tc.mu.txn.Short())
+	}
 	tc.mu.txn.Update(&err.Transaction)
 	return roachpb.NewError(err)
 }
@@ -863,6 +883,9 @@ func (tc *TxnCoordSender) updateStateLocked(
 	// we might get retriable errors for old epochs. We rely on the associativity
 	// of Transaction.Update to sort out this lack of ordering guarantee.
 	if responseTxn != nil {
+		if tc.typ == client.LeafTxn && responseTxn.Status == roachpb.ABORTED {
+			log.Infof(ctx, "!!! updating leaf to aborted from response. txn: %s", tc.mu.txn.Short())
+		}
 		tc.mu.txn.Update(responseTxn)
 	}
 	return pErr
