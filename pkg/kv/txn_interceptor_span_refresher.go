@@ -310,24 +310,32 @@ func (sr *txnSpanRefresher) tryUpdatingTxnSpans(
 func (sr *txnSpanRefresher) appendRefreshSpans(
 	ctx context.Context, ba roachpb.BatchRequest, br *roachpb.BatchResponse,
 ) bool {
-	origTS := ba.Txn.OrigTimestamp
-	origTS.Forward(ba.Txn.RefreshedTimestamp)
-	if origTS.Less(sr.refreshedTimestamp) {
-		log.VEventf(ctx, 2, "txn orig timestamp %s < sender refreshed timestamp %s",
-			origTS, sr.refreshedTimestamp)
-		return false
-	}
+	var reads, writes []roachpb.Span
+	var bytes int64
 	ba.RefreshSpanIterate(br, func(span roachpb.Span, write bool) {
 		if log.V(3) {
 			log.Infof(ctx, "refresh: %s write=%t", span, write)
 		}
 		if write {
-			sr.refreshWrites = append(sr.refreshWrites, span)
+			writes = append(writes, span)
 		} else {
-			sr.refreshReads = append(sr.refreshReads, span)
+			reads = append(writes, span)
 		}
+		bytes += int64(len(span.Key) + len(span.EndKey))
 		sr.refreshSpansBytes += int64(len(span.Key) + len(span.EndKey))
 	})
+	if bytes != 0 {
+		origTS := ba.Txn.OrigTimestamp
+		origTS.Forward(ba.Txn.RefreshedTimestamp)
+		if origTS.Less(sr.refreshedTimestamp) {
+			log.VEventf(ctx, 2, "txn orig timestamp %s < sender refreshed timestamp %s",
+				origTS, sr.refreshedTimestamp)
+			return false
+		}
+	}
+	sr.refreshReads = append(sr.refreshReads, reads...)
+	sr.refreshWrites = append(sr.refreshWrites, writes...)
+	sr.refreshSpansBytes += bytes
 	return true
 }
 

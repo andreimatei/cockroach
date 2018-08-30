@@ -105,7 +105,7 @@ type hbRec struct {
 	pErr           *roachpb.Error
 }
 
-func (r *hbRec) String() string {
+func (r hbRec) String() string {
 	return fmt.Sprintf("hb: send: %s rec: %s (dur: %s), err: %v, resp: %v",
 		r.sent, r.received, r.received.Sub(r.sent), r.pErr, r.res)
 }
