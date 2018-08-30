@@ -48,6 +48,7 @@ func (s *txnSeqNumAllocator) SendLocked(
 	ctx context.Context, ba roachpb.BatchRequest,
 ) (*roachpb.BatchResponse, *roachpb.Error) {
 	for _, ru := range ba.Requests {
+		// !!!
 		// Heartbeats don't get seq nums. They don't need them and they'd cause
 		// large numbers to be used by other requests.
 		if ru.GetHeartbeatTxn() != nil {

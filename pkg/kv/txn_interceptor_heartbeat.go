@@ -42,6 +42,7 @@ type txnHeartbeat struct {
 	log.AmbientContext
 
 	wrapped           lockedSender
+	gatekeeper        lockedSender
 	clock             *hlc.Clock
 	heartbeatInterval time.Duration
 	metrics           *TxnMetrics
@@ -101,6 +102,7 @@ func (h *txnHeartbeat) init(
 	txn *roachpb.Transaction,
 	clock *hlc.Clock,
 	heartbeatInterval time.Duration,
+	gatekeeper lockedSender,
 	metrics *TxnMetrics,
 	stopper *stop.Stopper,
 	asyncAbortCallbackLocked func(context.Context),
@@ -112,6 +114,7 @@ func (h *txnHeartbeat) init(
 	h.mu.Locker = mu
 	h.mu.txn = txn
 	h.mu.needBeginTxn = true
+	h.gatekeeper = gatekeeper
 	h.asyncAbortCallbackLocked = asyncAbortCallbackLocked
 }
 
@@ -442,7 +445,7 @@ func (h *txnHeartbeat) heartbeat(ctx context.Context) bool {
 	ba.Add(hb)
 
 	log.VEventf(ctx, 2, "heartbeat %s", h.mu.txn)
-	br, pErr := h.wrapped.SendLocked(ctx, ba)
+	br, pErr := h.gatekeeper.SendLocked(ctx, ba)
 
 	var respTxn *roachpb.Transaction
 	if pErr != nil {
