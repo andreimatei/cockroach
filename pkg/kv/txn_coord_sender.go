@@ -400,6 +400,9 @@ func (tcf *TxnCoordSenderFactory) TransactionalSender(
 	typ client.TxnType, meta roachpb.TxnCoordMeta,
 ) client.TxnSender {
 	meta.Txn.AssertInitialized(context.TODO())
+	if meta.Txn.Status == roachpb.ABORTED {
+		log.Fatalf(context.TODO(), "!!! createing TransactionalSender in aborted txn: %s", meta.Txn)
+	}
 	tcs := &TxnCoordSender{
 		typ: typ,
 		TxnCoordSenderFactory: tcf,

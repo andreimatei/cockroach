@@ -324,6 +324,11 @@ func (ds *ServerImpl) setupFlow(
 		}
 		meta := roachpb.MakeTxnCoordMeta(*txn)
 		req.TxnCoordMeta = &meta
+
+		if req.TxnCoordMeta.Txn.Status == roachpb.ABORTED {
+			log.Fatalf(ctx, "!!! setupFlow got aborted txn: %s. local: %t",
+				req.TxnCoordMeta.Txn, localState.IsLocal)
+		}
 	}
 	if meta := req.TxnCoordMeta; meta != nil {
 		if !localState.IsLocal {

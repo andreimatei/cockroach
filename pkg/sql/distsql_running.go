@@ -64,6 +64,11 @@ func (req runnerRequest) run() {
 	if err != nil {
 		res.err = err
 	} else {
+		if req.flowReq.TxnCoordMeta.Txn.Status == roachpb.ABORTED {
+			log.Fatalf(context.TODO(), "!!! about to send SetupFlow req in aborted txn: %s",
+				req.flowReq.TxnCoordMeta.Txn)
+		}
+
 		client := distsqlrun.NewDistSQLClient(conn)
 		// TODO(radu): do we want a timeout here?
 		resp, err := client.SetupFlow(req.ctx, req.flowReq)
@@ -136,6 +141,10 @@ func (dsp *DistSQLPlanner) Run(
 		// If the plan is not local, we will have to set up leaf txns using the
 		// txnCoordMeta.
 		meta := txn.GetStrippedTxnCoordMeta()
+		if meta.Txn.Status == roachpb.ABORTED {
+			log.Infof(ctx, "!!! GetStrippedTxnCoordMeta() returned aborted txn: %s",
+				meta.Txn)
+		}
 		txnCoordMeta = &meta
 	}
 

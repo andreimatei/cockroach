@@ -323,9 +323,7 @@ func (h *txnHeartbeat) closeLocked() {
 
 // startHeartbeatLoopLocked starts a heartbeat loop in a different goroutine.
 func (h *txnHeartbeat) startHeartbeatLoopLocked(ctx context.Context) error {
-	if h.leaf {
-		log.Fatalf(ctx, "!!! starting heartbeat on a leaf! txn: %s", h.mu.txn.Short())
-	}
+	log.Infof(ctx, "!!! starting heartbeat for txn: %s", h.mu.txn)
 	if h.mu.txnEnd != nil {
 		log.Fatal(ctx, "attempting to start a second heartbeat loop ")
 	}
@@ -443,7 +441,7 @@ func (h *txnHeartbeat) heartbeat(ctx context.Context) bool {
 	}
 	ba.Add(hb)
 
-	log.VEvent(ctx, 2, "heartbeat")
+	log.VEventf(ctx, 2, "heartbeat %s", h.mu.txn)
 	br, pErr := h.wrapped.SendLocked(ctx, ba)
 
 	var respTxn *roachpb.Transaction
@@ -458,6 +456,7 @@ func (h *txnHeartbeat) heartbeat(ctx context.Context) bool {
 			tse.Reason == roachpb.TransactionStatusError_REASON_TXN_NOT_FOUND {
 			return true
 		}
+		log.Infof(ctx, "!!! heartbeat failed: %s", pErr)
 
 		if pErr.GetTxn() != nil {
 			// It is not expected for a 2.1 node to return an error with a transaction
@@ -478,6 +477,7 @@ func (h *txnHeartbeat) heartbeat(ctx context.Context) bool {
 	h.mu.txn.Update(respTxn)
 	if h.mu.txn.Status != roachpb.PENDING {
 		if h.mu.txn.Status == roachpb.ABORTED {
+			log.Infof(ctx, "!!! Heartbeat detected aborted txn %s. Cleaning up.", h.mu.txn)
 			log.VEventf(ctx, 1, "Heartbeat detected aborted txn. Cleaning up.")
 			h.abortTxnAsyncLocked(ctx)
 		}
