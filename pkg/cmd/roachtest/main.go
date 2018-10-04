@@ -16,10 +16,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"math/rand"
 	"os"
 	"os/user"
+	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/spf13/cobra"
@@ -29,9 +31,12 @@ func main() {
 	rand.Seed(timeutil.Now().UnixNano())
 	username := os.Getenv("ROACHPROD_USER")
 	parallelism := 10
+	var cpuQuota int
 	// Path to a local dir where the test logs and artifacts collected from
 	// cluster will be placed.
 	var artifacts string
+	var clusterLifetimeOverrideS string
+	var clusterLifetimeOverride time.Duration
 
 	cobra.EnableCommandSorting = false
 
@@ -47,8 +52,16 @@ func main() {
 				return nil
 			}
 
+			if clusterLifetimeOverrideS != "" {
+				var err error
+				clusterLifetimeOverride, err = time.ParseDuration(clusterLifetimeOverrideS)
+				if err != nil {
+					return fmt.Errorf("invalid --cluster-lifetime-override: %s", clusterLifetimeOverrideS)
+				}
+			}
+
 			if clusterName != "" && local {
-				return fmt.Errorf("cannot specify both an existing cluster (%s) and --local", clusterName)
+				return fmt.Errorf("Cannot specify both an existing cluster (%s) and --local. However, if a local cluster already exists, --clusters=local will use it.", clusterName)
 			}
 			switch cmd.Name() {
 			case "run", "bench", "store-gen":
@@ -59,7 +72,10 @@ func main() {
 	}
 
 	rootCmd.PersistentFlags().StringVarP(
-		&clusterName, "cluster", "c", "", "name of an existing cluster to use for running tests")
+		&clusterName, "cluster", "c", "",
+		"Comma-separated list of names existing cluster to use for running tests. "+
+			"If fewer than --parallelism names are specified, then the parallelism "+
+			"is capped to the number of clusters specified.")
 	rootCmd.PersistentFlags().BoolVarP(
 		&local, "local", "l", local, "run tests locally")
 	rootCmd.PersistentFlags().StringVarP(
@@ -129,7 +145,13 @@ the test tags.
 			}
 			r := newRegistry(setBuildVersion)
 			registerTests(r)
-			os.Exit(r.Run(args, parallelism, artifacts, getUser(username)))
+
+			filter := newFilter(args)
+			os.Exit(r.Run(
+				context.Background(), filter, count, parallelism, cpuQuota,
+				clusterName, local, artifacts, getUser(username),
+				debugEnabled, clusterLifetimeOverride,
+				os.Stdout, os.Stderr))
 			return nil
 		},
 	}
@@ -151,7 +173,12 @@ the test tags.
 			}
 			r := newRegistry(setBuildVersion)
 			registerBenchmarks(r)
-			os.Exit(r.Run(args, parallelism, artifacts, getUser(username)))
+
+			filter := newFilter(args)
+			os.Exit(r.Run(
+				context.Background(), filter, count, parallelism, cpuQuota,
+				clusterName, local, artifacts, getUser(username), debugEnabled, clusterLifetimeOverride,
+				os.Stdout, os.Stderr))
 			return nil
 		},
 	}
@@ -177,6 +204,16 @@ the test tags.
 			"wipe existing cluster before starting test (for use with --cluster)")
 		cmd.Flags().StringVar(
 			&zonesF, "zones", "", "Zones for the cluster (use roachprod defaults if empty)")
+		cmd.Flags().IntVar(
+			&cpuQuota, "cpu-quota", 100,
+			"The number of cloud CPUs roachtest is allowed to use at any one time.")
+		cmd.Flags().StringVar(
+			&clusterLifetimeOverrideS, "cluster-lifetime-override", "",
+			"If set, this is a duration that will "+
+				"override testSpec.Nodes[0].Lifetime for all tests. "+
+				"Useful, for example, when running a large number of tests that can "+
+				"reuse clusters and the default 12h destruction time for those clusters "+
+				"is not desirable. E.g. \"24h10m\".")
 	}
 
 	var storeGenCmd = &cobra.Command{
@@ -189,9 +226,15 @@ Cockroach cluster with existing data.
 		RunE: func(_ *cobra.Command, args []string) error {
 			r := newRegistry()
 			registerStoreGen(r, args)
+
 			// We've only registered one store generation "test" that does its own
-			// argument processing, so no need to provide any arguments to r.Run.
-			os.Exit(r.Run(nil /* filter */, parallelism, artifacts, getUser(username)))
+			// argument processing, so no need to provide a filter.
+			// TODO(andrei): Figure out a story for the cpuQuota here.
+			os.Exit(r.Run(
+				context.Background(), nil /* filter */, 1, /* count */
+				parallelism, 100 /* cpuQuota */, clusterName, local,
+				artifacts, getUser(username), debugEnabled, clusterLifetimeOverride,
+				os.Stdout, os.Stderr))
 			return nil
 		},
 	}

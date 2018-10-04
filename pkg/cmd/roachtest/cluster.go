@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"math/rand"
 	"net"
 	"net/url"
@@ -41,6 +40,7 @@ import (
 
 	"github.com/armon/circbuf"
 	"github.com/cockroachdb/cockroach/pkg/util/contextutil"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	_ "github.com/lib/pq"
@@ -190,10 +190,24 @@ func initBinaries() {
 }
 
 var clusters = map[*cluster]struct{}{}
+var savedClusters = map[*cluster]struct{}{}
 var clustersMu syncutil.Mutex
 var interrupted int32
 
-func destroyAllClusters() {
+func saveCluster(c *cluster) {
+	clustersMu.Lock()
+	savedClusters[c] = struct{}{}
+	clustersMu.Unlock()
+}
+func clusterSaved(c *cluster) bool {
+	clustersMu.Lock()
+	defer clustersMu.Unlock()
+	_, ok := savedClusters[c]
+	return ok
+}
+
+func destroyAllClusters(ctx context.Context, l *logger) {
+	l.PrintfCtx(ctx, "destroying all clusters")
 	atomic.StoreInt32(&interrupted, 1)
 
 	// Fire off a goroutine to destroy all of the clusters.
@@ -207,7 +221,9 @@ func destroyAllClusters() {
 		for c := range clusters {
 			go func(c *cluster) {
 				defer wg.Done()
-				c.destroy(context.Background())
+				if !clusterSaved(c) {
+					c.destroy(context.Background(), l)
+				}
 			}(c)
 		}
 		clusters = map[*cluster]struct{}{}
@@ -696,6 +712,9 @@ type cluster struct {
 	// cloned or when we attach to an existing roachprod cluster.
 	// If not set, Destroy() only wipes the cluster.
 	owned bool
+	// alloc is optionally set if owned is set. If set, it represents resources in
+	// a resourceGovernor that need to be released when the cluster is destroyed.
+	alloc resourceAllocation
 	// encryptDefault is true if the cluster should default to having encryption
 	// at rest enabled. The default only applies if encryption is not explicitly
 	// enabled or disabled by options passed to Start.
@@ -704,7 +723,8 @@ type cluster struct {
 
 type clusterConfig struct {
 	// name must be empty if localCluster is specified.
-	name  string
+	name string
+	// !!! rename to clusterSpec
 	nodes clusterSpec
 	// artifactsDir is the path where log file will be stored.
 	artifactsDir string
@@ -712,9 +732,14 @@ type clusterConfig struct {
 	teeOpt       teeOptType
 	user         string
 	useIOBarrier bool
+	alloc        resourceAllocation
 }
 
 // newCluster creates a new roachprod cluster.
+//
+// l is the logger to be used by the cluster creation operation. The caller
+// retains ownership; newCluster() does not assume anything about l's lifetime
+// and does not set c.l.
 //
 // NOTE: setTest() needs to be called before a test can use this cluster.
 //
@@ -734,11 +759,14 @@ func newCluster(ctx context.Context, l *logger, cfg clusterConfig) (*cluster, er
 	var name string
 	if cfg.localCluster {
 		if cfg.name != "" {
-			log.Fatal(ctx, "can't specify name %q with local flag", cfg.name)
+			log.Fatalf(ctx, "can't specify name %q with local flag", cfg.name)
 		}
 		name = "local" // The roachprod tool understands this magic name.
 	} else {
-		name = makeClusterName(cfg.user + "-" + cfg.name)
+		if cfg.name == "" {
+			log.Fatal(ctx, "cluster name must be specified")
+		}
+		name = makeClusterName(cfg.name)
 	}
 
 	if cfg.nodes.NodeCount == 0 {
@@ -749,14 +777,15 @@ func newCluster(ctx context.Context, l *logger, cfg clusterConfig) (*cluster, er
 	}
 
 	c := &cluster{
-		name:           name,
-		nodes:          cfg.nodes.NodeCount,
-		status:         func(...interface{}) {},
-		l:              l,
+		name:   name,
+		nodes:  cfg.nodes.NodeCount,
+		status: func(...interface{}) {},
+		// !!! l:              l,
 		destroyed:      make(chan struct{}),
 		expiration:     cfg.nodes.expiration(),
 		owned:          true,
 		encryptDefault: encrypt.asBool(),
+		alloc:          cfg.alloc,
 	}
 	registerCluster(c)
 
@@ -818,7 +847,7 @@ func attachToExistingCluster(
 		}
 		if !opt.skipWipe {
 			if clusterWipe {
-				if err := c.WipeE(ctx, c.All()); err != nil {
+				if err := c.WipeE(ctx, l, c.All()); err != nil {
 					return nil, err
 				}
 			} else {
@@ -1010,7 +1039,7 @@ func (c *cluster) FetchCores(ctx context.Context) error {
 	})
 }
 
-func (c *cluster) Destroy(ctx context.Context) {
+func (c *cluster) Destroy(ctx context.Context, l *logger) {
 	if c.nodes == 0 {
 		// No nodes can happen during unit tests and implies nothing to do.
 		return
@@ -1020,33 +1049,34 @@ func (c *cluster) Destroy(ctx context.Context) {
 	// may not exist if the test was interrupted and the teardown machinery is
 	// destroying all clusters. (See destroyAllClusters).
 	if exists := unregisterCluster(c); exists {
-		c.destroy(ctx)
+		c.destroy(ctx, l)
 	}
 	// If the test was interrupted, another goroutine is destroying the cluster
 	// and we need to wait for that to finish before closing the
 	// logger. Otherwise, the destruction can get interrupted due to closing the
 	// stdout/stderr of the roachprod command.
 	<-c.destroyed
-	c.l.close()
+	// !!! c.l.close()
 }
 
-func (c *cluster) destroy(ctx context.Context) {
+func (c *cluster) destroy(ctx context.Context, l *logger) {
 	defer close(c.destroyed)
 
 	if clusterWipe {
 		if c.owned {
 			c.status("destroying cluster")
-			if err := execCmd(ctx, c.l, roachprod, "destroy", c.name); err != nil {
-				c.l.Errorf("%s", err)
+			if err := execCmd(ctx, l, roachprod, "destroy", c.name); err != nil {
+				l.Errorf("%s", err)
 			}
+			c.alloc.Release()
 		} else {
 			c.status("wiping cluster")
-			if err := execCmd(ctx, c.l, roachprod, "wipe", c.name); err != nil {
-				c.l.Errorf("%s", err)
+			if err := execCmd(ctx, l, roachprod, "wipe", c.name); err != nil {
+				l.Errorf("%s", err)
 			}
 		}
 	} else {
-		c.l.Printf("skipping cluster wipe\n")
+		l.Printf("skipping cluster wipe\n")
 	}
 }
 
@@ -1266,7 +1296,7 @@ func (c *cluster) Stop(ctx context.Context, opts ...option) {
 
 // WipeE wipes a subset of the nodes in a cluster. See cluster.Start() for a
 // description of the nodes parameter.
-func (c *cluster) WipeE(ctx context.Context, opts ...option) error {
+func (c *cluster) WipeE(ctx context.Context, l *logger, opts ...option) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -1275,7 +1305,7 @@ func (c *cluster) WipeE(ctx context.Context, opts ...option) error {
 	}
 	c.status("wiping cluster")
 	defer c.status()
-	return execCmd(ctx, c.l, roachprod, "wipe", c.makeNodes(opts...))
+	return execCmd(ctx, l, roachprod, "wipe", c.makeNodes(opts...))
 }
 
 // Wipe is like WipeE, except instead of returning an error, it does
@@ -1285,7 +1315,7 @@ func (c *cluster) Wipe(ctx context.Context, opts ...option) {
 		// If the test has failed, don't try to limp along.
 		return
 	}
-	if err := c.WipeE(ctx, opts...); err != nil {
+	if err := c.WipeE(ctx, c.l, opts...); err != nil {
 		c.t.Fatal(err)
 	}
 }
