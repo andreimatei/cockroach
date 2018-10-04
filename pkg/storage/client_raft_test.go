@@ -3189,6 +3189,8 @@ func TestReplicateRemovedNodeDisruptiveElection(t *testing.T) {
 	errChan := errorChannelTestHandler(make(chan *roachpb.Error, 1))
 	transport0.Listen(mtc.stores[0].StoreID(), errChan)
 
+	log.Infof(context.TODO(), "!!! test about to SendAsync")
+
 	// Simulate the removed node asking to trigger an election. Try and try again
 	// until we're reasonably sure the message was sent.
 	for !transport0.SendAsync(&storage.RaftMessageRequest{
@@ -3202,6 +3204,7 @@ func TestReplicateRemovedNodeDisruptiveElection(t *testing.T) {
 			Term: term + 1,
 		},
 	}) {
+		log.Infof(context.TODO(), "!!! SendAsync failed; trying again")
 	}
 
 	// The receiver of this message (i.e. replica1) should return an error telling

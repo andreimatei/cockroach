@@ -539,6 +539,9 @@ func (t *RaftTransport) SendAsync(req *RaftMessageRequest) (sent bool) {
 		if v := atomic.LoadInt32(&stats.queueMax); v < l {
 			atomic.CompareAndSwapInt32(&stats.queueMax, v, l)
 		}
+		if req.FromReplica.NodeID == 1 {
+			log.Infof(context.TODO(), "!!! RaftTransport managed to send req: %+v", req)
+		}
 		return true
 	default:
 		return false

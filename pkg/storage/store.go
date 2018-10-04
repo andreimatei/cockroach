@@ -4185,6 +4185,9 @@ func (s *Store) tryGetOrCreateReplica(
 	replicaID roachpb.ReplicaID,
 	creatingReplica *roachpb.ReplicaDescriptor,
 ) (_ *Replica, created bool, _ error) {
+	if creatingReplica.NodeID == 1 {
+		log.Infof(ctx, "!!! Store.tryGetOrCreateReplica() - received request for creating replica: %s", creatingReplica)
+	}
 	// The common case: look up an existing (initialized) replica.
 	if value, ok := s.mu.replicas.Load(int64(rangeID)); ok {
 		repl := (*Replica)(value)
@@ -4200,6 +4203,7 @@ func (s *Store) tryGetOrCreateReplica(
 			_, found := desc.GetReplicaDescriptorByID(creatingReplica.ReplicaID)
 			// It's not a current member of the group. Is it from the past?
 			if !found && creatingReplica.ReplicaID < desc.NextReplicaID {
+				log.Infof(ctx, "!!! Store.tryGetOrCreateReplica() returning ReplicaTooOld")
 				replTooOldErr = roachpb.NewReplicaTooOldError(creatingReplica.ReplicaID)
 			}
 		}
