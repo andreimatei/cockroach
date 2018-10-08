@@ -3464,7 +3464,7 @@ func (s *Store) HandleRaftRequest(
 func (s *Store) HandleRaftUncoalescedRequest(
 	ctx context.Context, req *RaftMessageRequest, respStream RaftMessageResponseStream,
 ) *roachpb.Error {
-	if req.FromReplica.StoreID == 1 {
+	if req.FromReplica.StoreID == 1 && req.Message.Type == raftpb.MsgVote {
 		log.Infof(ctx, "!!! Store.HandleRaftUncoalescedRequest: %s", req)
 	}
 
@@ -3496,7 +3496,7 @@ func (s *Store) HandleRaftUncoalescedRequest(
 	})
 	q.Unlock()
 
-	if req.FromReplica.StoreID == 1 {
+	if req.FromReplica.StoreID == 1 && req.Message.Type == raftpb.MsgVote {
 		log.Infof(ctx, "!!! Store.HandleRaftUncoalescedRequest: enqueued request for scheduler: %s", req)
 	}
 	s.scheduler.EnqueueRaftRequest(req.RangeID)
@@ -3846,6 +3846,7 @@ func (s *Store) enqueueRaftUpdateCheck(rangeID roachpb.RangeID) {
 	s.scheduler.EnqueueRaftReady(rangeID)
 }
 
+// processRequestQueue is the way the raftScheduler calls back into the Store.
 func (s *Store) processRequestQueue(ctx context.Context, rangeID roachpb.RangeID) {
 	value, ok := s.replicaQueues.Load(int64(rangeID))
 	if !ok {
@@ -3859,6 +3860,10 @@ func (s *Store) processRequestQueue(ctx context.Context, rangeID roachpb.RangeID
 
 	var lastRepl *Replica
 	for i, info := range infos {
+		req := info.req
+		if req.FromReplica.StoreID == 1 && req.Message.Type == raftpb.MsgVote {
+			log.Infof(ctx, "!!! processRequestQueue dequeuing req: %s", info.req)
+		}
 		last := i == len(infos)-1
 		pErr := s.withReplicaForRequest(info.respStream.Context(), info.req,
 			func(ctx context.Context, r *Replica) *roachpb.Error {
