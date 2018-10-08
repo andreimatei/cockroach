@@ -3464,6 +3464,9 @@ func (s *Store) HandleRaftRequest(
 func (s *Store) HandleRaftUncoalescedRequest(
 	ctx context.Context, req *RaftMessageRequest, respStream RaftMessageResponseStream,
 ) *roachpb.Error {
+	if req.FromReplica.StoreID == 1 {
+		log.Infof(ctx, "!!! Store.HandleRaftUncoalescedRequest: %s", req)
+	}
 
 	if len(req.Heartbeats)+len(req.HeartbeatResps) > 0 {
 		log.Fatalf(ctx, "HandleRaftUncoalescedRequest cannot be given coalesced heartbeats or heartbeat responses, received %s", req)
@@ -3481,6 +3484,7 @@ func (s *Store) HandleRaftUncoalescedRequest(
 	q.Lock()
 	if len(q.infos) >= replicaRequestQueueSize {
 		q.Unlock()
+		log.Infof(ctx, "!!! Store.HandleRaftUncoalescedRequest dropping request")
 		// TODO(peter): Return an error indicating the request was dropped. Note
 		// that dropping the request is safe. Raft will retry.
 		s.metrics.RaftRcvdMsgDropped.Inc(1)
@@ -3492,6 +3496,9 @@ func (s *Store) HandleRaftUncoalescedRequest(
 	})
 	q.Unlock()
 
+	if req.FromReplica.StoreID == 1 {
+		log.Infof(ctx, "!!! Store.HandleRaftUncoalescedRequest: enqueued request for scheduler: %s", req)
+	}
 	s.scheduler.EnqueueRaftRequest(req.RangeID)
 	return nil
 }
