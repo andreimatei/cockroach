@@ -431,6 +431,9 @@ func (t *RaftTransport) processQueue(
 				err := func() error {
 					for {
 						resp, err := stream.Recv()
+						if t.Name != "" {
+							log.Infof(ctx, "!!! RaftTransport.processQueue response worker got resp. name: %s, (to)NodeID: %d. resp: %s, err: %v", t.Name, nodeID, resp, err)
+						}
 						if err != nil {
 							return err
 						}
@@ -483,7 +486,7 @@ func (t *RaftTransport) processQueue(
 
 			err := stream.Send(batch)
 			if t.Name != "" {
-				log.Infof(stream.Context(), "!!! RaftTransport.processQueue (%s) sent batch with err: %v", t.Name, batch, err)
+				log.Infof(stream.Context(), "!!! RaftTransport.processQueue (%s) sent batch: %s with err: %v", t.Name, batch, err)
 			}
 			batch.Requests = batch.Requests[:0]
 
