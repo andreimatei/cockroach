@@ -3502,6 +3502,7 @@ func (s *Store) HandleRaftUncoalescedRequest(
 func (s *Store) withReplicaForRequest(
 	ctx context.Context, req *RaftMessageRequest, f func(context.Context, *Replica) *roachpb.Error,
 ) *roachpb.Error {
+	ctx = s.AnnotateCtx(ctx) // !!!
 	// Lazily create the replica.
 	r, _, err := s.getOrCreateReplica(
 		ctx,
