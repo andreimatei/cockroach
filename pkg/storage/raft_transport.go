@@ -427,6 +427,7 @@ func (t *RaftTransport) processQueue(
 		stream.Context(), "storage.RaftTransport: processing queue",
 		func(ctx context.Context) {
 			t.stopper.RunWorker(ctx, func(ctx context.Context) {
+				log.Infof(ctx, "!!! RaftTransport.processQueue worker starting. name: %s, (to)NodeID: %d", t.Name, nodeID)
 				errCh <- func() error {
 					for {
 						resp, err := stream.Recv()
@@ -569,6 +570,9 @@ func (t *RaftTransport) startProcessNewQueue(
 	}
 	worker := func(ctx context.Context) {
 		defer t.queues.Delete(int64(toNodeID))
+		defer func() {
+			log.Infof(ctx, "!!! RaftTransport.startProcessNewQueue (toNodeID: %d) worker exiting", toNodeID)
+		}()
 
 		client := NewMultiRaftClient(conn)
 		batchCtx, cancel := context.WithCancel(ctx)
