@@ -3854,14 +3854,21 @@ func (s *Store) enqueueRaftUpdateCheck(rangeID roachpb.RangeID) {
 
 // processRequestQueue is the way the raftScheduler calls back into the Store.
 func (s *Store) processRequestQueue(ctx context.Context, rangeID roachpb.RangeID) {
+	log.Infof(ctx, "!!! processRequestQueue called for range: %d", rangeID)
 	value, ok := s.replicaQueues.Load(int64(rangeID))
 	if !ok {
+		log.Infof(ctx, "!!! processRequestQueue called for range: %d. early return", rangeID)
 		return
 	}
 	q := (*raftRequestQueue)(value)
 	q.Lock()
 	infos := q.infos
 	q.infos = nil
+	qstr := ""
+	if len(infos) > 0 {
+		qstr = infos[0].req.String()
+	}
+	log.Infof(ctx, "!!! processRequestQueue called for range: %d. infos (%d): %s", rangeID, len(infos), qstr)
 	q.Unlock()
 
 	var lastRepl *Replica

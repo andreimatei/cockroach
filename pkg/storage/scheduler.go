@@ -254,7 +254,7 @@ func (s *raftScheduler) enqueue1Locked(addState raftScheduleState, id roachpb.Ra
 		s.mu.queue.PushBack(id)
 	}
 	s.mu.state[id] = newState
-	log.Infof(context.TODO(), "!!! enqueue1Locked returning: %d. prevState: %d (add: %d)",
+	log.Infof(context.TODO(), "!!! enqueue1Locked returning: %d. prevState: %d (queued: %d)",
 		queued, prevState, prevState&stateQueued)
 	return queued
 }
