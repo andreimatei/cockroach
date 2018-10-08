@@ -482,6 +482,9 @@ func (t *RaftTransport) processQueue(
 			}
 
 			err := stream.Send(batch)
+			if t.Name != "" {
+				log.Infof(stream.Context(), "!!! RaftTransport.processQueue (%s) sent batch with err: %v", t.Name, batch, err)
+			}
 			batch.Requests = batch.Requests[:0]
 
 			atomic.AddInt64(&stats.clientSent, 1)
