@@ -155,6 +155,9 @@ type RaftTransport struct {
 	stats    syncutil.IntMap // map[roachpb.NodeID]*raftTransportStats
 	dialer   *nodedialer.Dialer
 	handlers syncutil.IntMap // map[roachpb.StoreID]*RaftMessageHandler
+
+	// !!!
+	Name string
 }
 
 // NewDummyRaftTransport returns a dummy raft transport for use in tests which
@@ -540,7 +543,7 @@ func (t *RaftTransport) SendAsync(req *RaftMessageRequest) (sent bool) {
 			atomic.CompareAndSwapInt32(&stats.queueMax, v, l)
 		}
 		if req.FromReplica.NodeID == 1 {
-			log.Infof(context.TODO(), "!!! RaftTransport managed to send req: %+v", req)
+			log.Infof(context.TODO(), "!!! RaftTransport (%s) managed to send req: %+v", t.Name, req)
 		}
 		return true
 	default:

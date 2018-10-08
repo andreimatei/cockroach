@@ -3186,6 +3186,7 @@ func TestReplicateRemovedNodeDisruptiveElection(t *testing.T) {
 		nil, /* grpcServer */
 		mtc.transportStopper,
 	)
+	transport0.Name = "[funky transport]"
 	errChan := errorChannelTestHandler(make(chan *roachpb.Error, 1))
 	transport0.Listen(mtc.stores[0].StoreID(), errChan)
 
