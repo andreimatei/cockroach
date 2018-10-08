@@ -327,6 +327,9 @@ func (t *RaftTransport) RaftMessageBatch(stream MultiRaft_RaftMessageBatchServer
 					stream := &lockedRaftMessageResponseStream{wrapped: stream}
 					for {
 						batch, err := stream.Recv()
+						if batch != nil && len(batch.Requests) > 0 && batch.Requests[0].FromReplica.StoreID == 1 {
+							log.Infof(ctx, "!!! RaftTransport.RaftMessageBatch: server got batch: %s. err: %v", batch, err)
+						}
 						if err != nil {
 							return err
 						}
@@ -342,10 +345,17 @@ func (t *RaftTransport) RaftMessageBatch(stream MultiRaft_RaftMessageBatchServer
 							req := &batch.Requests[i]
 							atomic.AddInt64(&stats.serverRecv, 1)
 							if pErr := t.handleRaftRequest(ctx, req, stream); pErr != nil {
+								log.Infof(ctx, "!!! server got error handling raft request %s: err: %s",
+									req, pErr)
 								atomic.AddInt64(&stats.serverSent, 1)
 								if err := stream.Send(newRaftMessageResponse(req, pErr)); err != nil {
+									log.Infof(ctx, "!!! server got error sending response error: %s",
+										err)
 									return err
 								}
+							} else {
+								log.Infof(ctx, "!!! server successfully handled raft request: %s",
+									req)
 							}
 						}
 					}
