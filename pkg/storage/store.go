@@ -2450,6 +2450,7 @@ func (s *Store) SplitRange(
 		// so that we don't leave open a window where a replica is temporarily not
 		// present in Store.mu.replicas.
 		delete(s.mu.uninitReplicas, rightDesc.RangeID)
+		log.Infof(ctx, "================== SplitRange removing queue for range: %d", rightDesc.RangeID)
 		s.replicaQueues.Delete(int64(rightDesc.RangeID))
 	}
 
@@ -2809,6 +2810,7 @@ func (s *Store) unlinkReplicaByRangeIDLocked(rangeID roachpb.RangeID) {
 	delete(s.unquiescedReplicas.m, rangeID)
 	s.unquiescedReplicas.Unlock()
 	delete(s.mu.uninitReplicas, rangeID)
+	log.Infof(ctx, "================== unlinkReplicaByRangeIDLocked removing queue for range: %d", rangeID)
 	s.replicaQueues.Delete(int64(rangeID))
 	s.mu.replicas.Delete(int64(rangeID))
 }
@@ -3904,6 +3906,7 @@ func (s *Store) processRequestQueue(ctx context.Context, rangeID roachpb.RangeID
 			// will just retry.
 			q.Lock()
 			if len(q.infos) == 0 {
+				log.Infof(ctx, "================== processRequestQueue removing queue for range: %d", rangeID)
 				s.replicaQueues.Delete(int64(rangeID))
 			}
 			q.Unlock()
