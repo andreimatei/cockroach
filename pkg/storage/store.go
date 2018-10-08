@@ -3501,7 +3501,7 @@ func (s *Store) HandleRaftUncoalescedRequest(
 	}
 	s.scheduler.EnqueueRaftRequest(req.RangeID)
 	if req.FromReplica.StoreID == 1 && req.Message.Type == raftpb.MsgVote {
-		log.Infof(ctx, "!!! Store.HandleRaftUncoalescedRequest: enqueuing ... done", req)
+		log.Infof(ctx, "!!! Store.HandleRaftUncoalescedRequest: enqueuing ... done")
 	}
 	return nil
 }
