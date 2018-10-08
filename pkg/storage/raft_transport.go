@@ -427,8 +427,8 @@ func (t *RaftTransport) processQueue(
 		stream.Context(), "storage.RaftTransport: processing queue",
 		func(ctx context.Context) {
 			t.stopper.RunWorker(ctx, func(ctx context.Context) {
-				log.Infof(ctx, "!!! RaftTransport.processQueue worker starting. name: %s, (to)NodeID: %d", t.Name, nodeID)
-				errCh <- func() error {
+				log.Infof(ctx, "!!! RaftTransport.processQueue response worker starting. name: %s, (to)NodeID: %d", t.Name, nodeID)
+				err := func() error {
 					for {
 						resp, err := stream.Recv()
 						if err != nil {
@@ -446,6 +446,8 @@ func (t *RaftTransport) processQueue(
 						}
 					}
 				}()
+				log.Infof(ctx, "!!! RaftTransport.processQueue response worker exiting with error: %v", err)
+				errCh <- err
 			})
 		}); err != nil {
 		return err
