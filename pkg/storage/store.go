@@ -3511,6 +3511,9 @@ func (s *Store) withReplicaForRequest(
 ) *roachpb.Error {
 	ctx = s.AnnotateCtx(ctx) // !!!
 	// Lazily create the replica.
+	if req.FromReplica.NodeID == 1 {
+		log.Infof(ctx, "!!! Store.withReplica() - received request for creating replica: %s", req)
+	}
 	r, _, err := s.getOrCreateReplica(
 		ctx,
 		req.RangeID,
