@@ -617,14 +617,15 @@ func nodes(count int, opts ...createOption) []nodeSpec {
 // starting and stopping a cockroach cluster on a subset of those machines, and
 // running load generators and other operations on the machines.
 //
-// A cluster is intended to be shared between all the subtests under a root.
 // A cluster is safe for concurrent use by multiple goroutines.
 type cluster struct {
-	name       string
-	nodes      int
-	status     func(...interface{})
-	t          testI
-	l          *logger
+	name   string
+	nodes  int
+	status func(...interface{})
+	t      testI
+	l      *logger
+	// destroyed is used to coordinate between different goroutines that want to
+	// destroy a cluster.
 	destroyed  chan struct{}
 	expiration time.Time
 	// owned is set if this instance is responsible for destroying the roachprod
@@ -813,26 +814,6 @@ func (c *cluster) validate(ctx context.Context, nodes []nodeSpec, l *logger) err
 		}
 	}
 	return nil
-}
-
-// clone creates a new cluster object that refers to the same cluster as the
-// receiver, but is associated with the specified test.
-func (c *cluster) clone(t *test) *cluster {
-	logPath := filepath.Join(t.ArtifactsDir(), "test.log")
-	l, err := rootLogger(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return &cluster{
-		name:       c.name,
-		nodes:      c.nodes,
-		status:     t.Status,
-		t:          t,
-		l:          l,
-		expiration: c.expiration,
-		// This cloned cluster is not taking ownership. The parent retains it.
-		owned: false,
-	}
 }
 
 // All returns a node list containing all of the nodes in the cluster.
@@ -1149,12 +1130,24 @@ func (c *cluster) RunWithBuffer(
 }
 
 // RemountNoBarrier remounts the cluster's local SSDs with the nobarrier option.
+//
+// NOTE: Be careful about the ClusterReusePolicy of tests that use. We don't
+// want unsuspecting tests reusing a no-barrier cluster. If this is the only
+// sketchy thing that a test is doing and otherwise the cluster would be safe
+// for reuse, RemountNoBarrierClusterReusePolicy can be used so that the cluster
+// can at least be reused by other similar tests.
+// TODO(andrei): Should all the roachtests clusters be no-barrier?
 func (c *cluster) RemountNoBarrier(ctx context.Context) {
 	c.Run(ctx, c.All(),
 		"sudo", "umount", "/mnt/data1", ";",
 		"sudo", "mount", "-o", "discard,defaults,nobarrier",
 		"$(awk '/\\/mnt\\/data1/ {print $1}' /etc/mtab)", "/mnt/data1")
 }
+
+// RemountNoBarrierClusterReusePolicy is a cluster reuse policy that says that
+// a cluster can be reused by tests that do RemountNoBarrier, but don't do other
+// things that would prevent a cluster from being reused.
+var RemountNoBarrierClusterReusePolicy = OnlyTagged("RemountNoBarrier")
 
 // pgURL returns the Postgres endpoint for the specified node. It accepts a flag
 // specifying whether the URL should include the node's internal or external IP

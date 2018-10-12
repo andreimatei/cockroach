@@ -212,9 +212,10 @@ func (dul *DiskUsageLogger) Runner(ctx context.Context) error {
 func registerRestore(r *registry) {
 	for _, nodeCount := range []int{10, 32} {
 		r.Add(testSpec{
-			Name:   fmt.Sprintf("restore2TB/nodes=%d", nodeCount),
-			Nodes:  nodes(nodeCount),
-			Stable: true, // DO NOT COPY to new tests
+			Name:               fmt.Sprintf("restore2TB/nodes=%d", nodeCount),
+			Nodes:              nodes(nodeCount),
+			Stable:             true, // DO NOT COPY to new tests
+			ClusterReusePolicy: Any,
 			Run: func(ctx context.Context, t *test, c *cluster) {
 				c.Put(ctx, cockroach, "./cockroach")
 				c.Start(ctx, t)
