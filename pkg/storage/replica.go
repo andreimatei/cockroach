@@ -3154,6 +3154,10 @@ func (r *Replica) executeWriteBatch(
 	var ambiguousResult bool
 	for count := 0; ; count++ {
 		br, pErr, retry := r.tryExecuteWriteBatch(ctx, ba)
+		if retry != proposalNoRetry {
+			log.Infof(ctx, "XXX executeWriteBatch got retry code: %d. pErr: %v. Req: %s",
+				retry, pErr, ba)
+		}
 		switch retry {
 		case proposalIllegalLeaseIndex:
 			continue // retry
@@ -4974,8 +4978,10 @@ func (r *Replica) refreshProposalsLocked(refreshAtDelta int, reason refreshRaftR
 			r.cleanupFailedProposalLocked(p)
 			log.Eventf(p.ctx, "retry proposal %x: %s", p.idKey, reason)
 			if reason == reasonSnapshotApplied {
+				log.Infof(p.ctx, "XXX refreshProposalsLocked returning proposalAmbiguousShouldBeReevaluated. Req: %s", p.Request)
 				p.finishApplication(proposalResult{ProposalRetry: proposalAmbiguousShouldBeReevaluated})
 			} else {
+				log.Infof(p.ctx, "XXX refreshProposalsLocked returning proposalIllegalLeaseIndex. Req: %s", p.Request)
 				p.finishApplication(proposalResult{ProposalRetry: proposalIllegalLeaseIndex})
 			}
 			numShouldRetry++
@@ -5004,10 +5010,10 @@ func (r *Replica) refreshProposalsLocked(refreshAtDelta int, reason refreshRaftR
 			reproposals = append(reproposals, p)
 		}
 	}
-	if log.V(1) && (numShouldRetry > 0 || len(reproposals) > 0) {
+	if numShouldRetry > 0 || len(reproposals) > 0 {
 		ctx := r.AnnotateCtx(context.TODO())
 		log.Infof(ctx,
-			"pending commands: sent %d back to client, reproposing %d (at %d.%d) %s",
+			"XXX pending commands: sent %d back to client, reproposing %d (at %d.%d) %s",
 			numShouldRetry, len(reproposals), r.mu.state.RaftAppliedIndex,
 			r.mu.state.LeaseAppliedIndex, reason)
 	}
@@ -5022,6 +5028,7 @@ func (r *Replica) refreshProposalsLocked(refreshAtDelta int, reason refreshRaftR
 	// be a list/slice.
 	sort.Sort(reproposals)
 	for _, p := range reproposals {
+		log.Infof(p.ctx, "XXX re-submitting command %x to Raft: %s. Req: %s", p.idKey, reason, p.Request)
 		log.Eventf(p.ctx, "re-submitting command %x to Raft: %s", p.idKey, reason)
 		if err := r.submitProposalLocked(p); err == raft.ErrProposalDropped {
 			// TODO(bdarnell): Handle ErrProposalDropped better.

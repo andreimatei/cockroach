@@ -1326,7 +1326,8 @@ func (ds *DistSender) sendToReplicas(
 
 	// This loop will retry operations that fail with errors that reflect
 	// per-replica state and may succeed on other replicas.
-	for {
+	for rpl := 0; ; rpl++ {
+		log.Infof(ctx, "XXX : sendToReplicas loop (%d). Req: %s. Cur err: %v", rpl, ba, err)
 		if err != nil {
 			// For most connection errors, we cannot tell whether or not
 			// the request may have succeeded on the remote server, so we

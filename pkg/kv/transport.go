@@ -166,7 +166,9 @@ func (gt *grpcTransport) SendNext(
 	}
 
 	ba.Replica = client.replica
+	log.Infof(ctx, "XXX gprcTransport sending req: %s", ba)
 	reply, err := gt.sendBatch(ctx, iface, ba)
+	log.Infof(ctx, "XXX gprcTransport sending req: %s... got err: %v", ba, err)
 
 	// NotLeaseHolderErrors can be retried.
 	var retryable bool
