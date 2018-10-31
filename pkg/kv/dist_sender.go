@@ -1048,7 +1048,13 @@ func (ds *DistSender) sendPartialBatch(
 	evictToken *EvictionToken,
 	batchIdx int,
 	needsTruncate bool,
-) response {
+) (ret response) {
+	log.Infof(ctx, "XXX sendPartialBatch: %s", ba)
+	defer func() {
+		log.Infof(ctx, "XXX sendPartialBatch returning. ba: %s. br: %s err: %v",
+			ba, ret.reply, ret.pErr)
+	}()
+
 	if batchIdx == 1 {
 		ds.metrics.PartialBatchCount.Inc(2) // account for first batch
 	} else if batchIdx > 1 {
@@ -1079,8 +1085,11 @@ func (ds *DistSender) sendPartialBatch(
 		}
 	}
 
+	attempt := 0
 	// Start a retry loop for sending the batch to the range.
 	for r := retry.StartWithCtx(ctx, ds.rpcRetryOptions); r.Next(); {
+		log.Infof(ctx, "XXX sendPartialBatch attempt %d: %s", attempt, ba)
+		attempt++
 		// If we've cleared the descriptor on a send failure, re-lookup.
 		if desc == nil {
 			var descKey roachpb.RKey
@@ -1099,6 +1108,7 @@ func (ds *DistSender) sendPartialBatch(
 		}
 
 		reply, pErr = ds.sendSingleRange(ctx, ba, desc)
+		log.Infof(ctx, "XXX sendPartialBatch: sendSingleRange returned: resp: %s err: %s (ba: %s)", reply, pErr, ba)
 
 		// If sending succeeded, return immediately.
 		if pErr == nil {
@@ -1300,9 +1310,14 @@ func (ds *DistSender) sendToReplicas(
 	ba roachpb.BatchRequest,
 	nodeDialer *nodedialer.Dialer,
 	cachedLeaseHolder roachpb.ReplicaDescriptor,
-) (*roachpb.BatchResponse, error) {
+) (retBr *roachpb.BatchResponse, retErr error) {
+	log.Infof(ctx, "XXX sendToReplicas: %s", ba)
 	var ambiguousError error
 	var haveCommit bool
+	defer func() {
+		log.Infof(ctx, "XXX sendToReplicas returning. ba: %s. br: %s err: %v. ambiguousErr: %v. haveCommit: %t",
+			ba, retBr, retErr, ambiguousError, haveCommit)
+	}()
 	// We only check for committed txns, not aborts because aborts may
 	// be retried without any risk of inconsistencies.
 	if etArg, ok := ba.GetArg(roachpb.EndTransaction); ok {
@@ -1327,7 +1342,7 @@ func (ds *DistSender) sendToReplicas(
 	// This loop will retry operations that fail with errors that reflect
 	// per-replica state and may succeed on other replicas.
 	for rpl := 0; ; rpl++ {
-		log.Infof(ctx, "XXX : sendToReplicas loop (%d). Req: %s. Cur err: %v", rpl, ba, err)
+		log.Infof(ctx, "XXX : sendToReplicas loop (%d). Req: %s. br: %s, err: %v", rpl, ba, br, err)
 		if err != nil {
 			// For most connection errors, we cannot tell whether or not
 			// the request may have succeeded on the remote server, so we

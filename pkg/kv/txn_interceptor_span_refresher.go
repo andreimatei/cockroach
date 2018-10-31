@@ -174,6 +174,7 @@ func (sr *txnSpanRefresher) maybeRetrySend(
 	pErr *roachpb.Error,
 	maxRefreshAttempts int,
 ) (*roachpb.BatchResponse, *roachpb.Error, hlc.Timestamp) {
+	log.Infof(ctx, "XXX txnSpanRefresher.maybeRetrySend. ba: %s. br: %s. pErr: %s", ba, br, pErr)
 	// With mixed success, we can't attempt a retry without potentially
 	// succeeding at the same conditional put or increment request
 	// twice; return the wrapped error instead. Because the dist sender
@@ -209,6 +210,8 @@ func (sr *txnSpanRefresher) maybeRetrySend(
 		retryBa.Requests = ba.Requests[len(br.Responses):]
 	}
 
+	log.Infof(ctx, "XXX retrying %s at refreshed timestamp %s because of %s",
+		retryBa, retryTxn.RefreshedTimestamp, pErr)
 	log.VEventf(ctx, 2, "retrying %s at refreshed timestamp %s because of %s",
 		retryBa, retryTxn.RefreshedTimestamp, pErr)
 

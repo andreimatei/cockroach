@@ -573,7 +573,7 @@ func (tc *TxnCoordSender) commitReadOnlyTxnLocked(
 // Send is part of the client.TxnSender interface.
 func (tc *TxnCoordSender) Send(
 	ctx context.Context, ba roachpb.BatchRequest,
-) (*roachpb.BatchResponse, *roachpb.Error) {
+) (retBr *roachpb.BatchResponse, retErr *roachpb.Error) {
 	// NOTE: The locking here is unusual. Although it might look like it, we are
 	// NOT holding the lock continuously for the duration of the Send. We lock
 	// here, and unlock at the botton of the interceptor stack, in the
@@ -638,6 +638,10 @@ func (tc *TxnCoordSender) Send(
 	// worrying about synchronization.
 	newTxn := tc.mu.txn.Clone()
 	ba.Txn = &newTxn
+	log.Infof(ctx, "TCS.Send: %s ...", ba)
+	defer func() {
+		log.Infof(ctx, "TCS.Send: %s ... done. br: %s, err: %v", ba, retBr, retErr)
+	}()
 
 	// Send the command through the txnInterceptor stack.
 	br, pErr := tc.interceptorStack[0].SendLocked(ctx, ba)

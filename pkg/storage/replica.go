@@ -3158,6 +3158,10 @@ func (r *Replica) executeWriteBatch(
 			log.Infof(ctx, "XXX executeWriteBatch got retry code: %d. pErr: %v. Req: %s",
 				retry, pErr, ba)
 		}
+		if count > 0 {
+			log.Infof(ctx, "XXX executeWriteBatch ran attempt %d for ba: %s. br: %s, pErr: %s, retry: %d",
+				count+1, ba, br, pErr, retry)
+		}
 		switch retry {
 		case proposalIllegalLeaseIndex:
 			continue // retry
@@ -5028,7 +5032,8 @@ func (r *Replica) refreshProposalsLocked(refreshAtDelta int, reason refreshRaftR
 	// be a list/slice.
 	sort.Sort(reproposals)
 	for _, p := range reproposals {
-		log.Infof(p.ctx, "XXX re-submitting command %x to Raft: %s. Req: %s", p.idKey, reason, p.Request)
+		log.Infof(p.ctx, "XXX re-submitting command %x to Raft because of: %s: MaxLeaseIndex: %d. Req: %s.",
+			p.idKey, reason, p.command.MaxLeaseIndex, p.Request)
 		log.Eventf(p.ctx, "re-submitting command %x to Raft: %s", p.idKey, reason)
 		if err := r.submitProposalLocked(p); err == raft.ErrProposalDropped {
 			// TODO(bdarnell): Handle ErrProposalDropped better.
