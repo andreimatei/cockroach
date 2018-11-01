@@ -47,27 +47,27 @@ type raftLogger struct {
 }
 
 func (r *raftLogger) Debug(v ...interface{}) {
-	if log.V(3) {
-		log.InfofDepth(r.ctx, 1, "", v...)
-	}
+	// if log.V(3) {
+	log.InfofDepth(r.ctx, 1, "", v...)
+	//}
 }
 
 func (r *raftLogger) Debugf(format string, v ...interface{}) {
-	if log.V(3) {
-		log.InfofDepth(r.ctx, 1, format, v...)
-	}
+	//if log.V(3) {
+	log.InfofDepth(r.ctx, 1, format, v...)
+	//}
 }
 
 func (r *raftLogger) Info(v ...interface{}) {
-	if log.V(2) {
-		log.InfofDepth(r.ctx, 1, "", v...)
-	}
+	//if log.V(2) {
+	log.InfofDepth(r.ctx, 1, "", v...)
+	//}
 }
 
 func (r *raftLogger) Infof(format string, v ...interface{}) {
-	if log.V(2) {
-		log.InfofDepth(r.ctx, 1, format, v...)
-	}
+	//if log.V(2) {
+	log.InfofDepth(r.ctx, 1, format, v...)
+	//}
 }
 
 func (r *raftLogger) Warning(v ...interface{}) {
@@ -106,33 +106,33 @@ func (r *raftLogger) Panicf(format string, v ...interface{}) {
 }
 
 func logRaftReady(ctx context.Context, ready raft.Ready) {
-	if log.V(5) {
-		var buf bytes.Buffer
-		if ready.SoftState != nil {
-			fmt.Fprintf(&buf, "  SoftState updated: %+v\n", *ready.SoftState)
-		}
-		if !raft.IsEmptyHardState(ready.HardState) {
-			fmt.Fprintf(&buf, "  HardState updated: %+v\n", ready.HardState)
-		}
-		for i, e := range ready.Entries {
-			fmt.Fprintf(&buf, "  New Entry[%d]: %.200s\n",
-				i, raft.DescribeEntry(e, raftEntryFormatter))
-		}
-		for i, e := range ready.CommittedEntries {
-			fmt.Fprintf(&buf, "  Committed Entry[%d]: %.200s\n",
-				i, raft.DescribeEntry(e, raftEntryFormatter))
-		}
-		if !raft.IsEmptySnap(ready.Snapshot) {
-			snap := ready.Snapshot
-			snap.Data = nil
-			fmt.Fprintf(&buf, "  Snapshot updated: %v\n", snap)
-		}
-		for i, m := range ready.Messages {
-			fmt.Fprintf(&buf, "  Outgoing Message[%d]: %.200s\n",
-				i, raftDescribeMessage(m, raftEntryFormatter))
-		}
-		log.Infof(ctx, "raft ready (must-sync=%t)\n%s", ready.MustSync, buf.String())
+	//if log.V(5) {
+	var buf bytes.Buffer
+	if ready.SoftState != nil {
+		fmt.Fprintf(&buf, "  SoftState updated: %+v\n", *ready.SoftState)
 	}
+	if !raft.IsEmptyHardState(ready.HardState) {
+		fmt.Fprintf(&buf, "  HardState updated: %+v\n", ready.HardState)
+	}
+	for i, e := range ready.Entries {
+		fmt.Fprintf(&buf, "  New Entry[%d]: %.200s\n",
+			i, raft.DescribeEntry(e, raftEntryFormatter))
+	}
+	for i, e := range ready.CommittedEntries {
+		fmt.Fprintf(&buf, "  Committed Entry[%d]: %.200s\n",
+			i, raft.DescribeEntry(e, raftEntryFormatter))
+	}
+	if !raft.IsEmptySnap(ready.Snapshot) {
+		snap := ready.Snapshot
+		snap.Data = nil
+		fmt.Fprintf(&buf, "  Snapshot updated: %v\n", snap)
+	}
+	for i, m := range ready.Messages {
+		fmt.Fprintf(&buf, "  Outgoing Message[%d]: %.200s\n",
+			i, raftDescribeMessage(m, raftEntryFormatter))
+	}
+	log.Infof(ctx, "raft ready (must-sync=%t)\n%s", ready.MustSync, buf.String())
+	//}
 }
 
 // This is a fork of raft.DescribeMessage with a tweak to avoid logging
