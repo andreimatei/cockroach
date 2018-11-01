@@ -109,6 +109,9 @@ type ProposalData struct {
 // is canceled, it won't be listening to this done channel, and so it can't be
 // counted on to invoke endCmds itself.)
 func (proposal *ProposalData) finishApplication(pr proposalResult) {
+	log.Infof(context.TODO(),
+		"XXX proposal.finishApplication. cmd: %x. endCmds: %p, doneCh: %p, err: %v, retry: %d",
+		proposal.idKey, proposal.endCmds, proposal.doneCh, pr.Err, pr.ProposalRetry)
 	if proposal.endCmds != nil {
 		proposal.endCmds.done(pr.Reply, pr.Err, pr.ProposalRetry)
 		proposal.endCmds = nil
