@@ -5411,6 +5411,8 @@ func (r *Replica) processRaftCommand(
 
 	r.mu.Lock()
 	proposal, proposedLocally := r.mu.localProposals[idKey]
+	log.Infof(ctx, "XXX processing command1 %x: cmd.maxLeaseIndex=%d. r.LeaseAppliedIndex: %d. proposedLocally: %t",
+		idKey, raftCmd.MaxLeaseIndex, r.mu.state.LeaseAppliedIndex, proposedLocally)
 
 	// TODO(tschottdorf): consider the Trace situation here.
 	if proposedLocally {
@@ -5445,6 +5447,7 @@ func (r *Replica) processRaftCommand(
 		// ordering will already by caught and an error will be thrown.
 		forcedErr = roachpb.NewError(r.requestCanProceed(roachpb.RSpan{}, ts))
 	}
+	log.Infof(ctx, "XXX processing command2 %x. forceErr: %v", idKey, forcedErr)
 
 	// applyRaftCommand will return "expected" errors, but may also indicate
 	// replica corruption (as of now, signaled by a replicaCorruptionError).
@@ -5693,6 +5696,8 @@ func (r *Replica) processRaftCommand(
 		}
 	}
 
+	log.Infof(ctx, "XXX processing command3 %x: about to signal. proposedLocally: %t. response.Err: %v",
+		idKey, proposedLocally, response.Err)
 	if proposedLocally {
 		proposal.finishApplication(response)
 	} else if response.Err != nil {
