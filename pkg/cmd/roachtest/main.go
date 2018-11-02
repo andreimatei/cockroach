@@ -37,6 +37,8 @@ func main() {
 	var artifacts string
 	var clusterLifetimeOverrideS string
 	var clusterLifetimeOverride time.Duration
+	var httpPort int
+	var debugEnabled bool
 
 	cobra.EnableCommandSorting = false
 
@@ -151,7 +153,7 @@ the test tags.
 				context.Background(), filter, count, parallelism, cpuQuota,
 				clusterName, local, artifacts, getUser(username),
 				debugEnabled, clusterLifetimeOverride,
-				os.Stdout, os.Stderr))
+				os.Stdout, os.Stderr, httpPort))
 			return nil
 		},
 	}
@@ -178,7 +180,7 @@ the test tags.
 			os.Exit(r.Run(
 				context.Background(), filter, count, parallelism, cpuQuota,
 				clusterName, local, artifacts, getUser(username), debugEnabled, clusterLifetimeOverride,
-				os.Stdout, os.Stderr))
+				os.Stdout, os.Stderr, httpPort))
 			return nil
 		},
 	}
@@ -207,6 +209,8 @@ the test tags.
 		cmd.Flags().IntVar(
 			&cpuQuota, "cpu-quota", 100,
 			"The number of cloud CPUs roachtest is allowed to use at any one time.")
+		cmd.Flags().IntVar(
+			&httpPort, "port", 8080, "the port on which to ")
 		cmd.Flags().StringVar(
 			&clusterLifetimeOverrideS, "cluster-lifetime-override", "",
 			"If set, this is a duration that will "+
@@ -234,7 +238,7 @@ Cockroach cluster with existing data.
 				context.Background(), nil /* filter */, 1, /* count */
 				parallelism, 100 /* cpuQuota */, clusterName, local,
 				artifacts, getUser(username), debugEnabled, clusterLifetimeOverride,
-				os.Stdout, os.Stderr))
+				os.Stdout, os.Stderr, httpPort))
 			return nil
 		},
 	}

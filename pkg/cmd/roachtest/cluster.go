@@ -190,13 +190,17 @@ func initBinaries() {
 }
 
 var clusters = map[*cluster]struct{}{}
-var savedClusters = map[*cluster]struct{}{}
+
+// savedClusters keeps track of clusters that have been saved for further
+// debugging. Each cluster comes with a message about the test failure causing
+// it to be saved.
+var savedClusters = make(map[*cluster]string)
 var clustersMu syncutil.Mutex
 var interrupted int32
 
-func saveCluster(c *cluster) {
+func saveCluster(c *cluster, msg string) {
 	clustersMu.Lock()
-	savedClusters[c] = struct{}{}
+	savedClusters[c] = msg
 	clustersMu.Unlock()
 }
 func clusterSaved(c *cluster) bool {
@@ -257,6 +261,9 @@ func unregisterCluster(c *cluster) bool {
 }
 
 func execCmd(ctx context.Context, l *logger, args ...string) error {
+	defer func() {
+		l.PrintfCtx(ctx, "!!! execCmd done. (%s)", args)
+	}()
 	// NB: It is important that this waitgroup Waits after cancel() below.
 	var wg sync.WaitGroup
 	defer wg.Wait()
@@ -722,8 +729,9 @@ type cluster struct {
 }
 
 type clusterConfig struct {
-	// name must be empty if localCluster is specified.
-	name string
+	// !!!
+	// // name must be empty if localCluster is specified.
+	// name string
 	// !!! rename to clusterSpec
 	nodes clusterSpec
 	// artifactsDir is the path where log file will be stored.
@@ -735,11 +743,51 @@ type clusterConfig struct {
 	alloc        resourceAllocation
 }
 
+// clusterFactory is a creator a clusters. It contains a semaphore that can be
+// used to throttle cluster creation because AWS has ridiculous API calls limits.
+type clusterFactory struct {
+	sem          chan struct{}
+	namePrefix   string
+	artifactsDir string
+	counter      uint64 // accessed atomically
+}
+
+func newClusterFactory(
+	concurrentCreations int, user string, clustersID string, artifactsDir string,
+) *clusterFactory {
+	secs := time.Now().Unix()
+	var prefix string
+	if clustersID != "" {
+		prefix = fmt.Sprintf("%s-%s-%d-", user, clustersID, secs)
+	} else {
+		prefix = fmt.Sprintf("%s-%s-", user, secs)
+	}
+	return &clusterFactory{
+		sem:          make(chan struct{}, concurrentCreations),
+		namePrefix:   prefix,
+		artifactsDir: artifactsDir,
+	}
+}
+
+// acquireSem blocks until the semaphore allows a new cluster creation. The
+// returned function needs to be called when cluster creation finished.
+func (f *clusterFactory) acquireSem() func() {
+	f.sem <- struct{}{}
+	return f.releaseSem
+}
+
+func (f *clusterFactory) releaseSem() {
+	<-f.sem
+}
+
 // newCluster creates a new roachprod cluster.
 //
 // l is the logger to be used by the cluster creation operation. The caller
 // retains ownership; newCluster() does not assume anything about l's lifetime
 // and does not set c.l.
+//
+// setStatus is called with status messages indicating the stage of cluster
+// creation.
 //
 // NOTE: setTest() needs to be called before a test can use this cluster.
 //
@@ -751,22 +799,28 @@ type clusterConfig struct {
 // to figure out how to make that work with `roachprod create`. Perhaps one
 // invocation of `roachprod create` per unique node-spec. Are there guarantees
 // we're making here about the mapping of nodeSpecs to node IDs?
-func newCluster(ctx context.Context, l *logger, cfg clusterConfig) (*cluster, error) {
+func (f *clusterFactory) newCluster(
+	ctx context.Context, cfg clusterConfig, setStatus func(string), teeOpt teeOptType,
+) (*cluster, error) {
 	if atomic.LoadInt32(&interrupted) == 1 {
 		return nil, fmt.Errorf("newCluster interrupted")
 	}
 
 	var name string
 	if cfg.localCluster {
-		if cfg.name != "" {
-			log.Fatalf(ctx, "can't specify name %q with local flag", cfg.name)
-		}
+		// !!!
+		// if cfg.name != "" {
+		//   log.Fatalf(ctx, "can't specify name %q with local flag", cfg.name)
+		// }
 		name = "local" // The roachprod tool understands this magic name.
 	} else {
-		if cfg.name == "" {
-			log.Fatal(ctx, "cluster name must be specified")
-		}
-		name = makeClusterName(cfg.name)
+		// !!!
+		// if cfg.name == "" {
+		//   log.Fatal(ctx, "cluster name must be specified")
+		// }
+		counter := atomic.AddUint64(&f.counter, 1)
+		name = makeClusterName(
+			fmt.Sprintf("%s-%02d-%s", f.namePrefix, counter, cfg.nodes.String()))
 	}
 
 	if cfg.nodes.NodeCount == 0 {
@@ -780,7 +834,6 @@ func newCluster(ctx context.Context, l *logger, cfg clusterConfig) (*cluster, er
 		name:   name,
 		nodes:  cfg.nodes.NodeCount,
 		status: func(...interface{}) {},
-		// !!! l:              l,
 		destroyed:      make(chan struct{}),
 		expiration:     cfg.nodes.expiration(),
 		owned:          true,
@@ -798,7 +851,21 @@ func newCluster(ctx context.Context, l *logger, cfg clusterConfig) (*cluster, er
 		sargs = append(sargs, "--local-ssd-no-ext4-barrier")
 	}
 
+	setStatus("acquring cluster creation semaphore")
+	release := f.acquireSem()
+	defer release()
+	setStatus("roachprod create")
 	c.status("creating cluster")
+
+	// Logs for creating a new cluster or cluster go to a dedicated log file.
+	logPath := filepath.Join(
+		f.artifactsDir, "cluster-create",
+		strings.Replace(name, "/", "-", -1)+".log")
+	l, err := rootLogger(logPath, teeOpt)
+	if err != nil {
+		log.Fatal(ctx, err)
+	}
+
 	if err := execCmd(ctx, l, sargs...); err != nil {
 		return nil, err
 	}

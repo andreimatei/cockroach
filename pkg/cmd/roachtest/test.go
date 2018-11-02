@@ -21,6 +21,9 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"net/http"
+	// For the debug http handlers.
+	_ "net/http/pprof"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -31,7 +34,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/cmd/internal/issues"
@@ -46,10 +48,9 @@ import (
 )
 
 var (
-	count        = 1
-	debugEnabled = false
-	postIssues   = true
-	gceNameRE    = regexp.MustCompile(`^[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?$`)
+	count      = 1
+	postIssues = true
+	gceNameRE  = regexp.MustCompile(`^[a-z](?:[-a-z0-9]{0,61}[a-z0-9])?$`)
 )
 
 // testFilter holds the name and tag filters for filtering tests.
@@ -194,6 +195,7 @@ type registry struct {
 
 	// clusterCounter is atomically incremented every time a new cluster is
 	// created. It's used to name new clusters.
+	// !!! move to the clusterFactory?
 	clusterCounter uint64
 
 	status struct {
@@ -203,6 +205,38 @@ type registry struct {
 		fail    map[*test]struct{}
 		skip    map[*test]struct{}
 	}
+
+	workersMu struct {
+		sync.Mutex
+		workers map[string]*workerStatus
+	}
+	completedTestsMu struct {
+		sync.Mutex
+		completed []completedTestInfo
+	}
+}
+
+func (r *registry) recordTestFinish(info completedTestInfo) {
+	r.completedTestsMu.Lock()
+	r.completedTestsMu.completed = append(r.completedTestsMu.completed, info)
+	r.completedTestsMu.Unlock()
+}
+
+func (r *registry) getCompletedTests() []completedTestInfo {
+	r.completedTestsMu.Lock()
+	defer r.completedTestsMu.Unlock()
+	res := make([]completedTestInfo, len(r.completedTestsMu.completed))
+	copy(res, r.completedTestsMu.completed)
+	return res
+}
+
+type completedTestInfo struct {
+	test    string
+	run     int
+	start   time.Time
+	end     time.Time
+	pass    bool
+	failure string
 }
 
 type registryOpt func(r *registry) error
@@ -232,7 +266,25 @@ func newRegistry(opts ...registryOpt) *registry {
 			os.Exit(1)
 		}
 	}
+	r.workersMu.workers = make(map[string]*workerStatus)
 	return r
+}
+
+func (r *registry) addWorker(ctx context.Context, name string) *workerStatus {
+	r.workersMu.Lock()
+	defer r.workersMu.Unlock()
+	w := &workerStatus{name: name}
+	if _, ok := r.workersMu.workers[name]; ok {
+		log.Fatalf(ctx, "worker %q already exists", name)
+	}
+	r.workersMu.workers[name] = w
+	return w
+}
+
+func (r *registry) removeWorker(ctx context.Context, name string) {
+	r.workersMu.Lock()
+	delete(r.workersMu.workers, name)
+	r.workersMu.Unlock()
 }
 
 func (r *registry) setBuildVersion(buildTag string) error {
@@ -457,8 +509,9 @@ type test struct {
 			file string
 			line int
 		}
-		status map[int64]testStatus
-		output []byte
+		failureMsg string
+		status     map[int64]testStatus
+		output     []byte
 	}
 }
 
@@ -577,6 +630,7 @@ func (t *test) printfAndFail(skip int, format string, args ...interface{}) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	msg := fmt.Sprintf(format, args...)
+	t.mu.failureMsg = msg
 	// !!! figure out the correct value for skip below
 	t.l.PrintfCtxDepth(context.TODO(), skip+1, "test failure: %s", msg)
 	t.mu.output = append(t.mu.output, t.decorate(skip+1, msg)...)
@@ -658,9 +712,14 @@ func (t *test) duration() time.Duration {
 
 func (t *test) Failed() bool {
 	t.mu.RLock()
-	failed := t.mu.failed
-	t.mu.RUnlock()
-	return failed
+	defer t.mu.RUnlock()
+	return t.mu.failed
+}
+
+func (t *test) FailureMsg() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.mu.failureMsg
 }
 
 func (t *test) MarkFailed() {
@@ -1085,7 +1144,17 @@ func (r *registry) Run(
 	debug bool,
 	clusterLifetimeOverride time.Duration,
 	stdout, stderr io.Writer,
+	httpPort int,
 ) int {
+	http.HandleFunc("/", r.serveHTTP)
+	// Run an http server in the background.
+	go func() {
+		if err := http.ListenAndServe(fmt.Sprintf(":%d", httpPort), nil /* handler */); err != nil {
+			log.Fatal(ctx, err)
+		}
+	}()
+	fmt.Fprintf(stdout, "HTTP server listening on all network interfaces, port %d.\n", httpPort)
+
 	// Seed the default rand source so that different runs get different cluster
 	// IDs.
 	rand.Seed(timeutil.Now().UnixNano())
@@ -1191,13 +1260,25 @@ func (r *registry) Run(
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	var numConcurrentClusterCreations int
+	if cloud == "aws" {
+		// AWS has ridiculous API calls limits, so we're going to create one cluster
+		// at a time. Internally, roachprod has throttling for the calls required to
+		// create a single cluster.
+		numConcurrentClusterCreations = 1
+	} else {
+		numConcurrentClusterCreations = 1000
+	}
+	clusterFactory := newClusterFactory(
+		numConcurrentClusterCreations, user, clusterID, artifactsDir)
 	var wg sync.WaitGroup
 	for i := 0; i < parallelism; i++ {
 		i := i // Copy for closure.
 		wg.Add(1)
 		stopper.RunWorker(ctx, func(ctx context.Context) {
 			if err := r.runWorker(
-				ctx, fmt.Sprintf("w%d", i) /* name */, work, rg, clusterName, local,
+				ctx, fmt.Sprintf("w%d", i) /* name */, work, rg, clusterFactory,
+				clusterName, local,
 				stopper.ShouldQuiesce(), debug, artifactsDir, user, teeOpt, stdout, l,
 			); err != nil {
 				// A worker returned an error. We don't want to run more tests since
@@ -1209,7 +1290,9 @@ func (r *registry) Run(
 				// tests after finishing the currently running one.
 				stopper.Quiesce(ctx)
 				// Interrupt everybody waiting for resources.
-				rg.Close("a worker errored; not running more tests")
+				if rg != nil {
+					rg.Close("a worker errored; not running more tests")
+				}
 			}
 			wg.Done()
 		})
@@ -1240,6 +1323,7 @@ func (r *registry) Run(
 		case <-doneCh:
 			shout(ctx, l, stderr, "All workers done.")
 		case <-time.After(5 * time.Second):
+			shout(ctx, l, stderr, "5s elapsed. Will brutally destroy all clusters.")
 		}
 		// Make sure there are no leftover clusters.
 		// !!! figure out something for --debug. Maybe clusters that need to be left
@@ -1252,8 +1336,10 @@ func (r *registry) Run(
 		// If we get a second CTRL-C, exit immediately.
 		select {
 		case <-sig:
+			shout(ctx, l, stderr, "Second SIGINT received. Quitting.")
 			os.Exit(1)
 		case <-destroyCh:
+			shout(ctx, l, stderr, "Done destroying all clusters.")
 		}
 	}
 
@@ -1270,6 +1356,56 @@ func (r *registry) Run(
 		return 0
 	}
 	return 1
+}
+
+type workerStatus struct {
+	// name is the worker's identifier.
+	name string
+	mu   struct {
+		sync.Mutex
+
+		// status is presented in the HTML progress page.
+		status string
+
+		t testToRunRes
+		c *cluster
+	}
+}
+
+func (w *workerStatus) Status() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.mu.status
+}
+
+func (w *workerStatus) SetStatus(status string) {
+	w.mu.Lock()
+	w.mu.status = status
+	w.mu.Unlock()
+}
+
+func (w *workerStatus) Cluster() *cluster {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.mu.c
+}
+
+func (w *workerStatus) SetCluster(c *cluster) {
+	w.mu.Lock()
+	w.mu.c = c
+	w.mu.Unlock()
+}
+
+func (w *workerStatus) Test() testToRunRes {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.mu.t
+}
+
+func (w *workerStatus) SetTest(t testToRunRes) {
+	w.mu.Lock()
+	w.mu.t = t
+	w.mu.Unlock()
 }
 
 // runWorker runs tests in a loop until work is exhausted.
@@ -1291,7 +1427,7 @@ func (r *registry) Run(
 //   worker is presumed to have exclusive access to the cluster, since it will
 //   wipe it every after test. If the cluster is not compatible with any test,
 //   an error will be returned.
-// teeOpt: The teeing option for future test lest loggers.
+// teeOpt: The teeing option for future test loggers.
 // stdout: The Writer to use for messages that need to go to stdout (e.g. the
 // 	 "=== RUN" and "--- FAIL" lines).
 // l: The logger to use for more verbose messages.
@@ -1300,6 +1436,7 @@ func (r *registry) runWorker(
 	name string,
 	work *workPool,
 	rg *resourceGovernor,
+	clusterFactory *clusterFactory,
 	clusterName string,
 	local bool,
 	interrupt <-chan struct{},
@@ -1311,6 +1448,10 @@ func (r *registry) runWorker(
 	l *logger,
 ) (retErr error) {
 	ctx = logtags.AddTag(ctx, name, nil /* value */)
+	wStatus := r.addWorker(ctx, name)
+	defer func() {
+		r.removeWorker(ctx, name)
+	}()
 
 	var c *cluster     // The cluster currently being used.
 	var cs clusterSpec // The spec of the current cluster.
@@ -1325,45 +1466,46 @@ func (r *registry) runWorker(
 		t testSpec,
 		alloc resourceAllocation,
 	) (*cluster, error) {
-		var name string
+		wStatus.SetStatus("creating cluster")
+		defer wStatus.SetStatus("")
+		// !!!
+		// var name string
+		// if existingClusterName != "" {
+		//   name = existingClusterName
+		// } else {
+		//   // If local is set, the name needs to be empty.
+		//   if !local {
+		//     name = user + "-"
+		//     rnd := rand.Intn(1000000)
+		//     counter := atomic.AddUint64(&r.clusterCounter, 1)
+		//     if clusterID != "" {
+		//       name += fmt.Sprintf("%s-%02d-%06d", clusterID, counter, rnd)
+		//     } else {
+		//       name += fmt.Sprintf("%02d-%06d", counter, rnd)
+		//     }
+		//     name += "-" + t.Cluster.String()
+		//     // !!!
+		//     // if len(name) > GCEClusterNameLimit {
+		//     //   name = name[:GCEClusterNameLimit]
+		//     //   if name[len(name)-1] == '-' {
+		//     //     name = name[:len(name)-1]
+		//     //   }
+		//     // }
+		//     if err := r.verifyValidClusterName(name); err != nil {
+		//       return nil, err
+		//     }
+		//   }
+		// }
+
 		if existingClusterName != "" {
-			name = existingClusterName
-		} else {
-			// If local is set, the name needs to be empty.
-			if !local {
-				name = user + "-"
-				rnd := rand.Intn(1000000)
-				counter := atomic.AddUint64(&r.clusterCounter, 1)
-				if clusterID != "" {
-					name += fmt.Sprintf("%s-%02d-%06d", clusterID, counter, rnd)
-				} else {
-					name += fmt.Sprintf("%02d-%06d", counter, rnd)
-				}
-				name += "-" + t.Cluster.String()
-				// !!!
-				// if len(name) > GCEClusterNameLimit {
-				//   name = name[:GCEClusterNameLimit]
-				//   if name[len(name)-1] == '-' {
-				//     name = name[:len(name)-1]
-				//   }
-				// }
-				if err := r.verifyValidClusterName(name); err != nil {
-					return nil, err
-				}
+			// Logs for attaching to a cluster go to an dedicated log file.
+			logPath := filepath.Join(
+				artifactsDir, "cluster-create", strings.Replace(name, "/", "-", -1)+".log")
+			clusterL, err := rootLogger(logPath, teeOpt)
+			if err != nil {
+				log.Fatal(ctx, err)
 			}
-		}
-
-		// Logs for creating a new cluster or attaching to a cluster go to an
-		// dedicated log file.
-		logPath := filepath.Join(
-			artifactsDir, "cluster-create", strings.Replace(name, "/", "-", -1)+".log")
-		clusterL, err := rootLogger(logPath, teeOpt)
-		if err != nil {
-			log.Fatal(ctx, err)
-		}
-		defer clusterL.close()
-
-		if existingClusterName != "" {
+			defer clusterL.close()
 			opt := attachOpt{
 				skipValidation: r.config.skipClusterValidationOnAttach,
 				skipStop:       r.config.skipClusterStopOnAttach,
@@ -1374,27 +1516,35 @@ func (r *registry) runWorker(
 		l.PrintfCtx(ctx, "Creating new cluster for test: %s. Cluster: %s\n", t.Name, name)
 
 		cfg := clusterConfig{
-			name:         name,
+			// !!! name:         name,
 			nodes:        t.Cluster,
 			artifactsDir: artifactsDir,
 			localCluster: local,
 			alloc:        alloc,
 		}
-		return newCluster(ctx, clusterL, cfg)
+		return clusterFactory.newCluster(ctx, cfg, wStatus.SetStatus, teeOpt)
 	}
 
 	// When this method returns we'll destroy the cluster we had at the time,
 	// unless we're exiting with errTestFailureAndDebugEnabled; in that case we
 	// want the cluster to stick around.
 	defer func() {
-		if _, ok := retErr.(errTestFailureAndDebugEnabled); !ok {
-			if c != nil {
-				c.Destroy(ctx, l)
-			}
-		} else {
-			log.Error(ctx, retErr.Error())
-			saveCluster(c)
+		if c != nil {
+			l.Printf("Worker exiting; destroying cluster.")
+			// We use a context that can't be canceled for the Destroy().
+			c.Destroy(context.Background(), l)
 		}
+		// !!!
+		// if _, ok := retErr.(errTestFailureAndDebugEnabled); !ok {
+		//   if c != nil {
+		//     l.Printf("Worker exiting; destroying cluster.")
+		//     // We use a context that can't be canceled for the Destroy().
+		//     c.Destroy(context.Background(), l)
+		//   }
+		// } else {
+		//   log.Error(ctx, retErr.Error())
+		//   saveCluster(c)
+		// }
 	}()
 
 	// Loop until there's no more work in the pool, we get interrupted, or an
@@ -1407,12 +1557,15 @@ func (r *registry) runWorker(
 		}
 
 		if needDestroy {
-			c.Destroy(ctx, l)
+			wStatus.SetStatus("destroying cluster")
+			// We use a context that can't be canceled for the Destroy().
+			c.Destroy(context.Background(), l)
 			c = nil
 			cs = clusterSpec{}
 			tag = ""
 			needDestroy = false
 		} else if c != nil {
+			wStatus.SetStatus("wiping cluster")
 			// We wipe clusters before reusing.
 			if err := c.WipeE(ctx, l); err != nil {
 				return errors.Wrapf(err, "failed to wipe cluster for reuse")
@@ -1422,6 +1575,10 @@ func (r *registry) runWorker(
 		oldCluster := c
 		var testToRun testToRunRes
 		var err error
+		wStatus.SetStatus("getting work")
+		// !!! make sure the case when there's not enough resources available to run
+		// some tests (in particular because we've saved a bunch of clusters) is
+		// handled fine.
 		testToRun, c, cs, err = r.getWork(
 			ctx, work, c, cs, tag, rg, interrupt, l,
 			func(t testSpec, alloc resourceAllocation) (*cluster, error) {
@@ -1430,6 +1587,9 @@ func (r *registry) runWorker(
 		if err != nil || testToRun.noWork {
 			return err
 		}
+		wStatus.SetCluster(c)
+		wStatus.SetTest(testToRun)
+		wStatus.SetStatus("running test")
 
 		// If the cluster changed, reset some state.
 		if oldCluster != nil && oldCluster != c {
@@ -1465,7 +1625,7 @@ func (r *registry) runWorker(
 		// Now run the test.
 		l.PrintfCtx(ctx, "starting test: %s:%d", testToRun.spec.Name, testToRun.runNum)
 		var success bool
-		success, err = r.runTest(ctx, t, c, artifactsDir, stdout, testL)
+		success, err = r.runTest(ctx, t, testToRun.runNum, c, artifactsDir, stdout, testL)
 		testL.close()
 		if err != nil {
 			shout(ctx, l, stdout, "test returned error: %s: %s", t.Name(), err)
@@ -1482,16 +1642,26 @@ func (r *registry) runWorker(
 		}
 		// If a test failed and debug was set, we bail.
 		if (err != nil || t.Failed()) && debug {
-			// TODO(andrei): Get a failure message for the t.Failed() case.
-			failureMsg := ""
+			failureMsg := fmt.Sprintf("%s (%d) - ", testToRun.spec.Name, testToRun.runNum)
 			if err != nil {
-				failureMsg = err.Error()
+				failureMsg += err.Error()
+			} else {
+				failureMsg += t.FailureMsg()
 			}
-			// TODO(andrei): debug is specified, so we have to leak a cluster. Does
-			// that mean that we need to stop running tests? Probably not, at least
-			// not unless we get really low on resources because of these leaks. We
-			// should implement a better policy.
-			return newErrTestFailureAndDebugEnabled(t.Name(), c, failureMsg)
+			// !!!
+			// // TODO(andrei): debug is specified, so we have to leak a cluster. Does
+			// // that mean that we need to stop running tests? Probably not, at least
+			// // not unless we get really low on resources because of these leaks. We
+			// // should implement a better policy.
+			// return newErrTestFailureAndDebugEnabled(t.Name(), c, failureMsg)
+
+			// Save the cluster for future debugging.
+			saveCluster(c, failureMsg)
+			// Continue with a fresh cluster.
+			c = nil
+			if err != nil {
+				return err
+			}
 		}
 	}
 }
@@ -1504,7 +1674,13 @@ func (r *registry) runWorker(
 // c: The cluster on which the test will run. runTest() does not wipe or destroy
 //    the cluster.
 func (r *registry) runTest(
-	ctx context.Context, t *test, c *cluster, artifactsDir string, stdout io.Writer, l *logger,
+	ctx context.Context,
+	t *test,
+	runNum int,
+	c *cluster,
+	artifactsDir string,
+	stdout io.Writer,
+	l *logger,
 ) (bool, error) {
 	if t.spec.Skip != "" {
 		return false, fmt.Errorf("Can't run skipped test: %s: %s", t.Name(), t.spec.Skip)
@@ -1556,7 +1732,6 @@ func (r *registry) runTest(
 		t.mu.Unlock()
 
 		dstr := fmt.Sprintf("%.2fs", t.duration().Seconds())
-		stability := ""
 
 		if t.Failed() {
 			t.mu.Lock()
@@ -1570,7 +1745,7 @@ func (r *registry) runTest(
 				)
 			}
 
-			shout(ctx, l, stdout, "--- FAIL: %s %s(%s)\n%s", t.Name(), stability, dstr, output)
+			shout(ctx, l, stdout, "--- FAIL: %s %s\n%s", t.Name(), dstr, output)
 			if postIssues && issues.CanPost() && t.spec.Run != nil {
 				authorEmail := getAuthorEmail(failLoc.file, failLoc.line)
 				branch := "<unknown branch>"
@@ -1587,7 +1762,7 @@ func (r *registry) runTest(
 				}
 			}
 		} else {
-			shout(ctx, l, stdout, "--- PASS: %s %s(%s)", t.Name(), stability, dstr)
+			shout(ctx, l, stdout, "--- PASS: %s %s", t.Name(), dstr)
 			// If `##teamcity[testFailed ...]` is not present before `##teamCity[testFinished ...]`,
 			// TeamCity regards the test as successful.
 		}
@@ -1601,6 +1776,14 @@ func (r *registry) runTest(
 			shout(ctx, l, stdout, "##teamcity[publishArtifacts '%s']", artifactsSpec)
 		}
 
+		r.recordTestFinish(completedTestInfo{
+			test:    t.Name(),
+			run:     runNum,
+			start:   t.start,
+			end:     t.end,
+			pass:    !t.Failed(),
+			failure: t.FailureMsg(),
+		})
 		r.status.Lock()
 		delete(r.status.running, t)
 		// Only include tests with a Run function in the summary output.
@@ -1658,23 +1841,22 @@ func (r *registry) runTest(
 	select {
 	case <-done:
 	case <-time.After(timeout):
-		// We hit a timeout. We're going to mark the test as failed (which will
-		// also cancel its context). If --debug was specified, we return an error
-		// telling the caller to leave the cluster alone.
-		// Otherwise, we'll wait another 5 minutes in the hope that the test
-		// reacts either to the ctx cancelation or to the fact that it was marked
-		// as failed. If that happens, great - we return normally and so the
-		// cluster can be reused. It the test does not react to anything, then we
-		// return an error, which will cause the caller to stop everything and
-		// this destroy this cluster (as well as all the others). Since the
-		// cluster cannot be reused in this case, it'd be awkward for the caller
-		// to continue.
+		// We hit a timeout. We're going to mark the test as failed (which will also
+		// cancel its context).  Otherwise, we'll wait another 5 minutes in the hope
+		// that the test reacts either to the ctx cancelation or to the fact that it
+		// was marked as failed. If that happens, great - we return normally and so
+		// the cluster can be reused. It the test does not react to anything, then
+		// we return an error, which will cause the caller to stop everything and
+		// destroy this cluster (as well as all the others). The cluster
+		// cannot be reused since we have a runaway test goroutine that's presumably
+		// going to continue using the cluster case.
 
 		msg := fmt.Sprintf("test timed out (%s)", timeout)
 		t.printfAndFail(0 /* skip */, "%s\n", msg)
-		if debugEnabled {
-			return false, newErrTestFailureAndDebugEnabled(t.Name(), c, msg)
-		}
+		// // !!!
+		// if debugEnabled {
+		//   return false, newErrTestFailureAndDebugEnabled(t.Name(), c, msg)
+		// }
 
 		select {
 		case <-done:
@@ -1835,4 +2017,82 @@ func shout(ctx context.Context, l *logger, stdout io.Writer, format string, args
 	msg := fmt.Sprintf(format, args...)
 	l.PrintfCtxDepth(ctx, 2 /* depth */, msg)
 	fmt.Fprint(stdout, msg)
+}
+
+func (r *registry) serveHTTP(wr http.ResponseWriter, req *http.Request) {
+	fmt.Fprintf(wr, "<html><body>")
+	fmt.Fprintf(wr, "<a href='debug/pprof'>pprof</a>")
+	fmt.Fprintf(wr, "<p>")
+	// Print the workers report.
+	fmt.Fprintf(wr, "<h2>Workers:</h2>")
+	fmt.Fprintf(wr, `<table border='1'>
+	<tr><th>Worker</th>
+	<th>Status</th>
+	<th>Test</th>
+	<th>Cluster</th>
+	<th>Cluster reused</th>
+	</tr>`)
+	r.workersMu.Lock()
+	workers := make([]*workerStatus, len(r.workersMu.workers))
+	i := 0
+	for _, w := range r.workersMu.workers {
+		workers[i] = w
+		i++
+	}
+	r.workersMu.Unlock()
+	sort.Slice(workers, func(i int, j int) bool {
+		l := workers[i]
+		r := workers[j]
+		return strings.Compare(l.name, r.name) < 0
+	})
+	for _, w := range workers {
+		var testName string
+		t := w.Test()
+		if t.noWork {
+			testName = "no work"
+		} else {
+			testName = fmt.Sprintf("%s (run %d)", t.spec.Name, t.runNum)
+		}
+		var clusterName string
+		if w.Cluster() != nil {
+			clusterName = w.Cluster().name
+		}
+		fmt.Fprintf(wr, "<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%t</td></tr>\n",
+			w.name, w.Status(), testName, clusterName, t.canReuseCluster)
+	}
+	fmt.Fprintf(wr, "</table>")
+
+	// Print the finished tests report.
+	fmt.Fprintf(wr, "<p>")
+	fmt.Fprintf(wr, "<h2>Finished tests:</h2>")
+	fmt.Fprintf(wr, `<table border='1'>
+	<tr><th>Test</th>
+	<th>Status</th>
+	<th>Duration</th>
+	</tr>`)
+	for _, t := range r.getCompletedTests() {
+		name := fmt.Sprintf("%s (run %d)", t.test, t.run)
+		status := "PASS"
+		if !t.pass {
+			status = "FAIL " + t.failure
+		}
+		duration := fmt.Sprintf("%s (%s - %s)", t.end.Sub(t.start), t.start, t.end)
+		fmt.Fprintf(wr, "<tr><td>%s</td><td>%s</td><td>%s</td><tr/>", name, status, duration)
+	}
+	fmt.Fprintf(wr, "</table>")
+
+	// Print the saved clusters report.
+	fmt.Fprintf(wr, "<p>")
+	fmt.Fprintf(wr, "<h2>Clusters left alive for further debugging "+
+		"(if --debug was specified):</h2>")
+	fmt.Fprintf(wr, `<table border='1'>
+	<tr><th>Cluster</th>
+	<th>Test</th>
+	</tr>`)
+	for c, msg := range savedClusters {
+		fmt.Fprintf(wr, "<tr><td>%s</td><td>%s</td><tr/>", c.name, msg)
+	}
+	fmt.Fprintf(wr, "</table>")
+
+	fmt.Fprintf(wr, "</body></html>")
 }
