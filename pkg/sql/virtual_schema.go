@@ -16,7 +16,9 @@ package sql
 
 import (
 	"context"
+	"fmt"
 	"sort"
+	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
@@ -28,6 +30,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgerror"
 	"github.com/cockroachdb/cockroach/pkg/sql/privilege"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
+	"github.com/cockroachdb/cockroach/pkg/sql/sem/types"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlbase"
 )
 
@@ -165,6 +168,23 @@ var virtualSchemas = []virtualSchema{
 	informationSchema,
 	pgCatalog,
 	crdbInternal,
+	datasets,
+}
+
+type datasetVersion struct {
+	version    int
+	validStart time.Time
+	data       []tree.Datums
+}
+
+type dataset struct {
+	lastRefreshed hlc.Timestamp
+	cols          []colSpec
+	versions      []datasetVersion
+}
+
+type datasetsCollection struct {
+	sets map[string]dataset
 }
 
 //
@@ -180,6 +200,7 @@ var virtualSchemas = []virtualSchema{
 type VirtualSchemaHolder struct {
 	entries      map[string]virtualSchemaEntry
 	orderedNames []string
+	sets         datasetsCollection
 }
 
 type virtualSchemaEntry struct {
@@ -295,6 +316,7 @@ func NewVirtualSchemaHolder(
 	vs := &VirtualSchemaHolder{
 		entries:      make(map[string]virtualSchemaEntry, len(virtualSchemas)),
 		orderedNames: make([]string, len(virtualSchemas)),
+		sets:         datasetsCollection{sets: make(map[string]dataset)},
 	}
 	for i, schema := range virtualSchemas {
 		dbName := schema.name
@@ -351,6 +373,115 @@ func initVirtualDatabaseDesc(name string) *sqlbase.DatabaseDescriptor {
 	}
 }
 
+type colSpec struct {
+	name string
+	t    types.T
+}
+
+func (vs *VirtualSchemaHolder) addDataset(
+	ctx context.Context, st *cluster.Settings, name string, d dataset,
+) error {
+	_, ok := datasets.allTableNames[name]
+	if !ok {
+		log.Infof(context.TODO(), "!!! new dataset: %s", name)
+		datasets.allTableNames[name] = struct{}{}
+		schema := fmt.Sprintf("create table datasets.%s (\n", name)
+		for i, col := range d.cols {
+			schema += fmt.Sprintf("%s %s", col.name, col.t.SQLName())
+			if i < len(d.cols)-1 {
+				schema += ","
+			}
+			schema += "\n"
+		}
+		schema += ");"
+		table := virtualSchemaTable{
+			schema: schema,
+			populate: func(_ context.Context, p *planner, _ *DatabaseDescriptor, addRow func(...tree.Datum) error) error {
+				return vs.renderDataset(name, p.txn.OrigTimestamp(), addRow)
+			},
+		}
+		datasets.tableDefs = append(datasets.tableDefs, table)
+		if err := vs.refreshDatasets(ctx, st); err != nil {
+			return err
+		}
+	}
+	vs.sets.sets[name] = d
+	return nil
+}
+
+func (vs *VirtualSchemaHolder) refreshDatasets(ctx context.Context, st *cluster.Settings) error {
+	schema := datasets
+	dbName := schema.name
+	dbDesc := initVirtualDatabaseDesc(dbName)
+	defs := make(map[string]virtualDefEntry, len(schema.tableDefs))
+	orderedDefNames := make([]string, 0, len(schema.tableDefs))
+
+	for _, def := range schema.tableDefs {
+		tableDesc, err := def.initVirtualTableDesc(ctx, st)
+
+		if err != nil {
+			return errors.Wrapf(err, "failed to initialize %s", def.getSchema())
+		}
+
+		if schema.tableValidator != nil {
+			if err := schema.tableValidator(&tableDesc); err != nil {
+				return errors.Wrap(err, "programmer error")
+			}
+		}
+
+		defs[tableDesc.Name] = virtualDefEntry{
+			virtualDef: def,
+			desc:       &tableDesc,
+			validWithNoDatabaseContext: schema.validWithNoDatabaseContext,
+		}
+		orderedDefNames = append(orderedDefNames, tableDesc.Name)
+	}
+
+	sort.Strings(orderedDefNames)
+
+	vs.entries[dbName] = virtualSchemaEntry{
+		desc:            dbDesc,
+		defs:            defs,
+		orderedDefNames: orderedDefNames,
+		allTableNames:   schema.allTableNames,
+	}
+	return nil
+}
+
+func (vs *VirtualSchemaHolder) renderDataset(
+	name string, ts hlc.Timestamp, addRow func(...tree.Datum) error,
+) error {
+	// Find the correct version.
+	ds := vs.sets.sets[name]
+	log.Infof(context.TODO(), "!!! render. versions: %d", len(ds.versions))
+	var highestValidStart time.Time
+	var data []tree.Datums
+	for _, v := range ds.versions {
+		// !!!
+		// log.Infof(context.TODO(), "!!! looking at version: %d: %s. before: %t",
+		//   v.version, v.validStart, v.validStart.Before(highestValidStart))
+		// If the version is not valid yet.
+		if v.validStart.UnixNano() > ts.WallTime {
+			continue
+		}
+		if !v.validStart.Before(highestValidStart) {
+			highestValidStart = v.validStart
+			data = v.data
+		}
+	}
+	if highestValidStart == (time.Time{}) {
+		return fmt.Errorf("no valid set version")
+	}
+
+	// Generate the table.
+	for _, row := range data {
+		if err := addRow(row...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // getEntries is part of the VirtualTabler interface.
 func (vs *VirtualSchemaHolder) getEntries() map[string]virtualSchemaEntry {
 	return vs.entries
@@ -381,7 +512,7 @@ func (vs *VirtualSchemaHolder) getVirtualTableEntry(tn *tree.TableName) (virtual
 		}
 		if _, ok := db.allTableNames[tableName]; ok {
 			return virtualDefEntry{}, pgerror.Unimplemented(tn.Schema()+"."+tableName,
-				"virtual schema table not implemented: %s.%s", tn.Schema(), tableName)
+				"virtual schema table not implemented 1: %s.%s", tn.Schema(), tableName)
 		}
 		return virtualDefEntry{}, sqlbase.NewUndefinedRelationError(tn)
 	}
@@ -414,4 +545,26 @@ func (vs *VirtualSchemaHolder) getVirtualTableDesc(
 // a Virtual Descriptor.
 func isVirtualDescriptor(desc sqlbase.DescriptorProto) bool {
 	return desc.GetID() == keys.VirtualDescriptorID
+}
+
+var datasets = virtualSchema{
+	name:                       "datasets",
+	allTableNames:              buildStringSet("example"),
+	tableDefs:                  []virtualSchemaDef{exampleTable},
+	validWithNoDatabaseContext: true,
+}
+
+var exampleTable = virtualSchemaTable{
+	schema: `
+CREATE TABLE datasets.example (
+	n int,
+	s string
+);
+`,
+	populate: func(_ context.Context, p *planner, _ *DatabaseDescriptor, addRow func(...tree.Datum) error) error {
+		return addRow(
+			tree.NewDInt(1),
+			tree.NewDString("one"),
+		)
+	},
 }

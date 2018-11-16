@@ -252,6 +252,7 @@ var SystemAllowedPrivileges = map[ID]privilege.List{
 	keys.TableStatisticsTableID: privilege.ReadWriteData,
 	keys.LocationsTableID:       privilege.ReadWriteData,
 	keys.RoleMembersTableID:     privilege.ReadWriteData,
+	keys.DatasetsTableID:        privilege.ReadWriteData,
 }
 
 // Helpers used to make some of the TableDescriptor literals below more concise.
@@ -426,6 +427,52 @@ var (
 // `TestSystemTableLiterals` which checks that they do indeed match, and has
 // suggestions on writing and maintaining them.
 var (
+	// DatasetsTable is the descriptor for the datasets table.
+	DatasetsTable = TableDescriptor{
+		Name:     "datasets",
+		ID:       keys.DatasetsTableID,
+		ParentID: keys.SystemDatabaseID,
+		Version:  1,
+		Columns: []ColumnDescriptor{
+			{Name: "name", ID: 1, Type: colTypeString},
+			{Name: "version", ID: 2, Type: colTypeInt},
+			{Name: "validStart", ID: 3, Type: colTypeTimestamp},
+			{Name: "data", ID: 4, Type: colTypeString},
+		},
+		NextColumnID: 5,
+		Families: []ColumnFamilyDescriptor{
+			{Name: "primary", ID: 0, ColumnNames: []string{"name", "version", "validStart", "data"}, ColumnIDs: []ColumnID{1, 2, 3, 4}},
+		},
+		PrimaryIndex: IndexDescriptor{
+			Name:             "primary",
+			ID:               1,
+			Unique:           true,
+			ColumnNames:      []string{"name", "version"},
+			ColumnDirections: []IndexDescriptor_Direction{IndexDescriptor_ASC, IndexDescriptor_ASC},
+			ColumnIDs:        []ColumnID{1, 2},
+		},
+		NextFamilyID: 1,
+		NextIndexID:  2,
+
+		// !!!
+		// Privileges: &PrivilegeDescriptor{
+		//   Users: []UserPrivileges{
+		//     {
+		//       User:       AdminRole,
+		//       Privileges: privilege.ReadWriteData.ToBitField(),
+		//     },
+		//     {
+		//       User:       security.RootUser,
+		//       Privileges: privilege.ReadWriteData.ToBitField(),
+		//     },
+		//   },
+		// },
+
+		Privileges:     NewCustomSuperuserPrivilegeDescriptor(SystemAllowedPrivileges[keys.LeaseTableID]),
+		FormatVersion:  InterleavedFormatVersion,
+		NextMutationID: 1,
+	}
+
 	// LeaseTable is the descriptor for the leases table.
 	LeaseTable = TableDescriptor{
 		Name:     "lease",

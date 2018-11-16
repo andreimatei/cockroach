@@ -735,6 +735,8 @@ has no relationship with the commit order of concurrent transactions.</p>
 </span></td></tr>
 <tr><td><code>length(val: <a href="string.html">string</a>) &rarr; <a href="int.html">int</a></code></td><td><span class="funcdesc"><p>Calculates the number of characters in <code>val</code>.</p>
 </span></td></tr>
+<tr><td><code>load_dataset(name: <a href="string.html">string</a>, path: <a href="string.html">string</a>) &rarr; <a href="string.html">string</a></code></td><td><span class="funcdesc"><p>Load a dataset.</p>
+</span></td></tr>
 <tr><td><code>lower(val: <a href="string.html">string</a>) &rarr; <a href="string.html">string</a></code></td><td><span class="funcdesc"><p>Converts all characters in <code>val</code> to their lower-case equivalents.</p>
 </span></td></tr>
 <tr><td><code>lpad(string: <a href="string.html">string</a>, length: <a href="int.html">int</a>) &rarr; <a href="string.html">string</a></code></td><td><span class="funcdesc"><p>Pads <code>string</code> to <code>length</code> by adding ’ ’ to the left of <code>string</code>.If <code>string</code> is longer than <code>length</code> it is truncated.</p>

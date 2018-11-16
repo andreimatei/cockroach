@@ -84,7 +84,7 @@ func (l *LogicalSchemaAccessor) GetObjectDesc(
 		}
 		if _, ok := scEntry.allTableNames[tableName]; ok {
 			return nil, nil, pgerror.Unimplemented(name.Schema()+"."+tableName,
-				"virtual schema table not implemented: %s.%s", name.Schema(), tableName)
+				"virtual schema table not implemented 2: %s.%s", name.Schema(), tableName)
 		}
 
 		if flags.required {

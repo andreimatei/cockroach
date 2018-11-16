@@ -37,6 +37,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/settings"
 	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgerror"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
+	"github.com/cockroachdb/cockroach/pkg/sql/sem/types"
 	"github.com/cockroachdb/cockroach/pkg/sql/sessiondata"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlbase"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlutil"
@@ -301,6 +302,15 @@ func (s *Server) Start(ctx context.Context, stopper *stop.Stopper) {
 		}
 	})
 	s.PeriodicallyClearStmtStats(ctx, stopper)
+	s.PeriodicallyRefreshDatasets(ctx, stopper)
+
+	// !!!
+	// cols := make([]colSpec, 2)
+	// cols[0] = colSpec{name: "a", t: types.Int}
+	// cols[1] = colSpec{name: "b", t: types.String}
+	// data := make([]tree.Datums, 2)
+	// data[0] = tree.Datums{tree.NewDInt(1), tree.NewDString("one")}
+	// data[1] = tree.Datums{tree.NewDInt(2), tree.NewDString("two")}
 }
 
 // ResetStatementStats resets the executor's collected statement statistics.
@@ -605,6 +615,104 @@ func (s *Server) PeriodicallyClearStmtStats(ctx context.Context, stopper *stop.S
 			}
 		}
 	})
+}
+
+func (s *Server) PeriodicallyRefreshDatasets(ctx context.Context, stopper *stop.Stopper) {
+	stopper.RunWorker(ctx, func(ctx context.Context) {
+		var timer timeutil.Timer
+		for {
+			//next := last.Add(maxStmtStatReset.Get(&s.cfg.Settings.SV))
+			//wait := next.Sub(timeutil.Now())
+			wait := 300 * time.Millisecond
+			timer.Reset(wait)
+			select {
+			case <-stopper.ShouldQuiesce():
+				return
+			case <-timer.C:
+				timer.Read = true
+
+				stmt := "select name, version, \"validStart\", data from system.datasets"
+				rows, _, err := s.cfg.InternalExecutor.Query(ctx, "refresh datasets", nil /* txn */, stmt)
+				if err != nil {
+					log.Warning(context.Background(), "!!! error refreshing: %s", err)
+				}
+				refreshed := s.cfg.Clock.Now()
+				var curDataset dataset
+				var curName string
+				for _, r := range rows {
+					name := string(*r[0].(*tree.DString))
+					version := int(*r[1].(*tree.DInt))
+					validStart := r[2].(*tree.DTimestamp).Time
+					dataRaw := string(*r[3].(*tree.DString))
+					temp := strings.SplitN(dataRaw, "\n", 2)
+					colLine := temp[0]
+					data := temp[1]
+					// !!! log.Infof(context.TODO(), "!!! read set: %s %d %s %s", name, version, validStart, data)
+					if name != curName {
+						if curName != "" {
+							log.Infof(context.TODO(), "!!! about to add dataset: %s", curName)
+							s.cfg.VirtualSchemas.addDataset(ctx, s.cfg.Settings, curName, curDataset)
+						}
+						curName = name
+						curDataset = dataset{
+							lastRefreshed: refreshed,
+							cols:          parseColLine(colLine),
+						}
+					}
+					d := datasetVersion{
+						version:    version,
+						validStart: validStart,
+						data:       parseData(data, curDataset.cols),
+					}
+					curDataset.versions = append(curDataset.versions, d)
+				}
+				if curName != "" {
+					s.cfg.VirtualSchemas.addDataset(ctx, s.cfg.Settings, curName, curDataset)
+				}
+			}
+		}
+	})
+}
+
+func parseColLine(s string) []colSpec {
+	ss := strings.Split(s, ",")
+	var r []colSpec
+	for i := 0; i < len(ss); i += 2 {
+		name := ss[i]
+		t := ss[i+1]
+		var typ types.T
+		switch t {
+		case "int":
+			typ = types.Int
+		case "string":
+			typ = types.String
+		default:
+			log.Fatalf(context.TODO(), "!!! unsupported type: %q", t)
+		}
+		r = append(r, colSpec{name: name, t: typ})
+	}
+	return r
+}
+
+func parseData(s string, cols []colSpec) []tree.Datums {
+	lines := strings.Split(s, "\n")
+	var r []tree.Datums
+	for _, l := range lines {
+		if l == "" {
+			continue
+		}
+		vals := strings.Split(l, ",")
+		var dd tree.Datums
+		for i, v := range vals {
+			d, err := tree.ParseStringAs(cols[i].t, v, nil /* evalCtx */)
+			if err != nil {
+				log.Fatal(context.TODO(), err)
+			}
+			dd = append(dd, d)
+		}
+		r = append(r, dd)
+	}
+	return r
 }
 
 type closeType int

@@ -24,6 +24,7 @@ import (
 	"hash"
 	"hash/crc32"
 	"hash/fnv"
+	"io/ioutil"
 	"math"
 	"math/rand"
 	"net"
@@ -153,6 +154,66 @@ func newEncodeError(c rune, enc string) error {
 //
 // For use in other packages, see AllBuiltinNames and GetBuiltinProperties().
 var builtins = map[string]builtinDefinition{
+	"load_dataset": makeBuiltin(tree.FunctionProperties{},
+		stringOverload2("name", "path",
+			func(evCtx *tree.EvalContext, name string, path string) (tree.Datum, error) {
+				txn := evCtx.Txn
+				r, err := evCtx.InternalExecutor.QueryRow(
+					evCtx.Ctx(),
+					"read dataset version",
+					txn,
+					"select max(version) from system.datasets where name = $1", name)
+				if err != nil {
+					return nil, err
+				}
+				if len(r) == 0 {
+					panic("!!!")
+				}
+				version := 1
+				if r[0] != tree.DNull {
+					x := r[0].(*tree.DInt)
+					version = int(*x) + 1
+				}
+				log.Infof(evCtx.Ctx(), "!!! version: %d", version)
+
+				dataRaw, err := ioutil.ReadFile(path)
+				if err != nil {
+					panic(err)
+				}
+				data := string(dataRaw)
+				ts := txn.CommitTimestamp()
+
+				// Compute the expiration.
+				sec := ts.WallTime / time.Second.Nanoseconds()
+				var validStartSec int64
+				if sec%10 < 9 {
+					validStartSec = (sec/10 + 1) * 10
+				} else {
+					validStartSec = sec + 11
+				}
+				validStart := tree.DTimestamp{
+					Time: timeutil.Unix(validStartSec, 0 /* nSec */),
+				}
+
+				stmt := "insert into system.datasets (name, version, \"validStart\", data) values ($1, %d, %s, $2)"
+				stmt = fmt.Sprintf(stmt, version, &validStart)
+				if _, err := evCtx.InternalExecutor.QueryRow(
+					evCtx.Ctx(),
+					"create dataset version",
+					evCtx.Txn,
+					stmt, name, data); err != nil {
+					return nil, err
+				}
+
+				delay := validStartSec - time.Now().Unix()
+				return tree.NewDString(
+						fmt.Sprintf("new dataset version will start to be served in %d seconds", delay)),
+					nil
+
+				// !!! return tree.MakeDTimestampTZ(time.Now().Add(10*time.Second), time.Millisecond), nil
+			}, types.String, "Load a dataset."),
+	),
+
 	// TODO(XisiHuang): support encoding, i.e., length(str, encoding).
 	"length":           lengthImpls,
 	"char_length":      lengthImpls,

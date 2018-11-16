@@ -190,6 +190,16 @@ var backwardCompatibleMigrations = []migrationDescriptor{
 		name:   "add progress to system.jobs",
 		workFn: addJobsProgress,
 	},
+	{
+		// !!!
+		name:             "create datasets table",
+		workFn:           createDatasetsTable,
+		newDescriptorIDs: staticIDs(keys.DatasetsTableID),
+	},
+}
+
+func createDatasetsTable(ctx context.Context, r runner) error {
+	return createSystemTable(ctx, r, sqlbase.DatasetsTable)
 }
 
 func staticIDs(ids ...sqlbase.ID) func(ctx context.Context, db db) ([]sqlbase.ID, error) {
