@@ -41,23 +41,46 @@ const (
 	noCompletionMsg
 )
 
-// limitedCommandResult is a commandResult that has a limit, after which calls
+// portalCommandResult is a commandResult that has a limit, after which calls
 // to AddRow will block until the associated client connection asks for more
 // rows. It essentially implements the "execute portal with limit" part of the
 // Postgres protocol.
-type limitedCommandResult struct {
+// !!! redo comment
+type portalCommandResult struct {
 	commandResult
 
-	seenTuples int
-	// If set, an error will be sent to the client if more rows are produced than
-	// this limit.
+	portalName string // !!! set this
+
+	// If set, only this many rows are returned to the client. After the limit is
+	// reached, the execution is suspended; it can be resumed with an ExecPortal
+	// or abandoned with any other command (other than optionally Sync).
+	// If not set, execution is never suspended. All rows are returned to the
+	// client.
 	limit int
+
+	seenTuples int
+
+	// breakOnSync can be set when limit is set. If set, a Sync command received
+	// from the client is taken to mean that the client is no longer interested in
+	// consuming results. If not set, the portalCommandResult buffers a response
+	// for the Sync and otherwise ignores it - meaning that the client can send
+	// further ExecPortal commands.
+	// This is expected to be set according to the implicit or explicit nature of
+	// the transaction in which the portal producing results is running. This
+	// matches Postgres behavior: in implicit transactions, a Sync destroys all
+	// the portals. In an explicit transaction it does not.
+	breakOnSync bool
 }
 
 // AddRow is part of the CommandResult interface.
-func (r *limitedCommandResult) AddRow(ctx context.Context, row tree.Datums) (cont bool, _ error) {
-	if _, err := r.commandResult.AddRow(ctx, row); err != nil {
-		return false, err
+func (r *portalCommandResult) AddRow(
+	ctx context.Context, row tree.Datums,
+) (
+	_ bool, /* cont */
+	_ error,
+) {
+	if cont, err := r.commandResult.AddRow(ctx, row); err != nil || !cont {
+		return cont, err
 	}
 	r.seenTuples++
 
@@ -71,7 +94,6 @@ func (r *limitedCommandResult) AddRow(ctx context.Context, row tree.Datums) (con
 		r.seenTuples = 0
 
 		return r.moreResultsNeeded()
-
 	}
 	if _ /* flushed */, err := r.conn.maybeFlush(r.pos); err != nil {
 		return false, err
@@ -82,26 +104,37 @@ func (r *limitedCommandResult) AddRow(ctx context.Context, row tree.Datums) (con
 // moreResultsNeeded is a restricted connection handler that waits for more
 // requests for rows from the active portal, during the "execute portal" flow
 // when a limit has been specified.
-func (r *limitedCommandResult) moreResultsNeeded() (cont bool, err error) {
-	r.conn.stmtBuf.AdvanceOne()
+// Commands are consumed from the StmtBuf until one that cannot be handled is
+// encountered. ExecPortal is handled (and also optionally Sync). When this
+// returns, the cursor on the StmtBuf is positioned on the last command that was
+// handled; the ConnExecutor is expected to advance past that as it usually
+// does.
+func (r *portalCommandResult) moreResultsNeeded() (cont bool, err error) {
 	for {
-		cmd, _, err := r.conn.stmtBuf.CurCmd()
+		cmd, err := r.conn.stmtBuf.Peek()
 		if err != nil {
 			return false, err
 		}
 		switch c := cmd.(type) {
 		case sql.ExecPortal:
-			// The client wants more rows from the portal.
-			// TODO(jordan,andrei): Check the portal name - what to do if it doesn't match?
-			// Do we need to handle this? c.TimeReceived
+			// TODO(jordan,andrei): Do we need to handle this? c.TimeReceived
+			// If the command is asking for another portal to be executed, this one is
+			// donezo.
+			if c.Name != r.portalName {
+				return false, nil
+			}
+			// The name matches, so the client wants more rows from the portal.
 			r.limit = c.Limit
+			// Position the cursor on the command we just peeked.
+			r.conn.stmtBuf.AdvanceOne()
 			return true, nil
 		case sql.Sync:
-			// The client wants to see a ready for query message back.
-			// TODO(jordan,andrei): we should be doing something different
-			// (returning to the outer loop) in the case that we are only in an
-			// implicit transaction.
+			if r.breakOnSync {
+				return false, nil
+			}
+			// Position the cursor on the command we just peeked.
 			r.conn.stmtBuf.AdvanceOne()
+			// The client wants to see a ready for query message back.
 			r.conn.bufferReadyForQuery(byte(sql.InTxnBlock))
 			if err := r.conn.Flush(r.pos); err != nil {
 				return false, err
@@ -151,7 +184,7 @@ func (c *conn) makeCommandResult(
 	stmt tree.Statement,
 	formatCodes []pgwirebase.FormatCode,
 	conv sessiondata.DataConversionConfig,
-	limit int,
+	limitOpts sql.PortalLimitOpts,
 ) sql.CommandResult {
 	res := commandResult{
 		conn:           c,
@@ -163,12 +196,14 @@ func (c *conn) makeCommandResult(
 		cmdCompleteTag: stmt.StatementTag(),
 		conv:           conv,
 	}
-	if limit == 0 {
+	if limitOpts == (sql.PortalLimitOpts{}) {
 		return &res
 	}
-	return &limitedCommandResult{
-		limit:         limit,
+	return &portalCommandResult{
 		commandResult: res,
+		limit:         limitOpts.Limit,
+		portalName:    limitOpts.PortalName,
+		breakOnSync:   limitOpts.BreakOnSync,
 	}
 }
 

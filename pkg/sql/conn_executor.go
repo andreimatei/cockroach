@@ -947,6 +947,13 @@ func (pe *prepStmtEntry) copy() prepStmtEntry {
 type portalEntry struct {
 	*PreparedPortal
 	psName string
+	// invalid is once a portal can't be used any more (through an ExecPortal
+	// command). This is set once the portal has been fully consumed or if the
+	// client stopped consuming it by sending a command different from ExecPortal
+	// (and sometimes Sync). Our portals are not generally resumable like
+	// Postgres'; we only support resuming them through an uninterrupted sequence
+	// of ExecPoral commands (with row limits).
+	invalid bool
 }
 
 // resetTo resets a namespace to equate another one (`to`). Prep stmts and portals
@@ -1127,7 +1134,8 @@ func (ex *connExecutor) run(
 			}
 			ex.curStmt = tcmd.Stmt
 
-			stmtRes := ex.clientComm.CreateStatementResult(tcmd.Stmt, NeedRowDesc, pos, nil, ex.sessionData.DataConversion, 0)
+			stmtRes := ex.clientComm.CreateStatementResult(
+				tcmd.Stmt, NeedRowDesc, pos, ex.sessionData.DataConversion)
 			res = stmtRes
 			curStmt := Statement{SQL: tcmd.SQL, AST: tcmd.Stmt}
 
@@ -1156,6 +1164,14 @@ func (ex *connExecutor) run(
 			if log.ExpensiveLogEnabled(ex.Ctx(), 2) {
 				log.VEventf(ex.Ctx(), 2, "portal resolved to: %s", portal.Stmt.Str)
 			}
+			if portal.invalid {
+				err := pgerror.NewErrorf(
+					pgerror.CodeInvalidCursorStateError, "cannot resume execution of portal %q", tcmd.Name)
+				ev = eventNonRetriableErr{IsCommit: fsm.False}
+				payload = eventNonRetriableErrPayload{err: err}
+				res = ex.clientComm.CreateErrorResult(pos)
+				break
+			}
 			ex.curStmt = portal.Stmt.Statement
 
 			*pinfo = tree.PlaceholderInfo{
@@ -1177,8 +1193,15 @@ func (ex *connExecutor) run(
 				break
 			}
 
-			stmtRes := ex.clientComm.CreateStatementResult(portal.Stmt.Statement, DontNeedRowDesc, pos, portal.OutFormats,
-				ex.sessionData.DataConversion, tcmd.Limit)
+			var limitOpts PortalLimitOpts
+			if tcmd.Limit != 0 {
+				limitOpts.PortalName = tcmd.Name
+				limitOpts.Limit = tcmd.Limit
+				limitOpts.BreakOnSync = ex.implicitTxn()
+			}
+			stmtRes := ex.clientComm.CreatePortalResult(
+				portal.Stmt.Statement, DontNeedRowDesc, pos, portal.OutFormats,
+				ex.sessionData.DataConversion, limitOpts)
 			res = stmtRes
 			curStmt := Statement{
 				SQL:           portal.Stmt.Str,
@@ -1192,6 +1215,8 @@ func (ex *connExecutor) run(
 			if err != nil {
 				return err
 			}
+			// This portal cannot be used any more.
+			portal.invalid = true
 		case PrepareStmt:
 			ex.curStmt = tcmd.Stmt
 			res = ex.clientComm.CreatePrepareResult(pos)

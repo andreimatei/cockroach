@@ -566,12 +566,19 @@ type resWithPos struct {
 
 // CreateStatementResult is part of the ClientComm interface.
 func (icc *internalClientComm) CreateStatementResult(
+	_ tree.Statement, _ RowDescOpt, pos CmdPos, _ sessiondata.DataConversionConfig,
+) CommandResult {
+	return icc.createRes(pos, nil /* onClose */)
+}
+
+// CreatePortalResult is part of the ClientComm interface.
+func (icc *internalClientComm) CreatePortalResult(
 	_ tree.Statement,
 	_ RowDescOpt,
 	pos CmdPos,
 	_ []pgwirebase.FormatCode,
 	_ sessiondata.DataConversionConfig,
-	_ int,
+	_ PortalLimitOpts,
 ) CommandResult {
 	return icc.createRes(pos, nil /* onClose */)
 }

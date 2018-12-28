@@ -1178,11 +1178,21 @@ func (c *conn) CreateStatementResult(
 	stmt tree.Statement,
 	descOpt sql.RowDescOpt,
 	pos sql.CmdPos,
+	conv sessiondata.DataConversionConfig,
+) sql.CommandResult {
+	return c.makeCommandResult(descOpt, pos, stmt, nil /* formatCodes */, conv, sql.PortalLimitOpts{})
+}
+
+// CreatePortalResult is part of the sql.ClientComm interface.
+func (c *conn) CreatePortalResult(
+	stmt tree.Statement,
+	descOpt sql.RowDescOpt,
+	pos sql.CmdPos,
 	formatCodes []pgwirebase.FormatCode,
 	conv sessiondata.DataConversionConfig,
-	limit int,
+	limitOpts sql.PortalLimitOpts,
 ) sql.CommandResult {
-	return c.makeCommandResult(descOpt, pos, stmt, formatCodes, conv, limit)
+	return c.makeCommandResult(descOpt, pos, stmt, formatCodes, conv, limitOpts)
 }
 
 // CreateSyncResult is part of the sql.ClientComm interface.

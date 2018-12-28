@@ -412,21 +412,38 @@ func (buf *StmtBuf) Push(ctx context.Context, cmd Command) error {
 func (buf *StmtBuf) CurCmd() (Command, CmdPos, error) {
 	buf.mu.Lock()
 	defer buf.mu.Unlock()
+	curPos := buf.mu.curPos
+	cmdIdx, err := buf.translatePosLocked(curPos)
+	if err != nil {
+		return nil, 0, err
+	}
+	// Wait until the current slot in the buffer is filled up.
+	cmd, err := buf.waitForCmdAtIdxLocked(cmdIdx)
+	return cmd, curPos, err
+}
+
+func (buf *StmtBuf) Peek() (Command, error) {
+	buf.mu.Lock()
+	defer buf.mu.Unlock()
+	curPos := buf.mu.curPos
+	cmdIdx, err := buf.translatePosLocked(curPos)
+	if err != nil {
+		return nil, err
+	}
+	if cmdIdx >= len(buf.mu.data) {
+		return nil, errors.Errorf("can't peek when cursor is not positioned over a command")
+	}
+	// Wait until the next slot in the buffer is filled up.
+	return buf.waitForCmdAtIdxLocked(cmdIdx + 1)
+}
+
+func (buf *StmtBuf) waitForCmdAtIdxLocked(cmdIdx int) (Command, error) {
 	for {
 		if buf.mu.closed {
-			return nil, 0, io.EOF
-		}
-		curPos := buf.mu.curPos
-		cmdIdx, err := buf.translatePosLocked(curPos)
-		if err != nil {
-			return nil, 0, err
+			return nil, io.EOF
 		}
 		if cmdIdx < len(buf.mu.data) {
-			return buf.mu.data[cmdIdx], curPos, nil
-		}
-		if cmdIdx != len(buf.mu.data) {
-			return nil, 0, errors.Errorf(
-				"can only wait for next command; corrupt cursor: %d", curPos)
+			return buf.mu.data[cmdIdx], nil
 		}
 		// Wait for the next Command to arrive to the buffer.
 		buf.mu.cond.Wait()
@@ -550,13 +567,22 @@ const (
 	DontNeedRowDesc RowDescOpt = true
 )
 
+// PortalResultOpts groups options for CreateStatementResult.
+type PortalLimitOpts struct {
+	PortalName string
+	// Limit, if set, means that the execution should !!!
+	Limit int
+	// !!! comment
+	BreakOnSync bool
+}
+
 // ClientComm is the interface used by the connExecutor for creating results to
 // be communicated to client and for exerting some control over this
 // communication.
 //
 // ClientComm is implemented by the pgwire connection.
 type ClientComm interface {
-	// createStatementResult creates a StatementResult for stmt.
+	// CreateStatementResult creates a StatementResult for stmt.
 	//
 	// descOpt specifies if result needs to inform the client about row schema. If
 	// it doesn't, a SetColumns call becomes a no-op.
@@ -573,9 +599,17 @@ type ClientComm interface {
 		stmt tree.Statement,
 		descOpt RowDescOpt,
 		pos CmdPos,
+		conv sessiondata.DataConversionConfig,
+	) CommandResult
+	// CreatePortalResult is like CreateStatementResult, except it accepts
+	// arguments specific to portals, particularly to portals with a row limit.
+	CreatePortalResult(
+		stmt tree.Statement,
+		descOpt RowDescOpt,
+		pos CmdPos,
 		formatCodes []pgwirebase.FormatCode,
 		conv sessiondata.DataConversionConfig,
-		limit int,
+		limitOpts PortalLimitOpts,
 	) CommandResult
 	// CreatePrepareResult creates a result for a PrepareStmt command.
 	CreatePrepareResult(pos CmdPos) ParseResult
