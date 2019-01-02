@@ -199,7 +199,7 @@ func (sp *csvWriter) OutputTypes() []sqlbase.ColumnType {
 	return sql.ExportPlanResultTypes
 }
 
-func (sp *csvWriter) Run(ctx context.Context) {
+func (sp *csvWriter) Run(ctx context.Context) *distsqlrun.ProcResumeToken {
 	ctx, span := tracing.ChildSpan(ctx, "csvWriter")
 	defer tracing.FinishSpan(span)
 
@@ -322,6 +322,7 @@ func (sp *csvWriter) Run(ctx context.Context) {
 	// TODO(dt): pick up tracing info in trailing meta
 	distsqlrun.DrainAndClose(
 		ctx, sp.output, err, func(context.Context) {} /* pushTrailingMeta */, sp.input)
+	return nil // !!! deal with resumes?
 }
 
 func init() {

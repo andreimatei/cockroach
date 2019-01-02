@@ -195,6 +195,9 @@ func processProducerMessage(
 			}
 		case ConsumerClosed:
 			return processMessageResult{err: nil, consumerClosed: true}
+		case ConsumerBlocked:
+			// Only a head processor can receive this status.
+			log.Fatalf(ctx, "unexpected ConsumerBlocked status received by inbound stream")
 		}
 	}
 }

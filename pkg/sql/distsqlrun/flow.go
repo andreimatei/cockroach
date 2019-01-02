@@ -594,14 +594,34 @@ func (f *Flow) Start(ctx context.Context, doneFn func()) error {
 	return nil
 }
 
+// !!! comment
+type resumableProcessor interface {
+	Resume(ProcResumeToken) *ProcResumeToken
+}
+
+// !!! comment
+type FlowResumeToken struct {
+	headProcResTok ProcResumeToken
+	headProc       resumableProcessor
+}
+
+// !!!
+// var errFlowBlocked error = fmt.Errorf("flow blocked because consumer of head processor blocked")
+
 // Run runs the flow to completion. The last processor is run in the current
 // goroutine; others may run in different goroutines depending on how the flow
 // was configured.
 // f.Wait() is called internally, so the call blocks until all the flow's
 // goroutines are done.
 // The caller needs to call f.Cleanup().
-func (f *Flow) Run(ctx context.Context, doneFn func()) error {
-	defer f.Wait()
+// !!! comment
+func (f *Flow) Run(ctx context.Context, doneFn func()) (*FlowResumeToken, error) {
+	var willResume bool
+	defer func() {
+		if !willResume {
+			f.Wait()
+		}
+	}()
 
 	// We'll take care of the last processor in particular.
 	var headProc Processor
@@ -615,14 +635,36 @@ func (f *Flow) Run(ctx context.Context, doneFn func()) error {
 		if f.syncFlowConsumer != nil {
 			f.syncFlowConsumer.Push(nil /* row */, &ProducerMetadata{Err: err})
 			f.syncFlowConsumer.ProducerDone()
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	if headProc != nil {
-		headProc.Run(ctx)
+		procResTok := headProc.Run(ctx)
+		var flowResumeTok *FlowResumeToken
+		if procResTok != nil {
+			willResume = true
+			flowResumeTok = &FlowResumeToken{
+				headProcResTok: *procResTok,
+				// headProc surely is a resumableProcessor since it returned a resume
+				// token.
+				headProc: headProc.(resumableProcessor),
+			}
+		}
+		return flowResumeTok, nil
 	}
-	return nil
+	return nil, nil
+}
+
+func (f *Flow) Resume(tok FlowResumeToken) *FlowResumeToken {
+	if procResTok := tok.headProc.Resume(tok.headProcResTok); procResTok == nil {
+		return nil
+	} else {
+		return &FlowResumeToken{
+			headProcResTok: *procResTok,
+			headProc:       tok.headProc,
+		}
+	}
 }
 
 // Wait waits for all the goroutines for this flow to exit. If the context gets

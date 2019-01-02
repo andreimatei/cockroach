@@ -553,7 +553,7 @@ const (
 //
 // ClientComm is implemented by the pgwire connection.
 type ClientComm interface {
-	// createStatementResult creates a StatementResult for stmt.
+	// CreateStatementResult creates a StatementResult for stmt.
 	//
 	// descOpt specifies if result needs to inform the client about row schema. If
 	// it doesn't, a SetColumns call becomes a no-op.
@@ -620,7 +620,11 @@ type CommandResult interface {
 	// rows to be returned. We don't currently properly support this feature of
 	// the Postgres protocol; instead, we'll return an error if the number of rows
 	// produced is larger than this limit.
+	// !!! update comment
 	SetLimit(n int)
+
+	// !!! Comment
+	WillResume()
 }
 
 // CommandResultErrBase is the subset of CommandResult dealing with setting a
@@ -676,6 +680,8 @@ type CommandResultClose interface {
 	// never see any bytes pertaining to this result.
 	Discard()
 }
+
+var ErrPortalLimitReached error = fmt.Errorf("portal limit reached")
 
 // RestrictedCommandResult is a subset of CommandResult meant to make it clear
 // that its clients don't close the CommandResult.
@@ -899,6 +905,11 @@ func (r *bufferedCommandResult) SetLimit(limit int) {
 	if limit != 0 {
 		panic("unimplemented")
 	}
+}
+
+// WillResume is part of the CommandResult interface.
+func (r *bufferedCommandResult) WillResume() {
+	panic("unimplemented")
 }
 
 // Close is part of the CommandResult interface.

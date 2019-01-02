@@ -18,13 +18,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/cockroachdb/cockroach/pkg/server/telemetry"
 	"github.com/cockroachdb/cockroach/pkg/sql"
-	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgerror"
 	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgwirebase"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
 	"github.com/cockroachdb/cockroach/pkg/sql/sessiondata"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlbase"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/lib/pq/oid"
 )
 
@@ -81,6 +80,9 @@ type commandResult struct {
 	// oids is a map from result column index to its Oid, similar to formatCodes
 	// (except oids must always be set).
 	oids []oid.Oid
+
+	// !!! comment
+	willResume bool
 }
 
 func (c *conn) makeCommandResult(
@@ -123,26 +125,31 @@ func (r *commandResult) Close(t sql.TransactionStatusIndicator) {
 		return
 	}
 
-	if r.err == nil &&
-		r.limit != 0 &&
-		r.rowsAffected > r.limit &&
-		r.typ == commandComplete &&
-		r.stmtType == tree.Rows {
-
-		r.err = pgerror.UnimplementedWithIssueErrorf(4035,
-			"execute row count limits not supported: %d of %d",
-			r.limit, r.rowsAffected)
-		telemetry.RecordError(r.err)
-		r.conn.bufferErr(r.err)
-	}
+	// !!!
+	// if r.err == nil &&
+	//   r.limit != 0 &&
+	//   r.rowsAffected > r.limit &&
+	//   r.typ == commandComplete &&
+	//   r.stmtType == tree.Rows {
+	//
+	//   r.err = pgerror.UnimplementedWithIssueErrorf(4035,
+	//     "execute row count limits not supported: %d of %d",
+	//     r.limit, r.rowsAffected)
+	//   telemetry.RecordError(r.err)
+	//   r.conn.bufferErr(r.err)
+	// }
 
 	// Send a completion message, specific to the type of result.
 	switch r.typ {
 	case commandComplete:
-		tag := cookTag(
-			r.cmdCompleteTag, r.conn.writerState.tagBuf[:0], r.stmtType, r.rowsAffected,
-		)
-		r.conn.bufferCommandComplete(tag)
+		if !r.willResume {
+			tag := cookTag(
+				r.cmdCompleteTag, r.conn.writerState.tagBuf[:0], r.stmtType, r.rowsAffected,
+			)
+			r.conn.bufferCommandComplete(tag)
+		} else {
+			r.conn.bufferPortalSuspended()
+		}
 	case parseComplete:
 		r.conn.bufferParseComplete()
 	case bindComplete:
@@ -196,6 +203,7 @@ func (r *commandResult) SetError(err error) {
 
 // AddRow is part of the CommandResult interface.
 func (r *commandResult) AddRow(ctx context.Context, row tree.Datums) error {
+	log.Infof(ctx, "!!! AddRow: %s", row)
 	if r.err != nil {
 		panic(fmt.Sprintf("can't call AddRow after having set error: %s",
 			r.err))
@@ -211,7 +219,16 @@ func (r *commandResult) AddRow(ctx context.Context, row tree.Datums) error {
 
 	r.conn.bufferRow(ctx, row, r.formatCodes, r.conv, r.oids)
 	_ /* flushed */, err := r.conn.maybeFlush(r.pos)
-	return err
+
+	if err != nil {
+		return err
+	}
+
+	if r.limit != 0 && r.rowsAffected == r.limit {
+		r.limit = 0
+		return sql.ErrPortalLimitReached
+	}
+	return nil
 }
 
 // SetColumns is part of the CommandResult interface.
@@ -265,6 +282,11 @@ func (r *commandResult) RowsAffected() int {
 // SetLimit is part of the CommandResult interface.
 func (r *commandResult) SetLimit(n int) {
 	r.limit = n
+}
+
+// WillResume is part of the CommandResult interface.
+func (r *commandResult) WillResume() {
+	r.willResume = true
 }
 
 // ResetStmtType is part of the CommandResult interface.

@@ -68,7 +68,7 @@ func (*backfiller) OutputTypes() []sqlbase.ColumnType {
 }
 
 // Run is part of the Processor interface.
-func (b *backfiller) Run(ctx context.Context) {
+func (b *backfiller) Run(ctx context.Context) *ProcResumeToken {
 	opName := fmt.Sprintf("%sBackfiller", b.name)
 	ctx = logtags.AddTag(ctx, opName, int(b.spec.Table.ID))
 	ctx, span := processorSpan(ctx, opName)
@@ -76,9 +76,11 @@ func (b *backfiller) Run(ctx context.Context) {
 
 	if err := b.mainLoop(ctx); err != nil {
 		b.output.Push(nil /* row */, &ProducerMetadata{Err: err})
+		// !!! deal with ConsumerBlocked?
 	}
 	sendTraceData(ctx, b.output)
 	b.output.ProducerDone()
+	return nil
 }
 
 // mainLoop invokes runChunk on chunks of rows.

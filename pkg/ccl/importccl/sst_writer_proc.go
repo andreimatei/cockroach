@@ -88,7 +88,7 @@ func (sp *sstWriter) OutputTypes() []sqlbase.ColumnType {
 	return sstOutputTypes
 }
 
-func (sp *sstWriter) Run(ctx context.Context) {
+func (sp *sstWriter) Run(ctx context.Context) *distsqlrun.ProcResumeToken {
 	sp.input.Start(ctx)
 
 	ctx, span := tracing.ChildSpan(ctx, "sstWriter")
@@ -309,6 +309,7 @@ func (sp *sstWriter) Run(ctx context.Context) {
 	}()
 	distsqlrun.DrainAndClose(
 		ctx, sp.output, err, func(context.Context) {} /* pushTrailingMeta */, sp.input)
+	return nil // !!!
 }
 
 type sstContent struct {

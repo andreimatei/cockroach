@@ -4,9 +4,9 @@ package distsqlrun
 
 import "strconv"
 
-const _ConsumerStatus_name = "NeedMoreRowsDrainRequestedConsumerClosed"
+const _ConsumerStatus_name = "NeedMoreRowsDrainRequestedConsumerClosedConsumerBlocked"
 
-var _ConsumerStatus_index = [...]uint8{0, 12, 26, 40}
+var _ConsumerStatus_index = [...]uint8{0, 12, 26, 40, 55}
 
 func (i ConsumerStatus) String() string {
 	if i >= ConsumerStatus(len(_ConsumerStatus_index)-1) {
