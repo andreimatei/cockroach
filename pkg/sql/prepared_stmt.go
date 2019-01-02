@@ -122,6 +122,8 @@ type PreparedPortal struct {
 	refCount int
 
 	memAcc mon.BoundAccount
+	// !!! comment
+	resumeCtx *distSQLExecCtx
 }
 
 // newPreparedPortal creates a new PreparedPortal.

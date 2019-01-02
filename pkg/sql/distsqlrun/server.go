@@ -45,7 +45,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/cockroachdb/cockroach/pkg/util/tracing"
-	"github.com/opentracing/opentracing-go"
+	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
 )
 
@@ -532,7 +532,11 @@ func (ds *ServerImpl) RunSyncFlow(stream distsqlpb.DistSQL_RunSyncFlowServer) er
 		defer ctxCancel()
 		f.startables = append(f.startables, mbox)
 		ds.Metrics.FlowStart()
-		if err := f.Run(ctx, func() {}); err != nil {
+		resumeTok, err := f.Run(ctx, func() {} /* doneFn */)
+		if resumeTok != nil {
+			panic("!!! non-nil resumeTok in RPC")
+		}
+		if err != nil {
 			log.Fatalf(ctx, "unexpected error from syncFlow.Start(): %s "+
 				"The error should have gone to the consumer.", err)
 		}

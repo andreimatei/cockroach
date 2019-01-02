@@ -104,6 +104,29 @@ func (dsp *DistSQLPlanner) initRunners() {
 	}
 }
 
+type distSQLExecCtx struct {
+	flow      *distsqlrun.Flow
+	recv      *DistSQLReceiver
+	resumeTok distsqlrun.FlowResumeToken
+	// QueryStop needs to be called when the query is done.
+	metrics *distsqlrun.DistSQLMetrics // !!! call QueryStop
+	// req needs to be released to its pool.
+	req     *distsqlpb.SetupFlowRequest // !!! releae to pool
+	planCtx *PlanningCtx
+}
+
+func (ec *distSQLExecCtx) Close(ctx context.Context) {
+	// !!! before waiting I need to cancel the flow. There's a private cancelCtx()
+	// method.
+	ec.flow.Wait()
+	ec.metrics.QueryStop()
+	distsqlplan.ReleaseSetupFlowRequest(ec.req)
+	if ec.planCtx.planner != nil && !ec.planCtx.ignoreClose {
+		ec.planCtx.planner.curPlan.close(ctx)
+	}
+	ec.flow.Cleanup(ctx)
+}
+
 // Run executes a physical plan. The plan should have been finalized using
 // FinalizePlan.
 //
@@ -127,7 +150,8 @@ func (dsp *DistSQLPlanner) Run(
 	recv *DistSQLReceiver,
 	evalCtx *extendedEvalContext,
 	finishedSetupFn func(),
-) {
+) *distSQLExecCtx {
+	var willResume bool
 	ctx := planCtx.ctx
 
 	var (
@@ -148,7 +172,7 @@ func (dsp *DistSQLPlanner) Run(
 		if err != nil {
 			log.Infof(ctx, "%s: %s", clientRejectedMsg, err)
 			recv.SetError(err)
-			return
+			return nil
 		}
 		meta.StripRootToLeaf()
 		txnCoordMeta = &meta
@@ -156,7 +180,7 @@ func (dsp *DistSQLPlanner) Run(
 
 	if err := planCtx.sanityCheckAddresses(); err != nil {
 		recv.SetError(err)
-		return
+		return nil
 	}
 
 	flows := plan.GenerateFlowSpecs(dsp.nodeDesc.NodeID /* gateway */)
@@ -175,7 +199,11 @@ func (dsp *DistSQLPlanner) Run(
 	log.VEvent(ctx, 1, "running DistSQL plan")
 
 	dsp.distSQLSrv.ServerConfig.Metrics.QueryStart()
-	defer dsp.distSQLSrv.ServerConfig.Metrics.QueryStop()
+	defer func() {
+		if !willResume {
+			dsp.distSQLSrv.ServerConfig.Metrics.QueryStop()
+		}
+	}()
 
 	recv.outputTypes = plan.ResultTypes
 	recv.resultToStreamColMap = plan.PlanToStreamColMap
@@ -231,17 +259,21 @@ func (dsp *DistSQLPlanner) Run(
 	}
 	if firstErr != nil {
 		recv.SetError(firstErr)
-		return
+		return nil
 	}
 
 	// Set up the flow on this node.
 	localReq := setupReq
 	localReq.Flow = *flows[thisNodeID]
-	defer distsqlplan.ReleaseSetupFlowRequest(&localReq)
+	defer func() {
+		if !willResume {
+			distsqlplan.ReleaseSetupFlowRequest(&localReq)
+		}
+	}()
 	ctx, flow, err := dsp.distSQLSrv.SetupLocalSyncFlow(ctx, evalCtx.Mon, &localReq, recv, localState)
 	if err != nil {
 		recv.SetError(err)
-		return
+		return nil
 	}
 
 	if finishedSetupFn != nil {
@@ -249,10 +281,24 @@ func (dsp *DistSQLPlanner) Run(
 	}
 
 	// TODO(radu): this should go through the flow scheduler.
-	if err := flow.Run(ctx, func() {}); err != nil {
+	resumeTok, err := flow.Run(ctx, func() {})
+	if err != nil {
 		log.Fatalf(ctx, "unexpected error from syncFlow.Start(): %s "+
 			"The error should have gone to the consumer.", err)
 	}
+	if resumeTok != nil {
+		// The flow needs to be resumed later.
+		willResume = true
+		return &distSQLExecCtx{
+			flow:      flow,
+			recv:      recv,
+			resumeTok: *resumeTok,
+			metrics:   dsp.distSQLSrv.ServerConfig.Metrics,
+			req:       &localReq,
+			planCtx:   planCtx,
+		}
+	}
+	log.Infof(ctx, "!!! DistSQLPlanner.Run cleaning up")
 	// We need to close the planNode tree we translated into a DistSQL plan before
 	// flow.Cleanup, which closes memory accounts that expect to be emptied.
 	if planCtx.planner != nil && !planCtx.ignoreClose {
@@ -260,6 +306,25 @@ func (dsp *DistSQLPlanner) Run(
 		planCtx.planner.curPlan.close(ctx)
 	}
 	flow.Cleanup(ctx)
+	// !!! I can put the planner back in ex.planner and reset ex.plannerInvalid.
+	return nil
+}
+
+func (dsp *DistSQLPlanner) Resume(ctx context.Context, resCtx distSQLExecCtx) *distSQLExecCtx {
+	flowResTok := resCtx.flow.Resume(resCtx.resumeTok)
+	if flowResTok != nil {
+		resCtx.resumeTok = *flowResTok
+		return &resCtx
+	}
+
+	// !!! Extract the cleanup into a function and call it from Run() too.
+	// We need to close the planNode tree we translated into a DistSQL plan before
+	// flow.Cleanup, which closes memory accounts that expect to be emptied.
+	if resCtx.planCtx.planner != nil && !resCtx.planCtx.ignoreClose {
+		resCtx.planCtx.planner.curPlan.close(ctx)
+	}
+	resCtx.flow.Cleanup(ctx)
+	return nil
 }
 
 // errorPriority is used to rank errors such that the "best" one is chosen to be
@@ -274,15 +339,15 @@ const (
 )
 
 // DistSQLReceiver is a RowReceiver that writes results to a rowResultWriter.
-// This is where the DistSQL execution meets the SQL Session - the RowContainer
-// comes from a client Session.
+// This is where the DistSQL execution meets the SQL session - the
+// rowResultWriter comes from a ConnExecutor.
 //
-// DistSQLReceiver also update the RangeDescriptorCache and the LeaseholderCache
-// in response to DistSQL metadata about misplanned ranges.
+// DistSQLReceiver also updates the RangeDescriptorCache and the
+// LeaseholderCache in response to DistSQL metadata about misplanned ranges.
 type DistSQLReceiver struct {
 	ctx context.Context
 
-	// resultWriter is the interface which we send results to.
+	// resultWriter is the interface to which results are sent.
 	resultWriter rowResultWriter
 
 	stmtType tree.StatementType
@@ -570,6 +635,10 @@ func (r *DistSQLReceiver) Push(
 	r.tracing.TraceExecRowsResult(r.ctx, r.row)
 	// Note that AddRow accounts for the memory used by the Datums.
 	if commErr := r.resultWriter.AddRow(r.ctx, r.row); commErr != nil {
+		if commErr == ErrPortalLimitReached {
+			// !!! comment
+			return distsqlrun.ConsumerBlocked
+		}
 		r.commErr = commErr
 		// Set the error on the resultWriter too, for the convenience of some of the
 		// clients. If clients don't care to differentiate between communication
@@ -827,14 +896,14 @@ func (dsp *DistSQLPlanner) PlanAndRun(
 	txn *client.Txn,
 	plan planNode,
 	recv *DistSQLReceiver,
-) {
+) *distSQLExecCtx {
 	log.VEventf(ctx, 1, "creating DistSQL plan with isLocal=%v", planCtx.isLocal)
 
 	physPlan, err := dsp.createPlanForNode(planCtx, plan)
 	if err != nil {
 		recv.SetError(err)
-		return
+		return nil
 	}
 	dsp.FinalizePlan(planCtx, &physPlan)
-	dsp.Run(planCtx, txn, &physPlan, recv, evalCtx, nil /* finishedSetupFn */)
+	return dsp.Run(planCtx, txn, &physPlan, recv, evalCtx, nil /* finishedSetupFn */)
 }

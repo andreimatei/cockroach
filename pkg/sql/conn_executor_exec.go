@@ -66,7 +66,7 @@ var errSavepointNotUsed = pgerror.NewErrorf(
 // 	 then the statement cannot have any placeholder.
 func (ex *connExecutor) execStmt(
 	ctx context.Context, stmt Statement, res RestrictedCommandResult, pinfo *tree.PlaceholderInfo,
-) (fsm.Event, fsm.EventPayload, error) {
+) (fsm.Event, fsm.EventPayload, *distSQLExecCtx, error) {
 	if log.V(2) || logStatementsExecuteEnabled.Get(&ex.server.cfg.Settings.SV) ||
 		log.HasSpanOrEvent(ctx) {
 		log.VEventf(ctx, 2, "executing: %s in state: %s", stmt, ex.machine.CurState())
@@ -76,7 +76,7 @@ func (ex *connExecutor) execStmt(
 	// depend on the current transaction state.
 	if _, ok := stmt.AST.(tree.ObserverStatement); ok {
 		err := ex.runObserverStatement(ctx, stmt, res)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	queryID := ex.generateID()
@@ -87,6 +87,7 @@ func (ex *connExecutor) execStmt(
 	var payload fsm.EventPayload
 	var err error
 
+	var resumeTok *distSQLExecCtx
 	switch ex.machine.CurState().(type) {
 	case stateNoTxn:
 		ev, payload = ex.execStmtInNoTxnState(ctx, stmt)
@@ -100,7 +101,7 @@ func (ex *connExecutor) execStmt(
 				ev, payload, err = ex.execStmtInOpenState(ctx, stmt, pinfo, res)
 			})
 		} else {
-			ev, payload, err = ex.execStmtInOpenState(ctx, stmt, pinfo, res)
+			ev, payload, resumeTok, err = ex.execStmtInOpenState(ctx, stmt, pinfo, res)
 		}
 		switch ev.(type) {
 		case eventNonRetriableErr:
@@ -114,7 +115,7 @@ func (ex *connExecutor) execStmt(
 		panic(fmt.Sprintf("unexpected txn state: %#v", ex.machine.CurState()))
 	}
 
-	return ev, payload, err
+	return ev, payload, resumeTok, err
 }
 
 func (ex *connExecutor) recordFailure() {
@@ -136,7 +137,7 @@ func (ex *connExecutor) recordFailure() {
 // The returned event can be nil if no state transition is required.
 func (ex *connExecutor) execStmtInOpenState(
 	ctx context.Context, stmt Statement, pinfo *tree.PlaceholderInfo, res RestrictedCommandResult,
-) (retEv fsm.Event, retPayload fsm.EventPayload, retErr error) {
+) (retEv fsm.Event, retPayload fsm.EventPayload, _ *distSQLExecCtx, retErr error) {
 	ex.incrementStmtCounter(stmt)
 	os := ex.machine.CurState().(stateOpen)
 
@@ -144,6 +145,11 @@ func (ex *connExecutor) execStmtInOpenState(
 	queryTimedOut := false
 	doneAfterFunc := make(chan struct{}, 1)
 
+	// !!! deal with unregistering of blocked queries from the list of active
+	// queries. It should not happen until the query is truly finished. I should
+	// put something in the continuation token. Also need to figure out how the
+	// statement timeout is supposed to interact with them.
+	//
 	// Canceling a query cancels its transaction's context so we take a reference
 	// to the cancelation function here.
 	unregisterFn := ex.addActiveQuery(stmt.queryID, stmt.AST, ex.state.cancel)
@@ -213,9 +219,9 @@ func (ex *connExecutor) execStmtInOpenState(
 		}
 	}()
 
-	makeErrEvent := func(err error) (fsm.Event, fsm.EventPayload, error) {
+	makeErrEvent := func(err error) (fsm.Event, fsm.EventPayload, *distSQLExecCtx, error) {
 		ev, payload := ex.makeErrEvent(err, stmt.AST)
-		return ev, payload, nil
+		return ev, payload, nil, nil
 	}
 
 	// Check if the statement should be parallelized. If not, we may need to
@@ -235,7 +241,7 @@ func (ex *connExecutor) execStmtInOpenState(
 	case *tree.CommitTransaction:
 		// CommitTransaction is executed fully here; there's no plan for it.
 		ev, payload := ex.commitSQLTransaction(ctx, stmt.AST)
-		return ev, payload, nil
+		return ev, payload, nil, nil
 
 	case *tree.ReleaseSavepoint:
 		if err := ex.validateSavepointName(s.Savepoint); err != nil {
@@ -248,12 +254,12 @@ func (ex *connExecutor) execStmtInOpenState(
 		// ReleaseSavepoint is executed fully here; there's no plan for it.
 		ev, payload := ex.commitSQLTransaction(ctx, stmt.AST)
 		res.ResetStmtType((*tree.CommitTransaction)(nil))
-		return ev, payload, nil
+		return ev, payload, nil, nil
 
 	case *tree.RollbackTransaction:
 		// RollbackTransaction is executed fully here; there's no plan for it.
 		ev, payload := ex.rollbackSQLTransaction(ctx)
-		return ev, payload, nil
+		return ev, payload, nil, nil
 
 	case *tree.Savepoint:
 		// Ensure that the user isn't trying to run BEGIN; SAVEPOINT; SAVEPOINT;
@@ -280,7 +286,7 @@ func (ex *connExecutor) execStmtInOpenState(
 		ex.state.activeSavepointName = s.Name
 		// Note that Savepoint doesn't have a corresponding plan node.
 		// This here is all the execution there is.
-		return eventRetryIntentSet{}, nil /* payload */, nil
+		return eventRetryIntentSet{}, nil /* payload */, nil, nil
 
 	case *tree.RollbackToSavepoint:
 		if err := ex.validateSavepointName(s.Savepoint); err != nil {
@@ -292,7 +298,7 @@ func (ex *connExecutor) execStmtInOpenState(
 		ex.state.activeSavepointName = ""
 
 		res.ResetStmtType((*tree.Savepoint)(nil))
-		return eventTxnRestart{}, nil /* payload */, nil
+		return eventTxnRestart{}, nil /* payload */, nil, nil
 
 	case *tree.Prepare:
 		// This is handling the SQL statement "PREPARE". See execPrepare for
@@ -333,7 +339,7 @@ func (ex *connExecutor) execStmtInOpenState(
 		); err != nil {
 			return makeErrEvent(err)
 		}
-		return nil, nil, nil
+		return nil, nil, nil, nil
 
 	case *tree.Execute:
 		// Replace the `EXECUTE foo` statement with the prepared statement, and
@@ -427,6 +433,7 @@ func (ex *connExecutor) execStmtInOpenState(
 	// contexts.
 	p.cancelChecker = sqlbase.NewCancelChecker(ctx)
 
+	var resumeTok *distSQLExecCtx
 	if runInParallel {
 		stmt := p.stmt
 		cols, err := ex.execStmtInParallel(ctx, p, queryDone)
@@ -450,17 +457,29 @@ func (ex *connExecutor) execStmtInOpenState(
 	}
 
 	p.autoCommit = os.ImplicitTxn.Get() && !ex.server.cfg.TestingKnobs.DisableAutoCommit
-	if err := ex.dispatchToExecutionEngine(ctx, p, res); err != nil {
-		return nil, nil, err
+	resumeTok, err = ex.dispatchToExecutionEngine(ctx, p, res)
+	if resumeTok != nil {
+		if err != nil || res.Err() != nil {
+			log.Fatalf(ctx, "Both error and resume token received. "+
+				"Communication err: %v. Query error: %v.", err, res.Err())
+		}
+		if os.ImplicitTxn.Get() {
+			log.Fatalf(ctx, "resume token received in implicit txn")
+		}
 	}
-	if err := res.Err(); err != nil {
-		return makeErrEvent(err)
+	// !!! I close resumeTok if an error is generated below, but that seems
+	// fragile? Put it in a defer?
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
 	txn := ex.state.mu.txn
 	if !os.ImplicitTxn.Get() && txn.IsSerializablePushAndRefreshNotPossible() {
 		rc, canAutoRetry := ex.getRewindTxnCapability()
 		if canAutoRetry {
+			if resumeTok != nil {
+				resumeTok.Close(ctx)
+			}
 			ev := eventRetriableErr{
 				IsCommit:     fsm.FromBool(isCommit(stmt.AST)),
 				CanAutoRetry: fsm.FromBool(canAutoRetry),
@@ -476,11 +495,11 @@ func (ex *connExecutor) execStmtInOpenState(
 				),
 				rewCap: rc,
 			}
-			return ev, payload, nil
+			return ev, payload, nil, nil
 		}
 	}
 	// No event was generated.
-	return nil, nil, nil
+	return nil, nil, resumeTok, nil
 }
 
 // maybeSynchronizeParallelStmts check if the statement is parallelized or is
@@ -759,7 +778,8 @@ func (ex *connExecutor) execStmtInParallel(
 			planner.curPlan.flags.Set(planFlagDistSQLLocal)
 		}
 		ex.sessionTracing.TraceExecStart(ctx, "parallel")
-		err = ex.execWithDistSQLEngine(ctx, planner, stmt.AST.StatementType(), res, distributePlan)
+		// !!! deal with resume token here
+		_, err = ex.execWithDistSQLEngine(ctx, planner, stmt.AST.StatementType(), res, distributePlan)
 		ex.sessionTracing.TraceExecEnd(ctx, res.Err(), res.RowsAffected())
 		planner.statsCollector.PhaseTimes()[plannerEndExecStmt] = timeutil.Now()
 
@@ -830,7 +850,8 @@ func enhanceErrWithCorrelation(err error, isCorrelated bool) {
 // producing an appropriate state machine event.
 func (ex *connExecutor) dispatchToExecutionEngine(
 	ctx context.Context, planner *planner, res RestrictedCommandResult,
-) error {
+) (*distSQLExecCtx, error) {
+	var willResume bool
 	stmt := planner.stmt
 	ex.sessionTracing.TracePlanStart(ctx, stmt.AST.StatementTag())
 	planner.statsCollector.PhaseTimes()[plannerStartLogicalPlan] = timeutil.Now()
@@ -838,7 +859,11 @@ func (ex *connExecutor) dispatchToExecutionEngine(
 	err := ex.makeExecPlan(ctx, planner)
 	// We'll be closing the plan manually below after execution; this
 	// defer is a catch-all in case some other return path is taken.
-	defer planner.curPlan.close(ctx)
+	defer func() {
+		if !willResume {
+			planner.curPlan.close(ctx)
+		}
+	}()
 
 	// Ensure that the plan is collected just before closing.
 	if sampleLogicalPlans.Get(&ex.appStats.st.SV) {
@@ -853,7 +878,7 @@ func (ex *connExecutor) dispatchToExecutionEngine(
 	ex.sessionTracing.TracePlanEnd(ctx, err)
 	if err != nil {
 		res.SetError(err)
-		return nil
+		return nil, nil
 	}
 
 	var cols sqlbase.ResultColumns
@@ -862,7 +887,7 @@ func (ex *connExecutor) dispatchToExecutionEngine(
 	}
 	if err := ex.initStatementResult(ctx, res, stmt, cols); err != nil {
 		res.SetError(err)
-		return nil
+		return nil, nil
 	}
 
 	ex.sessionTracing.TracePlanCheckStart(ctx)
@@ -910,12 +935,14 @@ func (ex *connExecutor) dispatchToExecutionEngine(
 		planner.curPlan.flags.Set(planFlagDistSQLLocal)
 	}
 	ex.sessionTracing.TraceExecStart(ctx, "distributed")
-	err = ex.execWithDistSQLEngine(ctx, planner, stmt.AST.StatementType(), res, distributePlan)
+	resumeTok, err = ex.execWithDistSQLEngine(
+		ctx, planner, stmt.AST.StatementType(), res, distributePlan)
+	if err != nil && resumeTok != nil {
+		log.Fatal(ctx, "both resume token and err returned. err: %s", err)
+	}
+	willResume = resumeTok != nil
 	ex.sessionTracing.TraceExecEnd(ctx, res.Err(), res.RowsAffected())
 	planner.statsCollector.PhaseTimes()[plannerEndExecStmt] = timeutil.Now()
-
-	// Record the statement summary. This also closes the plan if the
-	// plan has not been closed earlier.
 	ex.recordStatementSummary(
 		ctx, planner,
 		ex.extraTxnState.autoRetryCounter, res.RowsAffected(), res.Err(),
@@ -924,7 +951,7 @@ func (ex *connExecutor) dispatchToExecutionEngine(
 		ex.server.cfg.TestingKnobs.AfterExecute(ctx, stmt.String(), res.Err())
 	}
 
-	return err
+	return resumeTok, err
 }
 
 // makeExecPlan creates an execution plan and populates planner.curPlan, using
@@ -1025,7 +1052,8 @@ func (ex *connExecutor) execWithDistSQLEngine(
 	stmtType tree.StatementType,
 	res RestrictedCommandResult,
 	distribute bool,
-) error {
+) (*distSQLExecCtx, error) {
+	var willResume bool
 	recv := MakeDistSQLReceiver(
 		ctx, res, stmtType,
 		ex.server.cfg.RangeDescriptorCache, ex.server.cfg.LeaseHolderCache,
@@ -1035,7 +1063,11 @@ func (ex *connExecutor) execWithDistSQLEngine(
 		},
 		&ex.sessionTracing,
 	)
-	defer recv.Release()
+	defer func() {
+		if !willResume {
+			recv.Release()
+		}
+	}()
 
 	evalCtx := planner.ExtendedEvalContext()
 	var planCtx *PlanningCtx
@@ -1059,15 +1091,28 @@ func (ex *connExecutor) execWithDistSQLEngine(
 		if !ex.server.cfg.DistSQLPlanner.PlanAndRunSubqueries(
 			ctx, planner, evalCtxFactory, planner.curPlan.subqueryPlans, recv, distribute,
 		) {
-			return recv.commErr
+			return nil, recv.commErr
 		}
 	}
 	recv.discardRows = planner.discardRows
 	// We pass in whether or not we wanted to distribute this plan, which tells
 	// the planner whether or not to plan remote table readers.
-	ex.server.cfg.DistSQLPlanner.PlanAndRun(
+	resumeCtx := ex.server.cfg.DistSQLPlanner.PlanAndRun(
 		ctx, evalCtx, planCtx, planner.txn, planner.curPlan.plan, recv)
-	return recv.commErr
+	if recv.commErr != nil {
+		if resumeCtx != nil {
+			log.Fatalf(ctx, "received both communication error and resume token. err: %s", recv.commErr)
+		}
+		return nil, recv.commErr
+	}
+	if resumeCtx != nil {
+		willResume = true
+		// If the query is going to resume the planner can't be reused.
+		// !!! explain
+		ex.plannerInvalid = true
+		return resumeCtx, nil
+	}
+	return nil, nil
 }
 
 // beginTransactionTimestampsAndReadMode computes the timestamps and

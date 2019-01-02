@@ -54,6 +54,7 @@ const (
 	ServerMsgParseComplete        ServerMessageType = '1'
 	ServerMsgReady                ServerMessageType = 'Z'
 	ServerMsgRowDescription       ServerMessageType = 'T'
+	ServerMsgPortalSuspended      ServerMessageType = 's'
 )
 
 // ServerErrFieldType represents the error fields.

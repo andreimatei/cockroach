@@ -28,7 +28,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
 	"github.com/cockroachdb/cockroach/pkg/util/tracing"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
-	"github.com/opentracing/opentracing-go"
+	opentracing "github.com/opentracing/opentracing-go"
 )
 
 const rowChannelBufSize = 16
@@ -51,6 +51,12 @@ const (
 	// rows or metadata. This is also commonly returned in case the consumer has
 	// encountered an error.
 	ConsumerClosed
+	// ConsumerBlocked indicates that the consumer is not accepting more data at
+	// this time. The consumer might, however, be interested in data at a later
+	// time. Upon receving this signal, a producer should unwind the stack and
+	// expect to be restarted later.
+	// !!! clarify comment and decide if metadata can still be pushed
+	ConsumerBlocked
 )
 
 // RowReceiver is any component of a flow that receives rows from another
@@ -163,14 +169,17 @@ type RowSource interface {
 // RowSourcedProcessor is the union of RowSource and Processor.
 type RowSourcedProcessor interface {
 	RowSource
-	Run(context.Context)
+	Run(context.Context) *ProcResumeToken
 }
 
 // Run reads records from the source and outputs them to the receiver, properly
 // draining the source of metadata and closing both the source and receiver.
 //
 // src needs to have been Start()ed before calling this.
-func Run(ctx context.Context, src RowSource, dst RowReceiver) {
+//
+// !!! Returns nil if finished, not nil if continuing async. If not nil, the
+// caller can wait on the WaitGroup.
+func Run(ctx context.Context, src RowSource, dst RowReceiver) bool {
 	for {
 		row, meta := src.Next()
 		// Emit the row; stop if no more rows are needed.
@@ -181,16 +190,20 @@ func Run(ctx context.Context, src RowSource, dst RowReceiver) {
 			case DrainRequested:
 				DrainAndForwardMetadata(ctx, src, dst)
 				dst.ProducerDone()
-				return
+				return true
 			case ConsumerClosed:
 				src.ConsumerClosed()
 				dst.ProducerDone()
-				return
+				return true
+			case ConsumerBlocked:
+				// !!! the row that we pushed was accepted by the receiver; it does not
+				// need to be sent again.
+				return false
 			}
 		}
 		// row == nil && meta == nil: the source has been fully drained.
 		dst.ProducerDone()
-		return
+		return true
 	}
 }
 
@@ -229,6 +242,9 @@ func DrainAndForwardMetadata(ctx context.Context, src RowSource, dst RowReceiver
 			return
 		case NeedMoreRows:
 		case DrainRequested:
+		case ConsumerBlocked:
+			// !!! panic?
+			log.Fatal(ctx, "!!! ConsumerBlocked by Drain")
 		}
 	}
 }

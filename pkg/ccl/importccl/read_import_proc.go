@@ -398,7 +398,7 @@ func isMultiTableFormat(format roachpb.IOFileFormat_FileFormat) bool {
 	return false
 }
 
-func (cp *readImportDataProcessor) Run(ctx context.Context) {
+func (cp *readImportDataProcessor) Run(ctx context.Context) *distsqlrun.ProcResumeToken {
 	ctx, span := tracing.ChildSpan(ctx, "readImportDataProcessor")
 	defer tracing.FinishSpan(span)
 
@@ -407,6 +407,7 @@ func (cp *readImportDataProcessor) Run(ctx context.Context) {
 	} else {
 		cp.out.Close()
 	}
+	return nil // !!!
 }
 
 // doRun uses a more familiar error return API, allowing concise early returns

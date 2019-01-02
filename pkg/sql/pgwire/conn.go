@@ -953,6 +953,13 @@ func (c *conn) bufferParseComplete() {
 	}
 }
 
+func (c *conn) bufferPortalSuspended() {
+	c.msgBuilder.initMsg(pgwirebase.ServerMsgPortalSuspended)
+	if err := c.msgBuilder.finishMsg(&c.writerState.buf); err != nil {
+		panic(fmt.Sprintf("unexpected err from buffer: %s", err))
+	}
+}
+
 func (c *conn) bufferBindComplete() {
 	c.msgBuilder.initMsg(pgwirebase.ServerMsgBindComplete)
 	if err := c.msgBuilder.finishMsg(&c.writerState.buf); err != nil {

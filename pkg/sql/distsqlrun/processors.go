@@ -17,6 +17,7 @@ package distsqlrun
 import (
 	"context"
 	"math"
+	"sync"
 	"sync/atomic"
 
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
@@ -27,7 +28,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/mon"
 	"github.com/cockroachdb/cockroach/pkg/util/tracing"
-	"github.com/opentracing/opentracing-go"
+	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/pkg/errors"
 )
 
@@ -39,7 +40,12 @@ type Processor interface {
 	OutputTypes() []sqlbase.ColumnType
 
 	// Run is the main loop of the processor.
-	Run(context.Context)
+	// !!! comment
+	Run(context.Context) *ProcResumeToken
+}
+
+type AsyncProcessor interface {
+	Run2(context.Context) *sync.WaitGroup
 }
 
 // ProcOutputHelper is a helper type that performs filtering and projection on
@@ -792,13 +798,30 @@ func (pb *ProcessorBase) OutputTypes() []sqlbase.ColumnType {
 	return pb.out.outputTypes
 }
 
+type ProcResumeToken struct {
+	ProcRunCtx context.Context
+}
+
 // Run is part of the processor interface.
-func (pb *ProcessorBase) Run(ctx context.Context) {
+func (pb *ProcessorBase) Run(ctx context.Context) *ProcResumeToken {
 	if pb.out.output == nil {
 		panic("processor output not initialized for emitting rows")
 	}
 	ctx = pb.self.Start(ctx)
-	Run(ctx, pb.self, pb.out.output)
+	return pb.runInternal(ctx)
+}
+
+func (pb *ProcessorBase) runInternal(ctx context.Context) *ProcResumeToken {
+	if Run(ctx, pb.self, pb.out.output) {
+		return nil
+	} else {
+		// The output blocked. The processor can be Resume()d.
+		return &ProcResumeToken{ProcRunCtx: ctx}
+	}
+}
+
+func (pb *ProcessorBase) Resume(tok ProcResumeToken) *ProcResumeToken {
+	return pb.runInternal(tok.ProcRunCtx)
 }
 
 // ProcStateOpts contains fields used by the ProcessorBase's family of functions

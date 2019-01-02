@@ -126,7 +126,7 @@ func (s *sampleAggregator) pushTrailingMeta(ctx context.Context) {
 }
 
 // Run is part of the Processor interface.
-func (s *sampleAggregator) Run(ctx context.Context) {
+func (s *sampleAggregator) Run(ctx context.Context) *ProcResumeToken {
 	s.input.Start(ctx)
 	s.StartInternal(ctx, sampleAggregatorProcName)
 	defer tracing.FinishSpan(s.span)
@@ -139,6 +139,7 @@ func (s *sampleAggregator) Run(ctx context.Context) {
 		s.input.ConsumerClosed()
 		s.out.Close()
 	}
+	return nil // !!! deal with ConsumerBlocked anywhere?
 }
 
 func (s *sampleAggregator) mainLoop(ctx context.Context) (earlyExit bool, err error) {
