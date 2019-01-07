@@ -1463,6 +1463,9 @@ func (s *Store) startGossip() {
 				retryOptions.Closer = s.stopper.ShouldStop()
 				myCtx := s.AnnotateCtx(ctx) // !!!
 				for r := retry.Start(retryOptions); r.Next(); {
+					if gossipFn.description == "system config" {
+						log.Infof(myCtx, "!!! attempting to gossip system config")
+					}
 					if repl := s.LookupReplica(roachpb.RKey(gossipFn.key)); repl != nil {
 						annotatedCtx := repl.AnnotateCtx(ctx)
 						if err := gossipFn.fn(annotatedCtx, repl); err != nil {
