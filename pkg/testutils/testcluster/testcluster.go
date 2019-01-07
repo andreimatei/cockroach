@@ -169,7 +169,7 @@ func StartTestCluster(t testing.TB, nodes int, args base.TestClusterArgs) *TestC
 
 	if tc.replicationMode == base.ReplicationAuto {
 		if err := tc.WaitForFullReplication(); err != nil {
-			log.Infof(context.TODO(), "!!! replication err: %v", err)
+			log.Infof(context.TODO(), "!!! replication err: %+v", err)
 			t.Fatal(err)
 		}
 	}
