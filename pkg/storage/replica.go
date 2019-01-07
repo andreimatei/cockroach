@@ -1391,6 +1391,9 @@ func (r *Replica) isLeaseValidRLocked(lease roachpb.Lease, ts hlc.Timestamp) boo
 func newNotLeaseHolderError(
 	l *roachpb.Lease, proposerStoreID roachpb.StoreID, rangeDesc *roachpb.RangeDescriptor,
 ) *roachpb.NotLeaseHolderError {
+	if l == nil {
+		log.Infof(context.TODO(), "!!! newNotLeaseHolderError. lease: %v (%s)", l, util.GetSmallTrace(3))
+	}
 	err := &roachpb.NotLeaseHolderError{
 		RangeID: rangeDesc.RangeID,
 	}
