@@ -1472,7 +1472,7 @@ func (s *Store) startGossip() {
 				}
 				if first {
 					first = false
-					if description == "system config" {
+					if gossipFn.description == "system config" {
 						log.Infof(ctx, "!!! signaling done gossipping system config")
 					}
 					s.initComplete.Done()
