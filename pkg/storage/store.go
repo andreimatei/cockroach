@@ -1461,6 +1461,7 @@ func (s *Store) startGossip() {
 				// case we want to retry quickly.
 				retryOptions := base.DefaultRetryOptions()
 				retryOptions.Closer = s.stopper.ShouldStop()
+				myCtx := s.AnnotateCtx(ctx) // !!!
 				for r := retry.Start(retryOptions); r.Next(); {
 					if repl := s.LookupReplica(roachpb.RKey(gossipFn.key)); repl != nil {
 						annotatedCtx := repl.AnnotateCtx(ctx)
@@ -1470,14 +1471,16 @@ func (s *Store) startGossip() {
 								continue
 							}
 						}
+						log.Infof(annotatedCtx, "!!! succeeded in gossipping: %s", gossipFn.description)
+					} else {
+						log.Infof(myCtx, "!!! giving up in gossipping on this node: %s", gossipFn.description)
 					}
-					log.Infof(ctx, "!!! succeeded in gossipping: %s", gossipFn.description)
 					break
 				}
 				if first {
 					first = false
 					if gossipFn.description == "system config" {
-						log.Infof(ctx, "!!! signaling done gossipping system config")
+						log.Infof(myCtx, "!!! signaling done gossipping system config")
 					}
 					s.initComplete.Done()
 				}
