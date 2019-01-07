@@ -36,6 +36,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/testutils/sqlutils"
 	"github.com/cockroachdb/cockroach/pkg/testutils/testcluster"
 	"github.com/cockroachdb/cockroach/pkg/util/leaktest"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
 )
 
@@ -233,6 +234,7 @@ func TestRemoveDeadReplicas(t *testing.T) {
 		}
 	}()
 
+	log.Infof(ctx, "test restarting cluster")
 	// Now that the data is salvaged, we can restart the cluster. The
 	// nodes with the in-memory stores will be assigned new node IDs 4
 	// and 5. StartTestCluster will even wait for all the ranges to be
