@@ -193,6 +193,7 @@ func TestRemoveDeadReplicas(t *testing.T) {
 		// We deliberately do not close this transaction so the intent is
 		// left behind.
 	}()
+	log.Infof(ctx, "test stopped cluster")
 
 	// Open the store directly to repair it.
 	func() {
