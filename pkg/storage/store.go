@@ -1404,6 +1404,9 @@ func (s *Store) startGossip() {
 		// Acquire the range lease, which in turn triggers system data gossip
 		// functions (e.g. MaybeGossipSystemConfig or MaybeGossipNodeLiveness).
 		_, pErr := repl.getLeaseForGossip(ctx)
+		if pErr == nil {
+			log.Infof(ctx, "!!! wakeReplica managed to get lease for range: %s", repl)
+		}
 		return pErr.GoError()
 	}
 
@@ -1468,7 +1471,7 @@ func (s *Store) startGossip() {
 							}
 						}
 					}
-					log.Infof(ctx, "succeeded in gossipping: %s", gossipFn.description)
+					log.Infof(ctx, "!!! succeeded in gossipping: %s", gossipFn.description)
 					break
 				}
 				if first {
