@@ -1468,6 +1468,7 @@ func (s *Store) startGossip() {
 							}
 						}
 					}
+					log.Infof(ctx, "succeeded in gossipping: %s", gossipFn.description)
 					break
 				}
 				if first {
