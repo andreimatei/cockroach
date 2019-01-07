@@ -1164,7 +1164,7 @@ func (g *Gossip) RegisterSystemConfigChannel() <-chan struct{} {
 // system config, and if successful, send on each system config
 // channel.
 func (g *Gossip) updateSystemConfig(key string, content roachpb.Value) {
-	log.Infof(ctx, "!!! gossip received system config")
+	log.Infof(context.TODO(), "!!! gossip received system config")
 	debug.PrintStack()
 	ctx := g.AnnotateCtx(context.TODO())
 	if key != KeySystemConfig {
