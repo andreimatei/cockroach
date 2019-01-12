@@ -1043,6 +1043,105 @@ func (s *Server) startPersistingHLCUpperBound(
 	)
 }
 
+// cfg is going to be updated with the ports on which we're listening.
+func StartServingRPCs(cfg *Config, clock *hlc.Clock, stopper *stop.Stopper) (
+	*grpcServer, *rpc.Context, *gossip.Gossip, *metric.Registry,
+) {
+	rpcContext := rpc.NewContext(cfg.AmbientCtx, cfg.Config, clock, stopper,
+		&cfg.Settings.Version)
+	rpcContext.HeartbeatCB = func() {
+		if err := rpcContext.RemoteClocks.VerifyClockOffset(ctx); err != nil {
+			log.Fatal(ctx, err)
+		}
+	}
+	grpc := newGRPCServer(rpcContext)
+
+	// Create and start the Gossip.
+	registry := metric.NewRegistry()
+	gossip := gossip.New(
+		cfg.AmbientCtx,
+		&rpcContext.ClusterID,
+		&nodeIDContainer,
+		rpcContext,
+		grpc.Server,
+		stopper,
+		registry,
+		cfg.Locality,
+	)
+	advAddrU := util.NewUnresolvedAddr("tcp", s.cfg.AdvertiseAddr)
+	filtered := cfg.FilterGossipBootstrapResolvers(ctx, listenAddrU, advAddrU)
+	gossip.Start(advAddrU, filtered)
+
+	// Start listening for RPCs and register the init service.
+
+	// The following code is a specialization of util/net.go's ListenAndServe
+	// which adds pgwire support. A single port is used to serve all protocols
+	// (pg, http, h2) via the following construction:
+	//
+	// non-TLS case:
+	// net.Listen -> cmux.New
+	//               |
+	//               -  -> pgwire.Match -> pgwire.Server.ServeConn
+	//               -  -> cmux.Any -> grpc.(*Server).Serve
+	//
+	// TLS case:
+	// net.Listen -> cmux.New
+	//               |
+	//               -  -> pgwire.Match -> pgwire.Server.ServeConn
+	//               -  -> cmux.Any -> grpc.(*Server).Serve
+	//
+	// Note that the difference between the TLS and non-TLS cases exists due to
+	// Go's lack of an h2c (HTTP2 Clear Text) implementation. See inline comments
+	// in util.ListenAndServe for an explanation of how h2c is implemented there
+	// and here.
+
+	ln, err := net.Listen("tcp", cfg.Addr)
+	if err != nil {
+		return ListenError{error: err, Addr: cfg.Addr}
+	}
+	if err := base.UpdateAddrs(ctx, &cfg.Addr, &cfg.AdvertiseAddr, ln.Addr()); err != nil {
+		return errors.Wrapf(err, "internal error: cannot parse listen address")
+	}
+	log.Eventf(ctx, "listening on port %s", cfg.Addr)
+
+	// !!! do something about this Once
+	// The cmux matches don't shut down properly unless serve is called on the
+	// cmux at some point. Use serveOnMux to ensure it's called during shutdown
+	// if we wouldn't otherwise reach the point where we start serving on it.
+	var serveOnMux sync.Once
+	m := cmux.New(ln)
+
+	pgL := m.Match(func(r io.Reader) bool {
+		return pgwire.Match(r)
+	})
+
+	httpLn, err := net.Listen("tcp", cfg.HTTPAddr)
+	if err != nil {
+		return ListenError{
+			error: err,
+			Addr:  cfg.HTTPAddr,
+		}
+	}
+	if err := base.UpdateAddrs(ctx, &cfg.HTTPAddr, &cfg.HTTPAdvertiseAddr, httpLn.Addr()); err != nil {
+		return errors.Wrapf(err, "internal error: cannot parse http listen address")
+	}
+	// Check the compatibility between the configured addresses and that
+	// provided in certificates. This also logs the certificate
+	// addresses in all cases to aid troubleshooting.
+	// This must be called after both calls to UpdateAddrs() above.
+	cfg.CheckCertificateAddrs(ctx)
+
+	s.initServer = newInitServer(gossip.Connected, stopper.ShouldStop())
+	serverpb.RegisterInitServer(grpc.Server, initServer)
+	// !!! the problem is that I have to register all the services before calling
+	// grpc.Server().
+
+	anyL := m.Match(cmux.Any())
+	stopper.RunWorker(workersCtx, func(context.Context) {
+		netutil.FatalIfUnexpected(grpc.Serve(anyL))
+	})
+}
+
 // Start starts the server on the specified port, starts gossip and initializes
 // the node using the engines from the server's context. This is complex since
 // it sets up the listeners and the associated port muxing, but especially since
