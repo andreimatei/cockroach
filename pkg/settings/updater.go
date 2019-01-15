@@ -75,7 +75,7 @@ func NewUpdater(sv *Values) Updater {
 }
 
 // Set attempts to parse and update a setting and notes that it was updated.
-func (u updater) Set(key, rawValue string, vt string) error {
+func (u updater) Set(key, rawValue string, valType string) error {
 	d, ok := Registry[key]
 	if !ok {
 		if _, ok := retiredSettings[key]; ok {
@@ -87,8 +87,8 @@ func (u updater) Set(key, rawValue string, vt string) error {
 
 	u.m[key] = struct{}{}
 
-	if expected := d.Typ(); vt != expected {
-		return errors.Errorf("setting '%s' defined as type %s, not %s", key, expected, vt)
+	if expected := d.Typ(); valType != expected {
+		return errors.Errorf("setting '%s' defined as type %s, not %s", key, expected, valType)
 	}
 
 	switch setting := d.(type) {
