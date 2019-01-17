@@ -71,6 +71,10 @@ func (v Version) String() string {
 	if v.Unstable == 0 {
 		return fmt.Sprintf("%d.%d", v.Major, v.Minor)
 	}
+	// We started using negative unstables during the 2.2 cycle.
+	if v.Unstable < 0 {
+		return fmt.Sprintf("%d.%d%d", v.Major, v.Minor, v.Unstable)
+	}
 	return fmt.Sprintf("%d.%d-%d", v.Major, v.Minor, v.Unstable)
 }
 
@@ -104,7 +108,8 @@ func ParseVersion(s string) (Version, error) {
 
 	c.Major = int32(ints[0])
 	c.Minor = int32(ints[1])
-	c.Unstable = int32(ints[2])
+	// Unstables are always negative.
+	c.Unstable = -int32(ints[2])
 
 	return c, nil
 }

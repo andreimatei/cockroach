@@ -132,10 +132,10 @@ func setupMixedCluster(
 }
 
 // Prev returns the previous version of the given version.
-// eg. prev(2.0) = 1.0, prev(2.1) == 2.0, prev(2.1-5) == 2.1.
+// eg. prev(2.0) = 1.0, prev(2.1) == 2.0, prev(2.2-5) == 2.1.
 func prev(version roachpb.Version) roachpb.Version {
 	if version.Unstable != 0 {
-		return roachpb.Version{Major: version.Major, Minor: version.Minor}
+		return roachpb.Version{Major: version.Major, Minor: version.Minor - 1}
 	} else if version.Minor != 0 {
 		return roachpb.Version{Major: version.Major}
 	} else {

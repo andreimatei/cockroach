@@ -26,6 +26,16 @@ type VersionKey int
 //   - Add it at the end of the `Versions` block below.
 //   - For major or minor versions, bump BinaryMinimumSupportedVersion. For
 //     example, if introducing the `1.4` release, bump it from `1.2` to `1.3`.
+//   - Unstable versions (i.e. those introduced during a development cycle, not
+//     those marking released versions) have the unstable component as a
+//     negative number (e.g. {Major:2 Minor:2 Unstable:-999}). The numbers in
+//     the Unstable component increase one by one, but start from -1000. At the
+//     beginning of a development cycle we introduce the first unstable version
+//     for the next major.minor to be released - for example, when we release
+//     2.2 we create Version2_2 and we also create Version2_3_development_start
+//     {Major:2 Minor:3 Unstable:-1000}. From now on, all 2.3 alphas will be
+//     released with versions higher than any 2.2 version, and they'll also be
+//     incompatible with any 2.1 cluster.
 //
 // To delete a version.
 //   - Remove its associated runtime checks.
@@ -73,6 +83,7 @@ const (
 	VersionLoadSplits
 	VersionExportStorageWorkload
 	VersionLazyTxnRecord
+	Version2_2_development_start
 
 	// Add new versions here (step one of two).
 
@@ -311,6 +322,14 @@ var versionsSingleton = keyedVersions([]keyedVersion{
 		Key:     VersionLazyTxnRecord,
 		Version: roachpb.Version{Major: 2, Minor: 1, Unstable: 4},
 	},
+	{
+		// Version2_2_development_start is the first 2.2 version. All
+		// the unstable 2.1 versions were also part of the 2.2 developement cycle,
+		// but we only introduced negative unstables in the middle of this cycle.
+		// From this moment on there will not be positive unstables ever again.
+		Key:     Version2_2_development_start,
+		Version: roachpb.Version{Major: 2, Minor: 2, Unstable: -1000},
+	},
 
 	// Add new versions here (step two of two).
 
@@ -321,7 +340,7 @@ var (
 	// this binary. If this binary is started using a store marked with an older
 	// version than BinaryMinimumSupportedVersion, then the binary will exit with
 	// an error.
-	BinaryMinimumSupportedVersion = VersionByKey(Version2_0)
+	BinaryMinimumSupportedVersion = VersionByKey(Version2_1)
 
 	// BinaryServerVersion is the version of this binary.
 	//
