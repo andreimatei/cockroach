@@ -17,7 +17,6 @@ package distsqlrun
 import (
 	"context"
 	"math"
-	"sync"
 	"sync/atomic"
 
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
@@ -34,18 +33,32 @@ import (
 
 // Processor is a common interface implemented by all processors, used by the
 // higher-level flow orchestration code.
+//
+// Also see resumableProcessor, which also needs to be implemented by top-level
+// processors that might run inside portals.
 type Processor interface {
 	// OutputTypes returns the column types of the results (that are to be fed
 	// through an output router).
 	OutputTypes() []sqlbase.ColumnType
 
 	// Run is the main loop of the processor.
-	// !!! comment
+	//
+	// Returns nil if the processor ran to completion. Returns a resume token if
+	// the processor was blocked by its (single) consumer. See the ConsumerBlocked
+	// status code for more info. The token can be passed to Resume()
+	// subsequently.
+	//
+	// If a resume token is returned, the processor needs to implement the
+	// resumableProcessor interface.
 	Run(context.Context) *ProcResumeToken
 }
 
-type AsyncProcessor interface {
-	Run2(context.Context) *sync.WaitGroup
+// resumableProcessor is implemented by processors that support suspension and
+// resumption.
+type resumableProcessor interface {
+	// resume resumes the processor. Similarly to Run(), a non-nil token is
+	// returned if the processor has been blocked by its consumer again.
+	resume(ProcResumeToken) *ProcResumeToken
 }
 
 // ProcOutputHelper is a helper type that performs filtering and projection on
@@ -525,9 +538,9 @@ type ProcessorBase struct {
 	// has been closed.
 	closed bool
 
-	// Ctx and span contain the tracing state while the processor is active
-	// (i.e. hasn't been closed). Initialized using flowCtx.Ctx (which should not be otherwise
-	// used).
+	// Ctx and span contain the tracing state while the processor is active (i.e.
+	// hasn't been closed). Initialized using flowCtx.Ctx (which should not be
+	// otherwise used).
 	Ctx  context.Context
 	span opentracing.Span
 	// origCtx is the context from which ctx was derived. InternalClose() resets
@@ -798,8 +811,18 @@ func (pb *ProcessorBase) OutputTypes() []sqlbase.ColumnType {
 	return pb.out.outputTypes
 }
 
+// ProcResumeToken contains the information needed to Resume() a processor.
 type ProcResumeToken struct {
-	ProcRunCtx context.Context
+	// procRunCtx is the context to be used by Resume. This is the context that
+	// has been prepared by the processor in its original Run() call. We do not
+	// allow the client to pass a different context to Resume() because processors
+	// generally capture their original context and create spans that they expect
+	// to use throughout their lives.
+	// Note that switching that simply switching to a new context and a new span
+	// on the Resume()d processor doesn't seem like a great idea. Other upstream
+	// processors have already created their spans and there's no mechanism to
+	// change those.
+	procRunCtx context.Context
 }
 
 // Run is part of the processor interface.
@@ -812,16 +835,17 @@ func (pb *ProcessorBase) Run(ctx context.Context) *ProcResumeToken {
 }
 
 func (pb *ProcessorBase) runInternal(ctx context.Context) *ProcResumeToken {
-	if Run(ctx, pb.self, pb.out.output) {
+	if Run(ctx, pb.self, pb.out.output) == Finished {
 		return nil
 	} else {
 		// The output blocked. The processor can be Resume()d.
-		return &ProcResumeToken{ProcRunCtx: ctx}
+		return &ProcResumeToken{procRunCtx: pb.Ctx}
 	}
 }
 
-func (pb *ProcessorBase) Resume(tok ProcResumeToken) *ProcResumeToken {
-	return pb.runInternal(tok.ProcRunCtx)
+// resume implements the resumableProcessor interface.
+func (pb *ProcessorBase) resume(tok ProcResumeToken) *ProcResumeToken {
+	return pb.runInternal(tok.procRunCtx)
 }
 
 // ProcStateOpts contains fields used by the ProcessorBase's family of functions

@@ -64,6 +64,10 @@ type commandResult struct {
 	// If set, an error will be sent to the client if more rows are produced than
 	// this limit.
 	limit int
+	// limitReached is set if AddRow() has been called `limit` times and
+	// ErrPortalLimitReached has been returned for the last one of the calls.
+	// Futher AddRow() calls are not allowed.
+	limitReached bool
 
 	stmtType     tree.StatementType
 	descOpt      sql.RowDescOpt
@@ -80,9 +84,6 @@ type commandResult struct {
 	// oids is a map from result column index to its Oid, similar to formatCodes
 	// (except oids must always be set).
 	oids []oid.Oid
-
-	// !!! comment
-	willResume bool
 }
 
 func (c *conn) makeCommandResult(
@@ -142,7 +143,7 @@ func (r *commandResult) Close(t sql.TransactionStatusIndicator) {
 	// Send a completion message, specific to the type of result.
 	switch r.typ {
 	case commandComplete:
-		if !r.willResume {
+		if !r.limitReached {
 			tag := cookTag(
 				r.cmdCompleteTag, r.conn.writerState.tagBuf[:0], r.stmtType, r.rowsAffected,
 			)
@@ -208,6 +209,9 @@ func (r *commandResult) AddRow(ctx context.Context, row tree.Datums) error {
 		panic(fmt.Sprintf("can't call AddRow after having set error: %s",
 			r.err))
 	}
+	if r.limitReached {
+		panic("cannot AddRow after portal limit is reached")
+	}
 	r.conn.writerState.fi.registerCmd(r.pos)
 	if err := r.conn.GetErr(); err != nil {
 		return err
@@ -225,7 +229,8 @@ func (r *commandResult) AddRow(ctx context.Context, row tree.Datums) error {
 	}
 
 	if r.limit != 0 && r.rowsAffected == r.limit {
-		r.limit = 0
+		// !!! r.limit = 0
+		r.limitReached = true
 		return sql.ErrPortalLimitReached
 	}
 	return nil
@@ -284,10 +289,11 @@ func (r *commandResult) SetLimit(n int) {
 	r.limit = n
 }
 
-// WillResume is part of the CommandResult interface.
-func (r *commandResult) WillResume() {
-	r.willResume = true
-}
+// !!!
+// // WillResume is part of the CommandResult interface.
+// func (r *commandResult) WillResume() {
+//   r.willResume = true
+// }
 
 // ResetStmtType is part of the CommandResult interface.
 func (r *commandResult) ResetStmtType(stmt tree.Statement) {

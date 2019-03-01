@@ -55,7 +55,15 @@ const (
 	// this time. The consumer might, however, be interested in data at a later
 	// time. Upon receving this signal, a producer should unwind the stack and
 	// expect to be restarted later.
-	// !!! clarify comment and decide if metadata can still be pushed
+	//
+	// Only the DistSQLReceiver returns this status, and so not everybody is
+	// required to be prepared to support it. Only processors with a single
+	// consumer that can run inside portals have to support it.
+	//
+	// This status can only be returned for rows, not for metadata (since blocking
+	// ultimately comes from a CommandResult.AddRow() call). The row that
+	// generated this status has been passed on to the consumer (in other words,
+	// the producer doesn't need to pass it again when it is resumed).
 	ConsumerBlocked
 )
 
@@ -172,14 +180,22 @@ type RowSourcedProcessor interface {
 	Run(context.Context) *ProcResumeToken
 }
 
+type RunResult bool
+
+const (
+	Blocked  RunResult = false
+	Finished RunResult = true
+)
+
 // Run reads records from the source and outputs them to the receiver, properly
 // draining the source of metadata and closing both the source and receiver.
 //
 // src needs to have been Start()ed before calling this.
 //
-// !!! Returns nil if finished, not nil if continuing async. If not nil, the
-// caller can wait on the WaitGroup.
-func Run(ctx context.Context, src RowSource, dst RowReceiver) bool {
+// Returns Blocked if if/when dst returns the ConsumerBlocked status, or
+// Finished otherwise. If Finished is returned, Run() can be called again later
+// when the consumer is no longer blocked.
+func Run(ctx context.Context, src RowSource, dst RowReceiver) RunResult {
 	for {
 		row, meta := src.Next()
 		// Emit the row; stop if no more rows are needed.
@@ -190,20 +206,20 @@ func Run(ctx context.Context, src RowSource, dst RowReceiver) bool {
 			case DrainRequested:
 				DrainAndForwardMetadata(ctx, src, dst)
 				dst.ProducerDone()
-				return true
+				return Finished
 			case ConsumerClosed:
 				src.ConsumerClosed()
 				dst.ProducerDone()
-				return true
+				return Finished
 			case ConsumerBlocked:
 				// !!! the row that we pushed was accepted by the receiver; it does not
 				// need to be sent again.
-				return false
+				return Blocked
 			}
 		}
 		// row == nil && meta == nil: the source has been fully drained.
 		dst.ProducerDone()
-		return true
+		return Finished
 	}
 }
 

@@ -104,6 +104,7 @@ func (dsp *DistSQLPlanner) initRunners() {
 	}
 }
 
+// distSQLExecCtx represents !!!
 type distSQLExecCtx struct {
 	flow      *distsqlrun.Flow
 	recv      *DistSQLReceiver
@@ -281,7 +282,7 @@ func (dsp *DistSQLPlanner) Run(
 	}
 
 	// TODO(radu): this should go through the flow scheduler.
-	resumeTok, err := flow.Run(ctx, func() {})
+	resumeTok, err := flow.Run(ctx, func() {} /* donefn */)
 	if err != nil {
 		log.Fatalf(ctx, "unexpected error from syncFlow.Start(): %s "+
 			"The error should have gone to the consumer.", err)
@@ -310,6 +311,7 @@ func (dsp *DistSQLPlanner) Run(
 	return nil
 }
 
+// !!! comment
 func (dsp *DistSQLPlanner) Resume(ctx context.Context, resCtx distSQLExecCtx) *distSQLExecCtx {
 	flowResTok := resCtx.flow.Resume(resCtx.resumeTok)
 	if flowResTok != nil {
@@ -415,7 +417,7 @@ type errWrap struct {
 // rowResultWriter is a subset of CommandResult to be used with the
 // DistSQLReceiver. It's implemented by RowResultWriter.
 type rowResultWriter interface {
-	// AddRow writes a result row.
+	// AddRow is part of the CommandResult interface.
 	// Note that the caller owns the row slice and might reuse it.
 	AddRow(ctx context.Context, row tree.Datums) error
 	IncrementRowsAffected(n int)

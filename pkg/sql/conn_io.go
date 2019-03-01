@@ -617,14 +617,12 @@ type CommandResult interface {
 	CommandResultClose
 
 	// SetLimit is used when executing a portal to set a limit on the number of
-	// rows to be returned. We don't currently properly support this feature of
-	// the Postgres protocol; instead, we'll return an error if the number of rows
-	// produced is larger than this limit.
-	// !!! update comment
+	// rows to be returned. The AddRow() call that causes this limit to be reached
+	// returns ErrPortalLimitReached.
 	SetLimit(n int)
 
-	// !!! Comment
-	WillResume()
+	// // !!! Comment
+	// WillResume()
 }
 
 // CommandResultErrBase is the subset of CommandResult dealing with setting a
@@ -681,6 +679,7 @@ type CommandResultClose interface {
 	Discard()
 }
 
+// !!! comment
 var ErrPortalLimitReached error = fmt.Errorf("portal limit reached")
 
 // RestrictedCommandResult is a subset of CommandResult meant to make it clear
@@ -703,6 +702,16 @@ type RestrictedCommandResult interface {
 	//
 	// The implementation cannot hold on to the row slice; it needs to make a
 	// shallow copy if it needs to.
+	//
+	// ErrPortalLimitReached is returned if this row causes a portal's limit to be
+	// satisfied. The caller should not continue pushing more rows; the
+	// expectation is that it shold unwind the stack and expect to be resumed
+	// later.
+	//
+	// Other errors are to be considered communication errors; if this
+	// CommandResult is connected to a client connection, the connection cannot be
+	// used any more.
+	// After all errors, this CommandResult cannot be used any more.
 	AddRow(ctx context.Context, row tree.Datums) error
 
 	// IncrementRowsAffected increments a counter by n. This is used for all
@@ -907,10 +916,11 @@ func (r *bufferedCommandResult) SetLimit(limit int) {
 	}
 }
 
-// WillResume is part of the CommandResult interface.
-func (r *bufferedCommandResult) WillResume() {
-	panic("unimplemented")
-}
+// !!!
+// // WillResume is part of the CommandResult interface.
+// func (r *bufferedCommandResult) WillResume() {
+//   panic("unimplemented")
+// }
 
 // Close is part of the CommandResult interface.
 func (r *bufferedCommandResult) Close(TransactionStatusIndicator) {

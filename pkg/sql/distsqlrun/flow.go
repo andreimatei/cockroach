@@ -595,11 +595,6 @@ func (f *Flow) Start(ctx context.Context, doneFn func()) error {
 }
 
 // !!! comment
-type resumableProcessor interface {
-	Resume(ProcResumeToken) *ProcResumeToken
-}
-
-// !!! comment
 type FlowResumeToken struct {
 	headProcResTok ProcResumeToken
 	headProc       resumableProcessor
@@ -656,8 +651,9 @@ func (f *Flow) Run(ctx context.Context, doneFn func()) (*FlowResumeToken, error)
 	return nil, nil
 }
 
+// !!! comment
 func (f *Flow) Resume(tok FlowResumeToken) *FlowResumeToken {
-	if procResTok := tok.headProc.Resume(tok.headProcResTok); procResTok == nil {
+	if procResTok := tok.headProc.resume(tok.headProcResTok); procResTok == nil {
 		return nil
 	} else {
 		return &FlowResumeToken{

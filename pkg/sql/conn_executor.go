@@ -1152,8 +1152,6 @@ func (ex *connExecutor) run(
 		if log.ExpensiveLogEnabled(ex.Ctx(), 2) || ex.eventLog != nil {
 			ex.sessionEventf(ex.Ctx(), "[%s pos:%d] executing %s",
 				ex.machine.CurState(), pos, cmd)
-			log.Infof(ex.Ctx(), "[%s pos:%d] !!! executing %s. namespace: %s",
-				ex.machine.CurState(), pos, cmd, ex.prepStmtsNamespace)
 		}
 
 		var ev fsm.Event
@@ -1244,20 +1242,22 @@ func (ex *connExecutor) run(
 			ctx := withStatement(ex.Ctx(), ex.curStmt)
 
 			if resCtx := portal.resumeCtx; resCtx != nil {
-				log.Infof(ctx, "!!! resuming portal: %s", portal.Stmt.Str)
+				log.Infof(ctx, "!!! resuming portal: %s", portal.Stmt.SQL)
 				// Switch the row receiver on the DistSQLReceiver.
 				resCtx.recv.resultWriter = stmtRes
 				// Resume the portal.
 				resCtx = ex.server.cfg.DistSQLPlanner.Resume(ctx, *resCtx)
 				// !!! flowResTok := resCtx.flow.Resume(resCtx.resumeTok)
 				portal.resumeCtx = resCtx
-				if resCtx != nil {
-					stmtRes.WillResume()
-				}
+				// !!!
+				// if resCtx != nil {
+				//   stmtRes.WillResume()
+				// }
+
 				// generate a no-op event and payload
 				// !!!
 			} else {
-				log.Infof(ctx, "!!! starting portal: %s", portal.Stmt.Str)
+				log.Infof(ctx, "!!! starting portal: %s", portal.Stmt.SQL)
 				var resumeTok *distSQLExecCtx
 				ev, payload, resumeTok, err = ex.execStmt(ctx, curStmt, stmtRes, pinfo)
 				if err != nil {
@@ -1267,7 +1267,7 @@ func (ex *connExecutor) run(
 				if resumeTok != nil {
 					// Save the portal state so that it can be resumed.
 					portal.resumeCtx = resumeTok
-					stmtRes.WillResume()
+					// !!! stmtRes.WillResume()
 				}
 			}
 		case PrepareStmt:
