@@ -147,6 +147,7 @@ func (ex *connExecutor) execStmtInOpenState(
 	// Canceling a query cancels its transaction's context so we take a reference
 	// to the cancelation function here.
 	unregisterFn := ex.addActiveQuery(stmt.queryID, stmt.AST, ex.state.cancel)
+	var p *planner
 	queryDone := func(ctx context.Context, res RestrictedCommandResult) {
 		if timeoutTicker != nil {
 			if !timeoutTicker.Stop() {
@@ -169,6 +170,9 @@ func (ex *connExecutor) execStmtInOpenState(
 			} else {
 				res.SetError(sqlbase.QueryCanceledError)
 			}
+		}
+		if p != nil {
+			ex.plannerPool.Release(p)
 		}
 	}
 	// Generally we want to unregister after the auto-commit below. However, in
@@ -367,7 +371,6 @@ func (ex *connExecutor) execStmtInOpenState(
 	// For regular statements (the ones that get to this point), we don't return
 	// any event unless an an error happens.
 
-	var p *planner
 	stmtTS := ex.server.cfg.Clock.PhysicalTime()
 	// Only run statements asynchronously through the parallelize queue if the
 	// statements are parallelized and we're in a transaction. Parallelized
@@ -375,14 +378,9 @@ func (ex *connExecutor) execStmtInOpenState(
 	// results, which has the same effect as running asynchronously but
 	// immediately blocking.
 	runInParallel := parallelize && !os.ImplicitTxn.Get()
-	if runInParallel {
-		// Create a new planner since we're executing in parallel.
-		p = ex.newPlanner(ctx, ex.state.mu.txn, stmtTS)
-	} else {
-		// We're not executing in parallel; we'll use the cached planner.
-		p = &ex.planner
-		ex.resetPlanner(ctx, p, ex.state.mu.txn, stmtTS)
-	}
+
+	// Get a planner. It will be released back to the pool by a defer at the top.
+	p = ex.plannerPool.Checkout(ctx, ex.state.mu.txn, stmtTS)
 
 	if os.ImplicitTxn.Get() {
 		asOfTs, err := p.isAsOf(stmt.AST)
@@ -430,51 +428,57 @@ func (ex *connExecutor) execStmtInOpenState(
 	p.cancelChecker = sqlbase.NewCancelChecker(ctx)
 
 	if runInParallel {
+		stmt := p.stmt
 		cols, err := ex.execStmtInParallel(ctx, p, queryDone)
+		p = nil // Ownership of p has been passed to execStmtInParallel.
+		// Responsibility for calling queryDone has been passed to execStmtInParallel.
 		queryDone = nil
 		if err != nil {
 			return makeErrEvent(err)
 		}
+
 		// Produce mocked out results for the query - the "zero value" of the
 		// statement's result type:
 		// - tree.Rows -> an empty set of rows
 		// - tree.RowsAffected -> zero rows affected
-		if err := ex.initStatementResult(ctx, res, p.stmt, cols); err != nil {
-			return makeErrEvent(err)
-		}
-	} else {
-		p.autoCommit = os.ImplicitTxn.Get() && !ex.server.cfg.TestingKnobs.DisableAutoCommit
-		if err := ex.dispatchToExecutionEngine(ctx, p, res); err != nil {
-			return nil, nil, err
-		}
-		if err := res.Err(); err != nil {
+		if err := ex.initStatementResult(ctx, res, stmt, cols); err != nil {
 			return makeErrEvent(err)
 		}
 
-		txn := ex.state.mu.txn
-		if !os.ImplicitTxn.Get() && txn.IsSerializablePushAndRefreshNotPossible() {
-			rc, canAutoRetry := ex.getRewindTxnCapability()
-			if canAutoRetry {
-				ev := eventRetriableErr{
-					IsCommit:     fsm.FromBool(isCommit(stmt.AST)),
-					CanAutoRetry: fsm.FromBool(canAutoRetry),
-				}
-				txn.ManualRestart(ctx, ex.server.cfg.Clock.Now())
-				payload := eventRetriableErrPayload{
-					err: roachpb.NewTransactionRetryWithProtoRefreshError(
-						"serializable transaction timestamp pushed (detected by connExecutor)",
-						txn.ID(),
-						// No updated transaction required; we've already manually updated our
-						// client.Txn.
-						roachpb.Transaction{},
-					),
-					rewCap: rc,
-				}
-				return ev, payload, nil
-			}
-		}
+		// No event was generated.
+		return nil, nil, nil
 	}
 
+	p.autoCommit = os.ImplicitTxn.Get() && !ex.server.cfg.TestingKnobs.DisableAutoCommit
+	if err := ex.dispatchToExecutionEngine(ctx, p, res); err != nil {
+		return nil, nil, err
+	}
+	if err := res.Err(); err != nil {
+		return makeErrEvent(err)
+	}
+
+	txn := ex.state.mu.txn
+	if !os.ImplicitTxn.Get() && txn.IsSerializablePushAndRefreshNotPossible() {
+		rc, canAutoRetry := ex.getRewindTxnCapability()
+		if canAutoRetry {
+			ev := eventRetriableErr{
+				IsCommit:     fsm.FromBool(isCommit(stmt.AST)),
+				CanAutoRetry: fsm.FromBool(canAutoRetry),
+			}
+			txn.ManualRestart(ctx, ex.server.cfg.Clock.Now())
+			payload := eventRetriableErrPayload{
+				err: roachpb.NewTransactionRetryWithProtoRefreshError(
+					"serializable transaction timestamp pushed (detected by connExecutor)",
+					txn.ID(),
+					// No updated transaction required; we've already manually updated our
+					// client.Txn.
+					roachpb.Transaction{},
+				),
+				rewCap: rc,
+			}
+			return ev, payload, nil
+		}
+	}
 	// No event was generated.
 	return nil, nil, nil
 }
@@ -1088,8 +1092,7 @@ func (ex *connExecutor) beginTransactionTimestampsAndReadMode(
 		rwMode = ex.readWriteModeWithSessionDefault(s.Modes.ReadWriteMode)
 		return rwMode, now.GoTime(), nil, nil
 	}
-	p := &ex.planner
-	ex.resetPlanner(ctx, p, nil /* txn */, now.GoTime())
+	p := ex.plannerPool.Checkout(ctx, nil /* txn */, now.GoTime())
 	ts, err := p.EvalAsOfTimestamp(s.Modes.AsOf)
 	if err != nil {
 		return 0, time.Time{}, nil, err
