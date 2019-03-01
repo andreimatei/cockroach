@@ -28,6 +28,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/sql/coltypes"
 	"github.com/cockroachdb/cockroach/pkg/sql/parser"
 	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgerror"
+	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgwirebase"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/types"
 	"github.com/cockroachdb/cockroach/pkg/sql/sessiondata"
@@ -368,6 +369,101 @@ func (ex *connExecutor) execStmtInOpenState(
 		if err != nil {
 			return makeErrEvent(err)
 		}
+
+	case *tree.DeclareCursor:
+		// !!! copied from Prepare above. Extract to a method.
+		psName := "prep_for_cursor_" + s.Name
+		if _, ok := ex.prepStmtsNamespace.prepStmts[psName]; ok {
+			err := pgerror.NewErrorf(
+				pgerror.CodeDuplicatePreparedStatementError,
+				"prepared statement %q already exists", psName,
+			)
+			return makeErrEvent(err)
+		}
+		_, err := ex.addPreparedStmt(
+			ctx, psName, Statement{SQL: s.Stmt.String(), AST: s.Stmt}, nil, /* placeholderHints */
+		)
+		if err != nil {
+			return makeErrEvent(err)
+		}
+
+		portalName := "cursor_" + s.Name
+		bindStmt := BindStmt{
+			PreparedStatementName: psName,
+			PortalName:            portalName,
+			OutFormats:            []pgwirebase.FormatCode{pgwirebase.FormatText}, // !!!
+		}
+		ev, payload := ex.execBind(ctx, bindStmt)
+		if ev != nil {
+			return ev, payload, nil, nil
+		}
+		return nil, nil, nil, nil
+
+	case *tree.FetchCursor:
+		portalName := "cursor_" + s.Name
+		portal, ok := ex.prepStmtsNamespace.portals[portalName]
+		if !ok {
+			err := pgerror.NewErrorf(
+				pgerror.CodeInvalidCursorNameError, "unknown portal %q", portalName)
+			ev := eventNonRetriableErr{IsCommit: fsm.False}
+			payload := eventNonRetriableErrPayload{err: err}
+			return ev, payload, nil, nil
+		}
+
+		// !!! copied from conn_executor.go case ExecPortal:
+		// stmtRes := ex.clientComm.CreateStatementResult(
+		//   portal.Stmt.Statement,
+		//   // The client is using the extended protocol, so no row description is
+		//   // needed.
+		//   DontNeedRowDesc,
+		//   pos, portal.OutFormats,
+		//   ex.sessionData.DataConversion)
+		// We're only going to return a single row.
+		// stmtRes.SetLimit(1)
+		// res = stmtRes
+
+		// We're only going to return a single row.
+		stmtRes := res.(CommandResult)
+		stmtRes.SetLimit(1)
+		curStmt := Statement{
+			SQL:           portal.Stmt.Str,
+			AST:           portal.Stmt.Statement,
+			Prepared:      portal.Stmt,
+			ExpectedTypes: portal.Stmt.Columns,
+			AnonymizedStr: portal.Stmt.AnonymizedStr,
+		}
+		ctx := withStatement(ex.Ctx(), ex.curStmt)
+
+		var ev fsm.Event
+		var payload fsm.EventPayload
+		if resCtx := portal.resumeCtx; resCtx != nil {
+			log.Infof(ctx, "!!! resuming portal: %s", portal.Stmt.Str)
+			// Switch the row receiver on the DistSQLReceiver.
+			resCtx.recv.resultWriter = stmtRes
+			// Resume the portal.
+			resCtx = ex.server.cfg.DistSQLPlanner.Resume(ctx, *resCtx)
+			// !!! flowResTok := resCtx.flow.Resume(resCtx.resumeTok)
+			portal.resumeCtx = resCtx
+			if resCtx != nil {
+				stmtRes.WillResume()
+			}
+			// generate a no-op event and payload
+			// !!!
+		} else {
+			log.Infof(ctx, "!!! starting portal: %s", portal.Stmt.Str)
+			var resumeTok *distSQLExecCtx
+			ev, payload, resumeTok, err = ex.execStmt(ctx, curStmt, stmtRes, pinfo)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			log.Infof(ctx, "!!! portal will resume: %t", resumeTok != nil)
+			if resumeTok != nil {
+				// Save the portal state so that it can be resumed.
+				portal.resumeCtx = resumeTok
+				stmtRes.WillResume()
+			}
+		}
+		return ev, payload, nil, nil
 	}
 
 	// For regular statements (the ones that get to this point), we don't return

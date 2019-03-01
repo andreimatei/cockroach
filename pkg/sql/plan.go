@@ -163,6 +163,7 @@ type planNodeFastPath interface {
 	FastPathResults() (int, bool)
 }
 
+// !!! add declaration
 var _ planNode = &alterIndexNode{}
 var _ planNode = &alterSequenceNode{}
 var _ planNode = &alterTableNode{}

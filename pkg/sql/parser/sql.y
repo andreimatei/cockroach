@@ -482,10 +482,10 @@ func newNameFromStr(s string) *tree.Name {
 %token <str> CONFLICT CONSTRAINT CONSTRAINTS CONTAINS CONVERSION COPY COVERING CREATE
 %token <str> CROSS CUBE CURRENT CURRENT_CATALOG CURRENT_DATE CURRENT_SCHEMA
 %token <str> CURRENT_ROLE CURRENT_TIME CURRENT_TIMESTAMP
-%token <str> CURRENT_USER CYCLE
+%token <str> CURRENT_USER CURSOR CYCLE
 
 %token <str> DATA DATABASE DATABASES DATE DAY DEC DECIMAL DEFAULT
-%token <str> DEALLOCATE DEFERRABLE DEFERRED DELETE DESC
+%token <str> DEALLOCATE DECLARE DEFERRABLE DEFERRED DELETE DESC
 %token <str> DISCARD DISTINCT DO DOMAIN DOUBLE DROP
 
 %token <str> ELSE ENCODING END ENUM ESCAPE EXCEPT
@@ -632,6 +632,11 @@ func newNameFromStr(s string) *tree.Name {
 %type <tree.Statement> cancel_jobs_stmt
 %type <tree.Statement> cancel_queries_stmt
 %type <tree.Statement> cancel_sessions_stmt
+
+// DECLARE CURSOR
+%type <tree.Statement> declare_cursor_stmt
+%type <tree.Statement> fetch_stmt
+
 
 // SCRUB
 %type <tree.Statement> scrub_stmt
@@ -1046,8 +1051,10 @@ stmt:
 | comment_stmt
 | execute_stmt      // EXTEND WITH HELP: EXECUTE
 | deallocate_stmt   // EXTEND WITH HELP: DEALLOCATE
+| declare_cursor_stmt
 | discard_stmt      // EXTEND WITH HELP: DISCARD
 | export_stmt       // EXTEND WITH HELP: EXPORT
+| fetch_stmt
 | grant_stmt        // EXTEND WITH HELP: GRANT
 | prepare_stmt      // EXTEND WITH HELP: PREPARE
 | revoke_stmt       // EXTEND WITH HELP: REVOKE
@@ -1164,6 +1171,19 @@ alter_sequence_options_stmt:
   {
     name := $5.unresolvedObjectName().ToTableName()
     $$.val = &tree.AlterSequence{Name: name, Options: $6.seqOpts(), IfExists: true}
+  }
+
+
+declare_cursor_stmt:
+  DECLARE IDENT CURSOR FOR select_stmt
+  {
+    $$.val = &tree.DeclareCursor{Name: $2, Stmt: $5.selectStmt()}
+  }
+
+fetch_stmt:
+  FETCH IDENT 
+  {
+    $$.val = &tree.FetchCursor{Name: $2}
   }
 
 // %Help: ALTER USER - change user properties
@@ -8726,6 +8746,7 @@ unreserved_keyword:
 | COVERING
 | CUBE
 | CURRENT
+| CURSOR
 | CYCLE
 | DATA
 | DATABASE
@@ -8733,6 +8754,7 @@ unreserved_keyword:
 | DATE
 | DAY
 | DEALLOCATE
+| DECLARE
 | DELETE
 | DEFERRED
 | DISCARD
