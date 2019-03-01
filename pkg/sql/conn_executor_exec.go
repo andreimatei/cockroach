@@ -98,7 +98,7 @@ func (ex *connExecutor) execStmt(
 				"stmt.anonymized", stmt.AnonymizedStr,
 			)
 			pprof.Do(ctx, labels, func(ctx context.Context) {
-				ev, payload, err = ex.execStmtInOpenState(ctx, stmt, pinfo, res)
+				ev, payload, resumeTok, err = ex.execStmtInOpenState(ctx, stmt, pinfo, res)
 			})
 		} else {
 			ev, payload, resumeTok, err = ex.execStmtInOpenState(ctx, stmt, pinfo, res)
