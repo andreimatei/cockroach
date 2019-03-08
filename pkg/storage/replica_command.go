@@ -328,6 +328,28 @@ func (r *Replica) adminSplitWithDescriptor(
 		}
 		return reply, errors.Wrapf(err, "split at key %s failed", splitKey)
 	}
+	// !!!
+	if testingAggressiveConsistencyChecks {
+		store := r.store
+		// Check the LHS.
+		if _, pErr := r.CheckConsistency(
+			context.TODO(), roachpb.CheckConsistencyRequest{}); pErr != nil {
+			// !!! if err := store.consistencyQueue.process(ctx, r, nil /* sysCfg */); err != nil {
+			log.Fatal(ctx, pErr)
+		}
+
+		// Check the RHS.
+		rhs, err := store.GetReplica(rightDesc.RangeID)
+		if err != nil {
+			log.Fatal(ctx, err)
+		}
+		if _, pErr := rhs.CheckConsistency(
+			context.TODO(), roachpb.CheckConsistencyRequest{}); pErr != nil {
+			// !!! if err := store.consistencyQueue.process(ctx, rhs, nil /* sysCfg */); err != nil {
+			log.Fatal(ctx, pErr)
+		}
+		log.Infof(ctx, "checked consistency for split of r%d-r%d", r.RangeID, rhs.RangeID)
+	}
 	return reply, nil
 }
 
