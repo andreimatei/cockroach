@@ -333,7 +333,7 @@ func (r *Replica) adminSplitWithDescriptor(
 		store := r.store
 		// Check the LHS.
 		if _, pErr := r.CheckConsistency(
-			context.TODO(), roachpb.CheckConsistencyRequest{}); pErr != nil {
+			context.TODO(), roachpb.CheckConsistencyRequest{}, true /* fatalOnMismatch */); pErr != nil {
 			// !!! if err := store.consistencyQueue.process(ctx, r, nil /* sysCfg */); err != nil {
 			log.Fatal(ctx, pErr)
 		}
@@ -344,7 +344,7 @@ func (r *Replica) adminSplitWithDescriptor(
 			log.Fatal(ctx, err)
 		}
 		if _, pErr := rhs.CheckConsistency(
-			context.TODO(), roachpb.CheckConsistencyRequest{}); pErr != nil {
+			context.TODO(), roachpb.CheckConsistencyRequest{}, true /* fatalOnMismatch */); pErr != nil {
 			// !!! if err := store.consistencyQueue.process(ctx, rhs, nil /* sysCfg */); err != nil {
 			log.Fatal(ctx, pErr)
 		}
