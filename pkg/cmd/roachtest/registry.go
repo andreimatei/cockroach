@@ -71,6 +71,7 @@ func registerTests(r *registry) {
 	registerSyncTest(r)
 	registerSysbench(r)
 	registerTPCC(r)
+	registerTPCCFixturesImportConsistencyFailure(r)
 	registerLoadSplits(r)
 	registerUpgrade(r)
 	registerVersion(r)

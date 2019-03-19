@@ -533,11 +533,14 @@ func (n nodeListOption) String() string {
 type clusterSpec struct {
 	NodeCount int
 	// CPUs is the number of CPUs per node.
-	CPUs        int
-	Zones       string
-	Geo         bool
-	Lifetime    time.Duration
-	ReusePolicy clusterReusePolicy
+	CPUs           int
+	Zones          string
+	Geo            bool
+	Lifetime       time.Duration
+	LocalSSD       bool
+	AWSMachineType string
+	AWSDiskSizeGB  int
+	ReusePolicy    clusterReusePolicy
 }
 
 func makeClusterSpec(nodeCount int, opts ...createOption) clusterSpec {
@@ -545,6 +548,7 @@ func makeClusterSpec(nodeCount int, opts ...createOption) clusterSpec {
 		NodeCount:   nodeCount,
 		CPUs:        4,   // might be overridden by opts
 		ReusePolicy: Any, // might be overridden by opts
+		LocalSSD:    true,
 	}
 	for _, o := range opts {
 		o.apply(&spec)
@@ -580,7 +584,11 @@ func (s *clusterSpec) args() []string {
 	if !local && s.CPUs != 0 {
 		switch cloud {
 		case "aws":
-			args = append(args, "--aws-machine-type-ssd="+awsMachineType(s.CPUs))
+			if s.LocalSSD {
+				args = append(args, "--aws-machine-type-ssd="+awsMachineType(s.CPUs))
+			} else {
+				args = append(args, "--aws-machine-type="+s.AWSMachineType)
+			}
 		case "gce":
 			args = append(args, "--gce-machine-type="+gceMachineType(s.CPUs))
 		}
@@ -588,12 +596,17 @@ func (s *clusterSpec) args() []string {
 	if s.Zones != "" {
 		args = append(args, "--gce-zones="+s.Zones)
 	}
+	args = append(args, fmt.Sprintf("--local-ssd=%t", s.LocalSSD))
+	if s.AWSDiskSizeGB != 0 {
+		args = append(args, fmt.Sprintf("--aws-ebs-volume-size=%d", s.AWSDiskSizeGB))
+	}
 	if s.Geo {
 		args = append(args, "--geo")
 	}
 	if s.Lifetime != 0 {
 		args = append(args, "--lifetime="+s.Lifetime.String())
 	}
+
 	return args
 }
 
@@ -831,9 +844,9 @@ func (f *clusterFactory) newCluster(
 	}
 
 	c := &cluster{
-		name:   name,
-		nodes:  cfg.nodes.NodeCount,
-		status: func(...interface{}) {},
+		name:           name,
+		nodes:          cfg.nodes.NodeCount,
+		status:         func(...interface{}) {},
 		destroyed:      make(chan struct{}),
 		expiration:     cfg.nodes.expiration(),
 		owned:          true,

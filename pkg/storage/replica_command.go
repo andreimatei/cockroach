@@ -329,27 +329,44 @@ func (r *Replica) adminSplitWithDescriptor(
 		return reply, errors.Wrapf(err, "split at key %s failed", splitKey)
 	}
 	// !!!
-	if testingAggressiveConsistencyChecks {
-		store := r.store
-		// Check the LHS.
-		if _, pErr := r.CheckConsistency(
-			context.TODO(), roachpb.CheckConsistencyRequest{}, true /* fatalOnMismatch */); pErr != nil {
-			// !!! if err := store.consistencyQueue.process(ctx, r, nil /* sysCfg */); err != nil {
-			log.Fatal(ctx, pErr)
-		}
-
-		// Check the RHS.
-		rhs, err := store.GetReplica(rightDesc.RangeID)
-		if err != nil {
-			log.Fatal(ctx, err)
-		}
-		if _, pErr := rhs.CheckConsistency(
-			context.TODO(), roachpb.CheckConsistencyRequest{}, true /* fatalOnMismatch */); pErr != nil {
-			// !!! if err := store.consistencyQueue.process(ctx, rhs, nil /* sysCfg */); err != nil {
-			log.Fatal(ctx, pErr)
-		}
-		log.Infof(ctx, "checked consistency for split of r%d-r%d", r.RangeID, rhs.RangeID)
-	}
+	// if testingAggressiveConsistencyChecks {
+	//   store := r.store
+	//   // Check the LHS.
+	//   if _, pErr := r.CheckConsistency(
+	//     context.TODO(),
+	//     roachpb.CheckConsistencyRequest{},
+	//     true, /* fatalOnMismatch */
+	//   ); pErr != nil {
+	//     if !strings.Contains(pErr.Message, "context deadline exceeded") {
+	//       log.Fatal(ctx, pErr)
+	//     } else {
+	//       log.Infof(ctx, "consistency check err: %s", pErr)
+	//     }
+	//     log.Fatal(ctx, pErr)
+	//   }
+	//
+	//   // Check the RHS.
+	//   rhs, err := store.GetReplica(rightDesc.RangeID)
+	//   _, notFound := err.(*roachpb.RangeNotFoundError)
+	//   if err != nil && !notFound {
+	//     log.Fatal(ctx, err)
+	//   }
+	//   if !notFound {
+	//     if _, pErr := rhs.CheckConsistency(
+	//       context.TODO(),
+	//       roachpb.CheckConsistencyRequest{},
+	//       true, /* fatalOnMismatch */
+	//     ); pErr != nil {
+	//       if !strings.Contains(pErr.Message, "context deadline exceeded") {
+	//         log.Fatal(ctx, pErr)
+	//       } else {
+	//         log.Infof(ctx, "checked consistency for split of r%d-r%d err: %s", r.RangeID, rhs.RangeID, pErr)
+	//       }
+	//     }
+	//
+	//     log.Infof(ctx, "checked consistency for split of r%d-r%d", r.RangeID, rhs.RangeID)
+	//   }
+	// }
 	return reply, nil
 }
 
