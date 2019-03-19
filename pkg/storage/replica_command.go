@@ -328,6 +328,46 @@ func (r *Replica) adminSplitWithDescriptor(
 		}
 		return reply, errors.Wrapf(err, "split at key %s failed", splitKey)
 	}
+	if testingAggressiveConsistencyChecks {
+		store := r.store
+		// Check the LHS.
+		if resp, pErr := r.CheckConsistency(
+			context.TODO(),
+			roachpb.CheckConsistencyRequest{Mode: roachpb.ChecksumMode_CHECK_STATS},
+		); pErr == nil {
+			if len(resp.Result) != 1 {
+				log.Fatalf(ctx, "expected 1 response, got: %+v", resp)
+			}
+			if resp.Result[0].Status == roachpb.CheckConsistencyResponse_RANGE_INCONSISTENT {
+				log.Fatalf(ctx, "range inconsistent after split: %+v", resp)
+			}
+		} else {
+			log.Infof(ctx, "!!! failed to check consistency after split: %s", pErr)
+		}
+
+		// Check the RHS.
+		rhs, err := store.GetReplica(rightDesc.RangeID)
+		_, notFound := err.(*roachpb.RangeNotFoundError)
+		if err != nil && !notFound {
+			log.Fatal(ctx, err)
+		}
+		if !notFound {
+			if resp, pErr := rhs.CheckConsistency(
+				context.TODO(),
+				roachpb.CheckConsistencyRequest{Mode: roachpb.ChecksumMode_CHECK_STATS},
+			); pErr == nil {
+				if len(resp.Result) != 1 {
+					log.Fatalf(ctx, "expected 1 response, got: %+v", resp)
+				}
+				if resp.Result[0].Status == roachpb.CheckConsistencyResponse_RANGE_INCONSISTENT {
+					log.Fatalf(ctx, "range inconsistent after split: %+v", resp)
+				}
+			} else {
+				log.Infof(ctx, "!!! failed to check consistency after split: %s", pErr)
+			}
+			log.Infof(ctx, "checked consistency for split of r%d-r%d", r.RangeID, rhs.RangeID)
+		}
+	}
 	return reply, nil
 }
 
