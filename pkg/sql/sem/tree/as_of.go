@@ -15,12 +15,9 @@
 package tree
 
 import (
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/cockroachdb/apd"
-	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgerror"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/types"
 	"github.com/cockroachdb/cockroach/pkg/util/duration"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
@@ -137,33 +134,5 @@ func DecimalToHLC(d *apd.Decimal) (hlc.Timestamp, error) {
 	// walltime and logical tick parts.
 	// TODO(mjibson): use d.Modf() instead of converting to a string.
 	s := d.Text('f')
-	parts := strings.SplitN(s, ".", 2)
-	nanos, err := strconv.ParseInt(parts[0], 10, 64)
-	if err != nil {
-		return hlc.Timestamp{}, pgerror.Wrapf(err, pgerror.CodeSyntaxError,
-			"AS OF SYSTEM TIME: parsing argument")
-	}
-	var logical int64
-	if len(parts) > 1 {
-		// logicalLength is the number of decimal digits expected in the
-		// logical part to the right of the decimal. See the implementation of
-		// cluster_logical_timestamp().
-		const logicalLength = 10
-		p := parts[1]
-		if lp := len(p); lp > logicalLength {
-			return hlc.Timestamp{}, pgerror.NewErrorf(pgerror.CodeSyntaxError,
-				"AS OF SYSTEM TIME: logical part has too many digits")
-		} else if lp < logicalLength {
-			p += strings.Repeat("0", logicalLength-lp)
-		}
-		logical, err = strconv.ParseInt(p, 10, 32)
-		if err != nil {
-			return hlc.Timestamp{}, pgerror.Wrapf(err, pgerror.CodeSyntaxError,
-				"AS OF SYSTEM TIME: parsing argument")
-		}
-	}
-	return hlc.Timestamp{
-		WallTime: nanos,
-		Logical:  int32(logical),
-	}, nil
+	return hlc.ParseAsOfSystemTime(s, hlc.AcceptJustPhysical)
 }

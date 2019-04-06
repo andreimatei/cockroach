@@ -1,0 +1,10 @@
+syntax = "proto3";
+package cockroach.rpc;
+
+import "google/protobuf/empty.proto";
+
+// Testing is a trivial gRPC service used by tests for our gRPC servers and
+// clients.
+service Testing {
+rpc Ping(google.protobuf.Empty) returns (google.protobuf.Empty) {}
+}

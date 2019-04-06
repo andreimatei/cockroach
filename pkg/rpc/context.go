@@ -68,6 +68,8 @@ const (
 	defaultWindowSize     = 65535
 	initialWindowSize     = defaultWindowSize * 32 // for an RPC
 	initialConnWindowSize = initialWindowSize * 16 // for a connection
+	clientHLCTimeKey      = "c_hlc"
+	serverHLCTimeKey      = "s_hlc"
 )
 
 // sourceAddr is the environment-provided local address for outgoing
@@ -141,7 +143,7 @@ func requireSuperUser(ctx context.Context) error {
 // NewServer is a thin wrapper around grpc.NewServer that registers a heartbeat
 // service.
 func NewServer(ctx *Context) *grpc.Server {
-	return NewServerWithInterceptor(ctx, nil)
+	return NewServerWithInterceptor(ctx, nil /* interceptor */)
 }
 
 // NewServerWithInterceptor is like NewServer, but accepts an additional
@@ -267,6 +269,37 @@ func NewServerWithInterceptor(
 		}
 	}
 
+	// Add an interceptor that updates our clock from the client's clock.
+	prevUnaryInterceptor := unaryInterceptor
+	unaryInterceptor = func(
+		goCtx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		defer func() {
+			// Attach the server's timestamp to the response.
+			header := metadata.Pairs(serverHLCTimeKey, ctx.LocalClock.Now().AsOfSystemTime())
+			grpc.SetHeader(goCtx, header)
+		}()
+
+		ts, err := func() (hlc.Timestamp, error) {
+			md, ok := metadata.FromIncomingContext(goCtx)
+			if !ok {
+				// 19.1 clients don't send timestamps this way.
+				return hlc.Timestamp{}, nil
+			}
+			return tsFromClientMetadata(goCtx, md)
+		}()
+		if err != nil {
+			return nil, err
+		}
+
+		ctx.LocalClock.Update(ts)
+
+		if prevUnaryInterceptor != nil {
+			return prevUnaryInterceptor(goCtx, req, info, handler)
+		}
+		return handler(goCtx, req)
+	}
+
 	if unaryInterceptor != nil {
 		opts = append(opts, grpc.UnaryInterceptor(unaryInterceptor))
 	}
@@ -282,6 +315,36 @@ func NewServerWithInterceptor(
 		version:            ctx.version,
 	})
 	return s
+}
+
+func tsFromClientMetadata(ctx context.Context, md metadata.MD) (hlc.Timestamp, error) {
+	v := md.Get(clientHLCTimeKey)
+	if len(v) == 0 {
+		// 19.1 clients don't send timestamps this way.
+		return hlc.Timestamp{}, nil
+
+	}
+	if len(v) != 1 {
+		// We don't expect more than one item; gRPC does not copy metadata from
+		// one incoming RPC to an outgoing RPC, so there should be a single
+		// timestamp in the context put there by the interceptor on the clienbt
+		// before calling this RPC.
+		log.Fatalf(ctx, "unexpected multiple timestamps in client metadata: %s", v)
+	}
+	return hlc.ParseAsOfSystemTime(v[0], hlc.RequireLogical)
+}
+
+func tsFromServerMetadata(ctx context.Context, md metadata.MD) (hlc.Timestamp, error) {
+	v := md.Get(serverHLCTimeKey)
+	if len(v) == 0 {
+		// 19.1 servers don't send timestamps this way.
+		return hlc.Timestamp{}, nil
+
+	}
+	if len(v) != 1 {
+		log.Fatalf(ctx, "unexpected multiple timestamps in server metadata: %s", v)
+	}
+	return hlc.ParseAsOfSystemTime(v[0], hlc.RequireLogical)
 }
 
 type heartbeatResult struct {
@@ -594,17 +657,48 @@ func (ctx *Context) GRPCDialOptions() ([]grpc.DialOption, error) {
 		dialOpts = append(dialOpts, grpc.WithDefaultCallOptions(grpc.UseCompressor((snappyCompressor{}).Name())))
 	}
 
+	var unaryInterceptor grpc.UnaryClientInterceptor
 	if tracer := ctx.AmbientCtx.Tracer; tracer != nil {
 		// We use a SpanInclusionFunc to circumvent the interceptor's work when
 		// tracing is disabled. Otherwise, the interceptor causes an increase in
 		// the number of packets (even with an empty context!). See #17177.
-		interceptor := otgrpc.OpenTracingClientInterceptor(
+		unaryInterceptor = otgrpc.OpenTracingClientInterceptor(
 			tracer,
 			otgrpc.IncludingSpans(otgrpc.SpanInclusionFunc(spanInclusionFuncForClient)),
 		)
-		dialOpts = append(dialOpts, grpc.WithUnaryInterceptor(interceptor))
 	}
 
+	// Add an interceptor that will pass the client's timestamp to the server -
+	// which will be used by the server to update its clock - and that will
+	// receive the server's timestamp and update our clock with it.
+	prevUnaryInterceptor := unaryInterceptor
+	unaryInterceptor = func(
+		goCtx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn,
+		invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		goCtx = metadata.AppendToOutgoingContext(goCtx, clientHLCTimeKey,
+			ctx.LocalClock.Now().AsOfSystemTime())
+		// The server is going to put its timestamp in the response header.
+		var header metadata.MD
+		opts = append(opts, grpc.Header(&header))
+		var err error
+		if prevUnaryInterceptor != nil {
+			// Chain the previous interceptor.
+			err = prevUnaryInterceptor(goCtx, method, req, reply, cc, invoker, opts...)
+		} else {
+			err = invoker(goCtx, method, req, reply, cc, opts...)
+		}
+		ts, tsErr := tsFromServerMetadata(goCtx, header)
+		if tsErr != nil {
+			if err != nil {
+				return err
+			}
+			return tsErr
+		}
+		ctx.LocalClock.Update(ts)
+		return err
+	}
+
+	dialOpts = append(dialOpts, grpc.WithUnaryInterceptor(unaryInterceptor))
 	return dialOpts, nil
 }
 

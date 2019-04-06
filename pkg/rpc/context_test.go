@@ -26,6 +26,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/cockroach/pkg/base"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
 	"github.com/cockroachdb/cockroach/pkg/testutils"
@@ -41,6 +42,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/cockroachdb/cockroach/pkg/util/tracing"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
+	"github.com/gogo/protobuf/types"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -1082,6 +1084,144 @@ func TestVersionCheckBidirectional(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Test that a server updates its clock using a timestamp that the client
+// provided (transparently, through using the clientCtx to dial gRPC
+// connections).
+func TestServerUpdatesClockFromClient(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	ctx := context.Background()
+	stopper := stop.NewStopper()
+	defer stopper.Stop(ctx)
+
+	var clientTS int64 = 256
+	clientManual := hlc.NewManualClock(clientTS)
+	clientClock := hlc.NewClock(clientManual.UnixNano, 0 /* maxOffset */)
+	clientCtx := NewContext(
+		log.AmbientContext{Tracer: tracing.NewTracer()},
+		&base.Config{Insecure: true},
+		clientClock,
+		stopper,
+		&cluster.MakeTestingClusterSettings().Version)
+
+	serverManual := hlc.NewManualClock(123 /* nanos */)
+	serverClock := hlc.NewClock(serverManual.UnixNano, 0 /* maxOffset */)
+	serverCtx := NewContext(
+		log.AmbientContext{Tracer: tracing.NewTracer()},
+		&base.Config{Insecure: true},
+		serverClock,
+		stopper,
+		&cluster.MakeTestingClusterSettings().Version)
+
+	ln, err := net.Listen("tcp", ":0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	server := NewServer(serverCtx)
+	RegisterTestingServer(server, &testingServer{})
+	stopper.RunWorker(ctx, func(context.Context) {
+		netutil.FatalIfUnexpected(server.Serve(ln))
+	})
+
+	cn, _, err := clientCtx.GRPCDialRaw(ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := NewTestingClient(cn)
+	if _, err := c.Ping(ctx, &types.Empty{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ts := serverClock.Now()
+	if ts.WallTime != clientTS {
+		t.Fatalf("expected time: %d, got: %d", clientTS, ts.WallTime)
+	}
+}
+
+// Test that a client updates its clock using a timestamp that the server
+// returns (the server's timestamp is returned as metadata in the response's
+// headerer). This is the converse of TestServerUpdatesClockFromClient.
+func TestClientUpdatesClockFromServer(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	ctx := context.Background()
+	stopper := stop.NewStopper()
+	defer stopper.Stop(ctx)
+
+	testutils.RunTrueAndFalse(t, "success", func(t *testing.T, success bool) {
+		clientManual := hlc.NewManualClock(123 /* nanos */)
+		clientClock := hlc.NewClock(clientManual.UnixNano, 0 /* maxOffset */)
+		clientCtx := NewContext(
+			log.AmbientContext{Tracer: tracing.NewTracer()},
+			&base.Config{Insecure: true},
+			clientClock,
+			stopper,
+			&cluster.MakeTestingClusterSettings().Version)
+
+		var serverTS int64 = 256
+		serverManual := hlc.NewManualClock(serverTS)
+		serverClock := hlc.NewClock(serverManual.UnixNano, 0 /* maxOffset */)
+		serverCtx := NewContext(
+			log.AmbientContext{Tracer: tracing.NewTracer()},
+			&base.Config{Insecure: true},
+			serverClock,
+			stopper,
+			&cluster.MakeTestingClusterSettings().Version)
+
+		ln, err := net.Listen("tcp", ":0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer ln.Close()
+
+		server := NewServer(serverCtx)
+		RegisterTestingServer(server, &testingServer{
+			err: !success,
+		})
+		stopper.RunWorker(ctx, func(context.Context) {
+			netutil.FatalIfUnexpected(server.Serve(ln))
+		})
+
+		cn, _, err := clientCtx.GRPCDialRaw(ln.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := NewTestingClient(cn)
+		_, err = c.Ping(ctx, &types.Empty{})
+		if success {
+			if err != nil {
+				t.Fatal(err)
+			}
+		} else if !testutils.IsError(err, "test err") {
+			t.Fatalf("expected test err, got: %s", err)
+		}
+
+		if err := cn.Close(); err != nil {
+			t.Fatal(err)
+		}
+		ts := clientClock.Now()
+		if ts.WallTime != serverTS {
+			t.Fatalf("expected time: %d, got: %d", serverTS, ts.WallTime)
+		}
+	})
+}
+
+// testingServer implements the simple Testing gRPC service.
+type testingServer struct {
+	// err, if set, causes Ping to return errors.
+	err bool
+}
+
+// Ping implements the Testing service.
+func (t *testingServer) Ping(context.Context, *types.Empty) (*types.Empty, error) {
+	if t.err {
+		return nil, fmt.Errorf("test err")
+	}
+	return &types.Empty{}, nil
 }
 
 func BenchmarkGRPCDial(b *testing.B) {

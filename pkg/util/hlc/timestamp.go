@@ -17,9 +17,13 @@ package hlc
 import (
 	"fmt"
 	"math"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgerror"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
+	"github.com/pkg/errors"
 )
 
 // Timestamp constant values.
@@ -42,6 +46,58 @@ func (t Timestamp) String() string {
 // AsOfSystemTime returns a string to be used in an AS OF SYSTEM TIME query.
 func (t Timestamp) AsOfSystemTime() string {
 	return fmt.Sprintf("%d.%010d", t.WallTime, t.Logical)
+}
+
+// AOSTParseOpt represents options for ParseAsOfSystemTime().
+type AOSTParseOpt bool
+
+const (
+	// RequireLogical means that a timestamp being parsed needs to specify a
+	// logical component.
+	RequireLogical AOSTParseOpt = false
+	// AcceptJustPhysical means that a timestamp that specifies only the physical
+	// component and not the logical one is acceptible - and the resulting logical
+	// component will be 0.
+	AcceptJustPhysical = true
+)
+
+// ParseAsOfSystemTime takes a string and parses it into a timestamp. Depending
+// on opt, the format is <physical nanos>.<logical>, where logical can have at
+// most 10 digits.
+func ParseAsOfSystemTime(s string, opt AOSTParseOpt) (Timestamp, error) {
+	parts := strings.SplitN(s, ".", 2)
+	nanos, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return Timestamp{}, pgerror.Wrapf(err, pgerror.CodeSyntaxError,
+			"AS OF SYSTEM TIME: parsing argument")
+	}
+	if len(parts) == 1 && opt == RequireLogical {
+		return Timestamp{}, errors.Errorf("missing required logical part")
+	}
+
+	var logical int64
+	if len(parts) > 1 {
+		// logicalLength is the number of decimal digits expected in the
+		// logical part to the right of the decimal. See the implementation of
+		// cluster_logical_timestamp().
+		const logicalLength = 10
+		p := parts[1]
+		if lp := len(p); lp > logicalLength {
+			return Timestamp{}, pgerror.NewErrorf(pgerror.CodeSyntaxError,
+				"AS OF SYSTEM TIME: logical part has too many digits")
+		} else if lp < logicalLength {
+			p += strings.Repeat("0", logicalLength-lp)
+		}
+		logical, err = strconv.ParseInt(p, 10, 32)
+		if err != nil {
+			return Timestamp{}, pgerror.Wrapf(err, pgerror.CodeSyntaxError,
+				"AS OF SYSTEM TIME: parsing argument")
+		}
+	}
+	return Timestamp{
+		WallTime: nanos,
+		Logical:  int32(logical),
+	}, nil
 }
 
 // Less compares two timestamps.
