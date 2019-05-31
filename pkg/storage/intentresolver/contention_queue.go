@@ -169,7 +169,8 @@ func (cq *contentionQueue) add(
 		return nil, wiErr, false
 	}
 
-	ctx, csp := tracing.StartComponentSpan(ctx, cq.ambientCtx.Tracer, "storage.contention.queue", "wait for intent resolve")
+	ctx, csp := tracing.StartComponentSpan(ctx, cq.ambientCtx.Tracer,
+		"storage.contention.queue", "wait for intent resolve")
 	csp.SetTag("intent error", wiErr)
 
 	intent := wiErr.Intents[0]
