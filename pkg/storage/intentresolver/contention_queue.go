@@ -365,7 +365,9 @@ func (cq *contentionQueue) add(
 		}
 
 		csp.SetTag("new intent txn", newIntentTxn)
-		csp.FinishWithError(newWIErr)
+		if newWIErr != nil {
+			csp.FinishWithError(newWIErr)
+		}
 	}, wiErr, done
 }
 
