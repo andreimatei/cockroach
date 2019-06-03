@@ -124,7 +124,6 @@ WaitForResponse:
     with
         resp \in { r \in responses : r.to = self }
     do
-        print resp;
         responses := responses \ {resp};
     end with;
 SendCommit:
@@ -271,8 +270,7 @@ SendWrite(self) == /\ pc[self] = "SendWrite"
 WaitForResponse(self) == /\ pc[self] = "WaitForResponse"
                          /\ \E resp \in responses : resp.to = self
                          /\ \E resp \in { r \in responses : r.to = self }:
-                              /\ PrintT(resp)
-                              /\ responses' = responses \ {resp}
+                              responses' = responses \ {resp}
                          /\ pc' = [pc EXCEPT ![self] = "SendCommit"]
                          /\ UNCHANGED << lease, storage, requests, clock, 
                                          tsCache, committed, msg, client_txn >>
@@ -364,5 +362,5 @@ NoPartialCommit ==
 
 =============================================================================
 \* Modification History
-\* Last modified Wed May 15 17:15:55 EDT 2019 by ajwerner
+\* Last modified Sat May 25 20:07:16 EDT 2019 by ajwerner
 \* Created Wed May 15 13:18:23 EDT 2019 by ajwerner
