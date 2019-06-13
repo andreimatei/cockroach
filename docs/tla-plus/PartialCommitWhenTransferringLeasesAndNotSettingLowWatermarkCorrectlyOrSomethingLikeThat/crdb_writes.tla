@@ -133,7 +133,7 @@ EvalRequest:
                         type |-> "push",
                         ts |-> 0, \* !!!
                         from |-> msg.from,
-                        intent |-> intent
+                        pushee |-> intent.txnID
                     ]};
                 end with;
             elsif \E ts \in DOMAIN storage : ts >= msg.txn.ts
@@ -172,16 +172,18 @@ end process;
 
 process client \in Clients
 variables
-    client_txn \in [ts: {0}, value: Values]
+    client_txn \in [ts: {0}, txnRecRange: Ranges, otherRange: Ranges]
 begin
 Begin:
     with 
-        now = clock[ClientToServer[self]]
+        now = clock[ClientToServer[self]],
+        otherRange \in Ranges \ client_txn.txnRecRange 
     do   
         client_txn.ts := now;
+        client_txn.otherRange = otherRange;
     end with;
 SendWrite:
-    requests := requests \union {[
+    requests[otherRange] := requests[otherRange] \union {[
         type |-> "write",
         from |-> self,
         txn |-> client_txn
@@ -389,16 +391,52 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 \* END TRANSLATION
 
     
-IsTxn(txn) == 
-    /\ txn.ts \in Timestamps
-    /\ txn.value \in Values
+\*IsTxn(txn) == 
+\*    /\ txn.ts \in Timestamps
+\*    /\ txn.value \in Values
      
+     
+
+(*
+req = [type |-> "write",
+       from |-> self,
+       ts |-> now,
+       txn_rec |-> txn.txnRecRange,
+    ];
+*)
+
+IsWrite(req) ==
+  /\ req.type = "write"
+  /\ req.from \in Clients
+  /\ req.ts \in Timestamps
+  /\ req.txn_rec \in Ranges
+
+IsPush(req) ==
+  /\ req.type = "push"
+  /\ req.from \in Clients
+  /\ req.ts \in Timestamps
+  /\ req.pushee \in Clients
+  
+IsBegin(req) ==
+  /\ req.type = "begin"
+  /\ req.from \in Clients
+  /\ req.ts \in Timestamps
+
+IsCommit(req) ==
+  /\ req.type = "commit"
+  /\ req.from \in Clients
+  /\ req.ts \in Timestamps
+
 IsRequest(req) == 
-    /\ req.type \in MsgTypes
-    /\ IsTxn(req.txn)
+    \/ IsWrite(req)
+    \/ IsPush(req)
+    \/ IsBegin(req)
+    \/ IsCommit(req)
     
-IsResponse(req) ==
-    /\ req.to \in Clients
+IsResponse(resp) ==
+    /\ resp.to \in Clients
+    /\ resp.success \in BOOLEAN
+    /\ IsRequest(resp.req)
     
 ServerOk ==
     \A m \in Range(msg) : 
@@ -411,9 +449,9 @@ RequestsOk == \A r \in DOMAIN requests :
 
 ResponsesOk == \A resp \in responses : IsResponse(resp)
  
-WrittenValueOk == Clients \X Timestamps
+WrittenValueOk == [txnID: Clients, ts: Timestamps, txnRecRange: Ranges] 
 
-TxnRecordOk == Clients \X BOOLEAN 
+TxnRecordOk == [txnID:Clients, committed: BOOLEAN] 
 
 IsTxnRecord(r) == r \in TxnRecordOk
 
@@ -438,5 +476,5 @@ NoPartialCommits ==
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Jun 13 12:36:24 EDT 2019 by ajwerner
+\* Last modified Thu Jun 13 13:25:12 EDT 2019 by andrei
 \* Created Wed May 15 13:18:23 EDT 2019 by ajwerner
