@@ -43,6 +43,7 @@ Max(set) == CHOOSE elem \in set :
         other <= elem
 
 MsgTypes == {
+    "begin",
     "write",
     "push",
     "commit" 
@@ -59,13 +60,13 @@ ASSUME Cardinality(Clients) = Cardinality(Servers)
 
 ClientToServer == CHOOSE f \in [ Clients -> Servers ] : TRUE 
 
-PrioritizePushes(set) ==
-    LET
-        pushes == { r \in set : r.type = "push"}
-    IN
-        IF pushes = {}
-        THEN set
-        ELSE pushes
+\*PrioritizePushes(set) ==
+\*    LET
+\*        pushes == { r \in set : r.type = "push"}
+\*    IN
+\*        IF pushes = {}
+\*        THEN set
+\*        ELSE pushes
 
 IntentExists(store) ==
     \E k \in DOMAIN store : ~store[k][2]
@@ -77,9 +78,9 @@ GetIntent(store) ==
 (*--algorithm crdb
 
 variables
-    lease = CHOOSE f \in [Ranges -> Servers] : TRUE,
+    leases = CHOOSE f \in [Ranges -> Servers] : TRUE,
     storage = <<>>,
-    requests = {},
+    requests = [Ranges |-> {}],
     responses = {},
     clock = [ s \in Servers |-> 1 ],
     tsCache = [r \in Ranges |-> 0 ],
@@ -107,30 +108,30 @@ begin
 Run:
 while \E c \in Clients : pc[c] /= "Done" do
 Receive:
-    await /\ lease = self;
+    await \E r \in Ranges :
+        /\ leases[r] = self
+        /\ Cardinality(requests[r]) > 0;
     with
-        req \in PrioritizePushes(requests)
+        r \in { r \in Ranges :  leases[r] = self}, 
+        req \in requests[r]
     do
         msg := req ||
-        requests := requests \ {req};
+        requests[r] := requests[r] \ {req};
     end with;
-    \* Push the clock to request header ts
-    if clock[self] < msg.txn.ts then
-        clock[self] := msg.txn.ts;
-    end if;
+    bumpClock(self, msg.ts);
 EvalRequest:
     if msg.type = "write" then
         HandleWrite:
-            if IntentExists(storage)
+            if IntentExists(r, storage)
             then
                 with 
-                    intent = GetIntent(storage)
+                    intent = GetIntent(r, storage)
                 do
-                    \* In theory the below line would fix the bug
-                    \* msg.txn.ts := intent; \* Fixes the bug
+                    \* The bug is about putting a timestamp in the header
+                    \* of this message.
                     requests := requests \union {[
                         type |-> "push",
-                        txn |-> msg.txn,
+                        ts |-> 0, \* !!!
                         from |-> msg.from,
                         intent |-> intent
                     ]};
@@ -148,25 +149,25 @@ EvalRequest:
                         error |-> NULL
                 ]}
             end if;
-    elsif msg.type = "push" then
-        HandlePush:
-            tsCache[self] := msg.intent;
-            requests := requests \union {[
-                type |-> "write",
-                from |-> msg.from,
-                txn |-> msg.txn
-            ]};
-            storage := [ ts \in (DOMAIN storage \ {msg.intent}) |-> storage[ts] ];                        
-    else
-        HandleCommit:
-            if msg.txn.ts > tsCache[self] then
-                assert /\ msg.txn.ts \in DOMAIN storage
-                       /\ ~storage[msg.txn.ts][2];
-                storage := msg.txn.ts :> <<msg.txn.value, TRUE>> @@ storage;
-                committed := committed \union {msg.txn.ts}
-            end if
-    end if;
-end while;
+\*    elsif msg.type = "push" then
+\*        HandlePush:
+\*            tsCache[self] := msg.intent;
+\*            requests := requests \union {[
+\*                type |-> "write",
+\*                from |-> msg.from,
+\*                txn |-> msg.txn
+\*            ]};
+\*            storage := [ ts \in (DOMAIN storage \ {msg.intent}) |-> storage[ts] ];                        
+\*    else
+\*        HandleCommit:
+\*            if msg.txn.ts > tsCache[self] then
+\*                assert /\ msg.txn.ts \in DOMAIN storage
+\*                       /\ ~storage[msg.txn.ts][2];
+\*                storage := msg.txn.ts :> <<msg.txn.value, TRUE>> @@ storage;
+\*                committed := committed \union {msg.txn.ts}
+\*            end if
+\*    end if;
+ end while;
 end process;
 
 process client \in Clients
@@ -229,7 +230,7 @@ TransferLease:
         do
             bumpTsCache(s, clock[lease]);
             bumpClock(s, clock[lease]+1);
-            lease := s;
+            leases := s;
             transfers :=  transfers + 1;
         end with;
     end while;
@@ -240,18 +241,18 @@ end algorithm;
 
 
 \* BEGIN TRANSLATION
-VARIABLES lease, storage, requests, responses, clock, tsCache, committed, pc, 
+VARIABLES leases, storage, requests, responses, clock, tsCache, committed, pc, 
           msg, client_txn, transfers
 
-vars == << lease, storage, requests, responses, clock, tsCache, committed, pc, 
-           msg, client_txn, transfers >>
+vars == << leases, storage, requests, responses, clock, tsCache, committed, 
+           pc, msg, client_txn, transfers >>
 
 ProcSet == (Servers) \cup (Clients) \cup {ClockTicker} \cup {LeaseTransferrer}
 
 Init == (* Global variables *)
-        /\ lease = (CHOOSE f \in [Ranges -> Servers] : TRUE)
+        /\ leases = (CHOOSE f \in [Ranges -> Servers] : TRUE)
         /\ storage = <<>>
-        /\ requests = {}
+        /\ requests = [Ranges |-> {}]
         /\ responses = {}
         /\ clock = [ s \in Servers |-> 1 ]
         /\ tsCache = [r \in Ranges |-> 0 ]
@@ -271,92 +272,39 @@ Run(self) == /\ pc[self] = "Run"
              /\ IF \E c \in Clients : pc[c] /= "Done"
                    THEN /\ pc' = [pc EXCEPT ![self] = "Receive"]
                    ELSE /\ pc' = [pc EXCEPT ![self] = "Done"]
-             /\ UNCHANGED << lease, storage, requests, responses, clock, 
+             /\ UNCHANGED << leases, storage, requests, responses, clock, 
                              tsCache, committed, msg, client_txn, transfers >>
 
 Receive(self) == /\ pc[self] = "Receive"
-                 /\ /\ lease = self
-                 /\ \E req \in PrioritizePushes(requests):
-                      /\ msg' = [msg EXCEPT ![self] = req]
-                      /\ requests' = requests \ {req}
-                 /\ IF clock[self] < msg'[self].txn.ts
+                 /\   \E r \in Ranges :
+                    /\ leases[r] = self
+                    /\ Cardinality(requests[r]) > 0
+                 /\ \E r \in { r \in Ranges :  leases[r] = self}:
+                      \E req \in requests[r]:
+                        /\ msg' = [msg EXCEPT ![self] = req]
+                        /\ requests' = [requests EXCEPT ![r] = requests[r] \ {req}]
+                 /\ IF clock[self] < (msg'[self].txn.ts)
                        THEN /\ clock' = [clock EXCEPT ![self] = msg'[self].txn.ts]
                        ELSE /\ TRUE
                             /\ clock' = clock
                  /\ pc' = [pc EXCEPT ![self] = "EvalRequest"]
-                 /\ UNCHANGED << lease, storage, responses, tsCache, committed, 
-                                 client_txn, transfers >>
+                 /\ UNCHANGED << leases, storage, responses, tsCache, 
+                                 committed, client_txn, transfers >>
 
 EvalRequest(self) == /\ pc[self] = "EvalRequest"
-                     /\ IF msg[self].type = "write"
-                           THEN /\ pc' = [pc EXCEPT ![self] = "HandleWrite"]
-                           ELSE /\ IF msg[self].type = "push"
-                                      THEN /\ pc' = [pc EXCEPT ![self] = "HandlePush"]
-                                      ELSE /\ pc' = [pc EXCEPT ![self] = "HandleCommit"]
-                     /\ UNCHANGED << lease, storage, requests, responses, 
+                     /\ TRUE
+                     /\ pc' = [pc EXCEPT ![self] = "Run"]
+                     /\ UNCHANGED << leases, storage, requests, responses, 
                                      clock, tsCache, committed, msg, 
                                      client_txn, transfers >>
 
-HandleWrite(self) == /\ pc[self] = "HandleWrite"
-                     /\ IF IntentExists(storage)
-                           THEN /\ LET intent == GetIntent(storage) IN
-                                     requests' = (            requests \union {[
-                                                      type |-> "push",
-                                                      txn |-> msg[self].txn,
-                                                      from |-> msg[self].from,
-                                                      intent |-> intent
-                                                  ]})
-                                /\ UNCHANGED << storage, responses >>
-                           ELSE /\ IF \E ts \in DOMAIN storage : ts >= msg[self].txn.ts
-                                      THEN /\ responses' = (             responses \union {[
-                                                                to |-> msg[self].from,
-                                                                error |-> "WriteTooOld"
-                                                            ]})
-                                           /\ UNCHANGED storage
-                                      ELSE /\ storage' = (msg[self].txn.ts :> <<msg[self].txn.value, FALSE>> @@ storage)
-                                           /\ responses' = (             responses \union {[
-                                                                    to |-> msg[self].from,
-                                                                    error |-> NULL
-                                                            ]})
-                                /\ UNCHANGED requests
-                     /\ pc' = [pc EXCEPT ![self] = "Run"]
-                     /\ UNCHANGED << lease, clock, tsCache, committed, msg, 
-                                     client_txn, transfers >>
-
-HandlePush(self) == /\ pc[self] = "HandlePush"
-                    /\ tsCache' = [tsCache EXCEPT ![self] = msg[self].intent]
-                    /\ requests' = (            requests \union {[
-                                        type |-> "write",
-                                        from |-> msg[self].from,
-                                        txn |-> msg[self].txn
-                                    ]})
-                    /\ storage' = [ ts \in (DOMAIN storage \ {msg[self].intent}) |-> storage[ts] ]
-                    /\ pc' = [pc EXCEPT ![self] = "Run"]
-                    /\ UNCHANGED << lease, responses, clock, committed, msg, 
-                                    client_txn, transfers >>
-
-HandleCommit(self) == /\ pc[self] = "HandleCommit"
-                      /\ IF msg[self].txn.ts > tsCache[self]
-                            THEN /\ Assert(/\ msg[self].txn.ts \in DOMAIN storage
-                                           /\ ~storage[msg[self].txn.ts][2], 
-                                           "Failure of assertion at line 163, column 17.")
-                                 /\ storage' = (msg[self].txn.ts :> <<msg[self].txn.value, TRUE>> @@ storage)
-                                 /\ committed' = (committed \union {msg[self].txn.ts})
-                            ELSE /\ TRUE
-                                 /\ UNCHANGED << storage, committed >>
-                      /\ pc' = [pc EXCEPT ![self] = "Run"]
-                      /\ UNCHANGED << lease, requests, responses, clock, 
-                                      tsCache, msg, client_txn, transfers >>
-
 server(self) == Run(self) \/ Receive(self) \/ EvalRequest(self)
-                   \/ HandleWrite(self) \/ HandlePush(self)
-                   \/ HandleCommit(self)
 
 Begin(self) == /\ pc[self] = "Begin"
                /\ LET now == clock[ClientToServer[self]] IN
                     client_txn' = [client_txn EXCEPT ![self].ts = now]
                /\ pc' = [pc EXCEPT ![self] = "SendWrite"]
-               /\ UNCHANGED << lease, storage, requests, responses, clock, 
+               /\ UNCHANGED << leases, storage, requests, responses, clock, 
                                tsCache, committed, msg, transfers >>
 
 SendWrite(self) == /\ pc[self] = "SendWrite"
@@ -366,7 +314,7 @@ SendWrite(self) == /\ pc[self] = "SendWrite"
                                        txn |-> client_txn[self]
                                    ]})
                    /\ pc' = [pc EXCEPT ![self] = "WaitForWriteResponse"]
-                   /\ UNCHANGED << lease, storage, responses, clock, tsCache, 
+                   /\ UNCHANGED << leases, storage, responses, clock, tsCache, 
                                    committed, msg, client_txn, transfers >>
 
 WaitForWriteResponse(self) == /\ pc[self] = "WaitForWriteResponse"
@@ -377,7 +325,7 @@ WaitForWriteResponse(self) == /\ pc[self] = "WaitForWriteResponse"
                                            /\ UNCHANGED responses
                                       ELSE /\ responses' = responses \ {resp}
                                            /\ pc' = [pc EXCEPT ![self] = "SendCommit"]
-                              /\ UNCHANGED << lease, storage, requests, clock, 
+                              /\ UNCHANGED << leases, storage, requests, clock, 
                                               tsCache, committed, msg, 
                                               client_txn, transfers >>
 
@@ -389,7 +337,7 @@ SendCommit(self) == /\ pc[self] = "SendCommit"
                                         txn |-> client_txn[self]
                                     ]})
                     /\ pc' = [pc EXCEPT ![self] = "Done"]
-                    /\ UNCHANGED << lease, storage, responses, clock, tsCache, 
+                    /\ UNCHANGED << leases, storage, responses, clock, tsCache, 
                                     committed, msg, client_txn, transfers >>
 
 client(self) == Begin(self) \/ SendWrite(self)
@@ -402,7 +350,7 @@ TickClocks == /\ pc[ClockTicker] = "TickClocks"
                          /\ pc' = [pc EXCEPT ![ClockTicker] = "TickClocks"]
                     ELSE /\ pc' = [pc EXCEPT ![ClockTicker] = "Done"]
                          /\ clock' = clock
-              /\ UNCHANGED << lease, storage, requests, responses, tsCache, 
+              /\ UNCHANGED << leases, storage, requests, responses, tsCache, 
                               committed, msg, client_txn, transfers >>
 
 clock_ticker == TickClocks
@@ -418,11 +366,11 @@ TransferLease == /\ pc[LeaseTransferrer] = "TransferLease"
                                        THEN /\ clock' = [clock EXCEPT ![s] = clock[lease]+1]
                                        ELSE /\ TRUE
                                             /\ clock' = clock
-                                 /\ lease' = s
+                                 /\ leases' = s
                                  /\ transfers' = transfers + 1
                             /\ pc' = [pc EXCEPT ![LeaseTransferrer] = "TransferLease"]
                        ELSE /\ pc' = [pc EXCEPT ![LeaseTransferrer] = "Done"]
-                            /\ UNCHANGED << lease, clock, tsCache, transfers >>
+                            /\ UNCHANGED << leases, clock, tsCache, transfers >>
                  /\ UNCHANGED << storage, requests, responses, committed, msg, 
                                  client_txn >>
 
@@ -440,12 +388,11 @@ Termination == <>(\A self \in ProcSet: pc[self] = "Done")
 
 \* END TRANSLATION
 
-
     
 IsTxn(txn) == 
     /\ txn.ts \in Timestamps
     /\ txn.value \in Values
-    
+     
 IsRequest(req) == 
     /\ req.type \in MsgTypes
     /\ IsTxn(req.txn)
@@ -458,16 +405,19 @@ ServerOk ==
         \/ m = NULL 
         \/ IsRequest(m)
 
-RequestsOk == \A req \in requests : IsRequest(req)
+RequestsOk == \A r \in DOMAIN requests :
+    /\ r \in Ranges
+    /\ \A req \in requests[r] : IsRequest(req)
 
 ResponsesOk == \A resp \in responses : IsResponse(resp)
+ 
+WrittenValueOk == Clients \X Timestamps
+
+TxnRecordOk == Clients \X BOOLEAN 
 
 IsTxnRecord(r) == r \in TxnRecordOk
+
 IsWrittenValue(r) == r \in WrittenValueOk
-
-TxnRecordOk == (Clients \x BOOLEAN) \* << c1, TRUE >> 
-
-WrittenValueOk == (Client \x Timestamp) \* << c1, ts1 >> 
 
 StoredValueOk == TxnRecordOk \/ WrittenValueOk
 
@@ -480,12 +430,13 @@ StorageOk ==
 NoPartialCommits ==
     \/ \A r \in DOMAIN storage :
         \A txn \in { x \in storage[r] : IsTxnRecord(x) } :
-            txn[2] => \E r2 in (DOMAIN storage \ r) : 
-                \E val \in { x \in storage[r2] : IsWrittenValue(x) } :
-                    val[1] = txn[1];
+            txn[2] => 
+                \E r2 \in (DOMAIN storage \ r) :
+                 \E val \in { x \in storage[r2] : IsWrittenValue(x) } :
+                    val[1] = txn[1]
                    
 
 =============================================================================
 \* Modification History
-\* Last modified Thu Jun 13 12:04:40 EDT 2019 by ajwerner
+\* Last modified Thu Jun 13 12:36:24 EDT 2019 by ajwerner
 \* Created Wed May 15 13:18:23 EDT 2019 by ajwerner
