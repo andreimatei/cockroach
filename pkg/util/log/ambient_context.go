@@ -15,7 +15,7 @@ import (
 
 	"github.com/cockroachdb/cockroach/pkg/util/tracing"
 	"github.com/cockroachdb/logtags"
-	opentracing "github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go"
 	"golang.org/x/net/trace"
 )
 

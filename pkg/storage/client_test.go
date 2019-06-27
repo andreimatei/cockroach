@@ -231,7 +231,7 @@ func createTestStoreWithOpts(
 	// Make all the initial ranges part of replication queue purgatory. This is
 	// similar to what a real cluster does after bootstrap - we want the initial
 	// ranges to up-replicate as soon as other nodes join.
-	if err := store.ForceReplicationScanAndProcess(); err != nil {
+	if _, err := store.ForceReplicationScanAndProcess(ctx); err != nil {
 		t.Fatal(err)
 	}
 

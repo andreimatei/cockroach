@@ -544,16 +544,15 @@ func (bq *baseQueue) AddAsync(ctx context.Context, repl replicaInQueue, prio flo
 	})
 }
 
-func (bq *baseQueue) maybeAdd(ctx context.Context, repl replicaInQueue, now hlc.Timestamp) {
+func (bq *baseQueue) maybeAdd(ctx context.Context, repl replicaInQueue, now hlc.Timestamp) bool {
+	ctx = repl.AnnotateCtx(ctx)
 	// Load the system config if it's needed.
 	var cfg *config.SystemConfig
 	if bq.needsSystemConfig {
 		cfg = bq.gossip.GetSystemConfig()
 		if cfg == nil {
-			if log.V(1) {
-				log.Infof(ctx, "no system config available. skipping")
-			}
-			return
+			log.VEventf(ctx, 1, "no system config available. skipping")
+			return false
 		}
 	}
 
@@ -562,11 +561,11 @@ func (bq *baseQueue) maybeAdd(ctx context.Context, repl replicaInQueue, now hlc.
 	bq.mu.Unlock()
 
 	if stopped {
-		return
+		return false
 	}
 
 	if !repl.IsInitialized() {
-		return
+		return false
 	}
 
 	if bq.needsRaftInitialized {
@@ -576,10 +575,8 @@ func (bq *baseQueue) maybeAdd(ctx context.Context, repl replicaInQueue, now hlc.
 	if cfg != nil && bq.requiresSplit(cfg, repl) {
 		// Range needs to be split due to zone configs, but queue does
 		// not accept unsplit ranges.
-		if log.V(1) {
-			log.Infof(ctx, "split needed; not adding")
-		}
-		return
+		log.VEventf(ctx, 1, "split needed; not adding")
+		return false
 	}
 
 	if bq.needsLease {
@@ -587,10 +584,8 @@ func (bq *baseQueue) maybeAdd(ctx context.Context, repl replicaInQueue, now hlc.
 		// holder is.
 		if lease, _ := repl.GetLease(); repl.IsLeaseValid(lease, now) &&
 			!lease.OwnedBy(repl.StoreID()) {
-			if log.V(1) {
-				log.Infof(ctx, "needs lease; not adding: %+v", lease)
-			}
-			return
+			log.VEventf(ctx, 1, "needs lease; not adding: %+v", lease)
+			return false
 		}
 	}
 	// NB: in production code, this type assertion is always true. In tests,
@@ -599,11 +594,13 @@ func (bq *baseQueue) maybeAdd(ctx context.Context, repl replicaInQueue, now hlc.
 	realRepl, _ := repl.(*Replica)
 	should, priority := bq.impl.shouldQueue(ctx, now, realRepl, cfg)
 	if !should {
-		return
+		return false
 	}
 	if _, err := bq.addInternal(ctx, repl.Desc(), priority); !isExpectedQueueError(err) {
 		log.Errorf(ctx, "unable to add: %s", err)
+		return false
 	}
+	return true
 }
 
 func (bq *baseQueue) requiresSplit(cfg *config.SystemConfig, repl replicaInQueue) bool {

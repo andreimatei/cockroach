@@ -33,6 +33,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/retry"
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
+	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/pkg/errors"
 )
 
@@ -174,7 +175,7 @@ func StartTestCluster(t testing.TB, nodes int, args base.TestClusterArgs) *TestC
 	tc.stopper.AddCloser(stop.CloserFn(tc.stopServers))
 
 	if tc.replicationMode == base.ReplicationAuto {
-		if err := tc.WaitForFullReplication(); err != nil {
+		if err := tc.WaitForFullReplication(context.TODO()); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -546,7 +547,13 @@ func (tc *TestCluster) findMemberStore(storeID roachpb.StoreID) (*storage.Store,
 
 // WaitForFullReplication waits until all stores in the cluster
 // have no ranges with replication pending.
-func (tc *TestCluster) WaitForFullReplication() error {
+func (tc *TestCluster) WaitForFullReplication(ctx context.Context) error {
+	start := timeutil.Now()
+	defer func() {
+		end := timeutil.Now()
+		log.Infof(ctx, "WaitForFullReplication took: %s", end.Sub(start))
+	}()
+
 	if len(tc.Servers) < 3 {
 		// If we have less than three nodes, we will never have full replication.
 		return nil
@@ -558,33 +565,72 @@ func (tc *TestCluster) WaitForFullReplication() error {
 		Multiplier:     2,
 	}
 
+	// !!! for i := 0; i < len(tc.Servers)-1; i++ {
+	for i, s := range tc.Servers {
+		log.Infof(ctx, "WaitForFullReplication processing server %d", i)
+		if err := s.Stores().VisitStores(func(s *storage.Store) error {
+			return s.ForceReplicationScanAndProcessLoop(ctx)
+		}); err != nil {
+			return err
+		}
+	}
+	// !!! }
+
+	time.Sleep(200 * time.Millisecond) // !!!
+
+	for i, s := range tc.Servers {
+		log.Infof(ctx, "WaitForFullReplication checking server %d", i)
+		if err := s.Stores().VisitStores(func(s *storage.Store) error {
+			s.VisitReplicas(func(r *storage.Replica) bool {
+				log.Infof(ctx, "!!! visiting repl: %s - %s", r, r.Desc())
+				desc, zone := r.DescAndZone()
+				need := storage.GetNeededReplicas(*zone.NumReplicas, len(tc.Servers))
+				have := len(desc.Replicas().All())
+				if need != have {
+					log.Fatalf(ctx, "expected %d replicas, got: %d - %s", need, have, desc)
+				}
+				return true
+			})
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+
 	notReplicated := true
 	for r := retry.Start(opts); r.Next() && notReplicated; {
 		notReplicated = false
-		for i, s := range tc.Servers {
+		for _, s := range tc.Servers {
 			err := s.Stores().VisitStores(func(s *storage.Store) error {
 				if n := s.ClusterNodeCount(); n != len(tc.Servers) {
-					log.Infof(context.TODO(), "%s only sees %d/%d available nodes", s, n, len(tc.Servers))
+					log.Infof(ctx, "%s only sees %d/%d available nodes", s, n, len(tc.Servers))
+					log.Fatalf(ctx, "!!!")
 					notReplicated = true
 					return nil
 				}
-				// Force the first node to upreplicate everything. Otherwise, if we rely
-				// on the scanner to do it, it'll take a while.
-				if i == 0 {
-					if err := s.ForceReplicationScanAndProcess(); err != nil {
-						return err
-					}
-				}
-				if err := s.ComputeMetrics(context.TODO(), 0); err != nil {
+				// !!!
+				//// Force the first node to upreplicate everything. Otherwise, if we rely
+				//// on the scanner to do it, it'll take a while.
+				//if i == 0 {
+				//	if err := s.ForceReplicationScanAndProcess(); err != nil {
+				//		return err
+				//	}
+				//}
+				if err := s.ComputeMetrics(ctx, 0); err != nil {
 					// This can sometimes fail since ComputeMetrics calls
 					// updateReplicationGauges which needs the system config gossiped.
-					log.Info(context.TODO(), err)
+					log.Info(ctx, err)
 					notReplicated = true
 					return nil
 				}
 				if n := s.Metrics().UnderReplicatedRangeCount.Value(); n > 0 {
-					log.Infof(context.TODO(), "%s has %d underreplicated ranges", s, n)
+					log.Infof(ctx, "%s has %d underreplicated ranges", s, n)
+					log.Fatalf(ctx, "!!!")
 					notReplicated = true
+					// !!!
+					//if err := s.ForceReplicationScanAndProcess(); err != nil {
+					//	return err
+					//}
 				}
 				return nil
 			})

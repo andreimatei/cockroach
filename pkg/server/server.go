@@ -1785,7 +1785,8 @@ func (s *Server) bootstrapCluster(ctx context.Context) error {
 	return s.node.stores.VisitStores(func(store *storage.Store) error {
 		if !done {
 			done = true
-			return store.ForceReplicationScanAndProcess()
+			_, err := store.ForceReplicationScanAndProcess(ctx)
+			return err
 		}
 		return nil
 	})

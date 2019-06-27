@@ -189,18 +189,8 @@ func newReplicateQueue(store *Store, g *gossip.Gossip, allocator Allocator) *rep
 func (rq *replicateQueue) shouldQueue(
 	ctx context.Context, now hlc.Timestamp, repl *Replica, sysCfg *config.SystemConfig,
 ) (shouldQ bool, priority float64) {
-	if !repl.store.splitQueue.Disabled() && repl.needsSplitBySize() {
-		// If the range exceeds the split threshold, let that finish first.
-		// Ranges must fit in memory on both sender and receiver nodes while
-		// being replicated. This supplements the check provided by
-		// acceptsUnsplitRanges, which looks at zone config boundaries rather
-		// than data size.
-		//
-		// This check is ignored if the split queue is disabled, since in that
-		// case, the split will never come.
-		return
-	}
-
+	ctx = repl.AnnotateCtx(ctx)
+	log.Infof(ctx, "!!! shouldQueue")
 	// Get the descriptor and zone config for this range.
 	desc, zone := repl.DescAndZone()
 
@@ -213,14 +203,15 @@ func (rq *replicateQueue) shouldQueue(
 		log.VEventf(ctx, 2, "repair needed (%s), enqueuing", action)
 		return true, priority
 	}
+	log.Infof(ctx, "!!! shouldQueue action: %s", action)
 
 	if !rq.store.TestingKnobs().DisableReplicaRebalancing {
 		target, _ := rq.allocator.RebalanceTarget(ctx, zone, repl.RaftStatus(), rangeInfo, storeFilterThrottled)
 		if target != nil {
-			log.VEventf(ctx, 2, "rebalance target found, enqueuing")
+			log.VEventf(ctx, 2, "rebalance target found, enqueuing %s", repl)
 			return true, 0
 		}
-		log.VEventf(ctx, 2, "no rebalance target found, not enqueuing")
+		log.VEventf(ctx, 2, "no rebalance target found, not enqueuing %s", repl)
 	}
 
 	// If the lease is valid, check to see if we should transfer it.
@@ -228,7 +219,7 @@ func (rq *replicateQueue) shouldQueue(
 		if rq.canTransferLease() &&
 			rq.allocator.ShouldTransferLease(
 				ctx, zone, desc.Replicas().Unwrap(), lease.Replica.StoreID, desc.RangeID, repl.leaseholderStats) {
-			log.VEventf(ctx, 2, "lease transfer needed, enqueuing")
+			log.VEventf(ctx, 2, "lease transfer needed, enqueuing %s", repl)
 			return true, 0
 		}
 	}

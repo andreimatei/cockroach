@@ -1562,7 +1562,7 @@ func TestStoreRangeUpReplicate(t *testing.T) {
 	mtc.initGossipNetwork()
 
 	// Once we know our peers, trigger a scan.
-	if err := mtc.stores[0].ForceReplicationScanAndProcess(); err != nil {
+	if _, err := mtc.stores[0].ForceReplicationScanAndProcess(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3010,7 +3010,7 @@ func TestStoreRangeMoveDecommissioning(t *testing.T) {
 	testutils.SucceedsSoon(t, func() error {
 		// Force the repair queues on all stores to run.
 		for _, s := range mtc.stores {
-			if err := s.ForceReplicationScanAndProcess(); err != nil {
+			if _, err := s.ForceReplicationScanAndProcess(ctx); err != nil {
 				t.Fatal(err)
 			}
 		}

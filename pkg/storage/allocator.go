@@ -304,6 +304,7 @@ func (a *Allocator) ComputeAction(
 	desiredQuorum := computeQuorum(need)
 	quorum := computeQuorum(have)
 
+	log.Infof(ctx, "!!! have: %d, need: %d", have, need)
 	if have < need {
 		// Range is under-replicated, and should add an additional replica.
 		// Priority is adjusted by the difference between the current replica
