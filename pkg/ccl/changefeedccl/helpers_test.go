@@ -329,5 +329,5 @@ func forceTableGC(
 	database, table string,
 ) {
 	t.Helper()
-	serverutils.ForceTableGC(t, tsi, sqlDB.DB, database, table, tsi.Clock().Now())
+	tsi.ForceTableGC(t, sqlDB.DB, database, table, tsi.Clock().Now())
 }

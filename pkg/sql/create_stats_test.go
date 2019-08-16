@@ -97,7 +97,7 @@ func TestStatsWithLowTTL(t *testing.T) {
 				return
 			}
 			// Force a table GC of values older than 1 second.
-			serverutils.ForceTableGC(t, s, db2, "test", "t", s.Clock().Now().Add(-int64(1*time.Second), 0))
+			s.ForceTableGC(t, db2, "test", "t", s.Clock().Now().Add(-int64(1*time.Second), 0))
 			time.Sleep(10 * time.Millisecond)
 		}
 	}()
