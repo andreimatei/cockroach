@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/cockroachdb/cockroach/pkg/config/zonepb"
 	"math"
 	"reflect"
 	"strconv"
@@ -1504,5 +1505,25 @@ func TestDecodeTableValue(t *testing.T) {
 				t.Fatalf("decoded datum %[1]v (%[1]T) does not match encoded datum %[2]v (%[2]T)", d, tc.in)
 			}
 		})
+	}
+}
+
+func TestSplitKeysForTable(t *testing.T) {
+	tableDesc := &TableDescriptor{
+		ID:      1,
+		PrimaryIndex: IndexDescriptor{
+			ID:               1,
+		},
+		Indexes: []IndexDescriptor{{
+			ID:               2,
+		}},
+		NextIndexID: 3,
+	}
+	desc := WrapDescriptor(tableDesc)
+	zone := &zonepb.ZoneConfig{}
+
+	splits, err := splitKeysForTableInner(desc, zone)
+	if err != nil {
+		t.Fatal(err)
 	}
 }

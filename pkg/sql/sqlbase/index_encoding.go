@@ -39,8 +39,13 @@ func MakeIndexKeyPrefix(desc *TableDescriptor, indexID IndexID) []byte {
 		return key
 	}
 	key = encoding.EncodeUvarintAscending(key, uint64(desc.ID))
-	key = encoding.EncodeUvarintAscending(key, uint64(indexID))
+	key = EncodeSimpleIndexID(key, indexID)
 	return key
+}
+
+// EncodeSimpleIndexID encodes a non-interleaved index ID.
+func EncodeSimpleIndexID(key []byte, indexID IndexID) []byte{
+	return encoding.EncodeUvarintAscending(key, uint64(indexID))
 }
 
 // EncodeIndexSpan creates the minimal key span for the key specified by the
