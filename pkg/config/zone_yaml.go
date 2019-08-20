@@ -116,10 +116,22 @@ func (c *ConstraintsList) UnmarshalYAML(unmarshal func(interface{}) error) error
 	var strs []string
 	c.Inherited = true
 	if err := unmarshal(&strs); err == nil {
-		constraints := make([]Constraint, len(strs))
-		for i, short := range strs {
-			if err := constraints[i].FromString(short); err != nil {
-				return err
+		constraints := make([]Constraint, 0, len(strs))
+		for _, short := range strs {
+			var c Constraint
+			if err := c.FromString(short); err != nil {
+				// Try to parse as a per-replicas constraint map.
+				constraintsMap := make(map[string]int32)
+				if mapErr := yaml.Unmarshal([]byte(short), &constraintsMap); mapErr != nil {
+					return err
+				}
+				newConstraints, err := parsePerReplicaConstraintMap(constraintsMap)
+				if err != nil {
+					return err
+				}
+				constraints = append(constraints, newConstraints...)
+			} else {
+				constaints = append(constraints, c)
 			}
 		}
 		if len(constraints) == 0 {
@@ -144,19 +156,9 @@ func (c *ConstraintsList) UnmarshalYAML(unmarshal func(interface{}) error) error
 		return err
 	}
 
-	constraintsList := make([]Constraints, 0, len(constraintsMap))
-	for constraintsStr, numReplicas := range constraintsMap {
-		shortConstraints := strings.Split(constraintsStr, ",")
-		constraints := make([]Constraint, len(shortConstraints))
-		for i, short := range shortConstraints {
-			if err := constraints[i].FromString(short); err != nil {
-				return err
-			}
-		}
-		constraintsList = append(constraintsList, Constraints{
-			Constraints: constraints,
-			NumReplicas: numReplicas,
-		})
+	constraintsList, e := parsePerReplicaConstraintMap(constraintsMap)
+	if e != nil {
+		return e
 	}
 
 	// Sort the resulting list for reproducible orderings in tests.
@@ -186,6 +188,24 @@ func (c *ConstraintsList) UnmarshalYAML(unmarshal func(interface{}) error) error
 	c.Constraints = constraintsList
 	c.Inherited = false
 	return nil
+}
+
+func parsePerReplicaConstraintMap(constraintsMap map[string]int32) ([]Constraints, error) {
+	constraintsList := make([]Constraints, 0, len(constraintsMap))
+	for constraintsStr, numReplicas := range constraintsMap {
+		shortConstraints := strings.Split(constraintsStr, ",")
+		constraints := make([]Constraint, len(shortConstraints))
+		for i, short := range shortConstraints {
+			if err := constraints[i].FromString(short); err != nil {
+				return nil, err
+			}
+		}
+		constraintsList = append(constraintsList, Constraints{
+			Constraints: constraints,
+			NumReplicas: numReplicas,
+		})
+	}
+	return constraintsList, nil
 }
 
 // marshalableZoneConfig should be kept up-to-date with the real,
