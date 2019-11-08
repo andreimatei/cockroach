@@ -27,6 +27,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/testutils/localtestcluster"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/cockroachdb/cockroach/pkg/util/leaktest"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
@@ -647,4 +648,39 @@ func TestTxnCommitTimestampAdvancedByRefresh(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
+}
+
+func TestTxnLeavesIntentBehindAfterWriteTooOldError(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	ctx := context.Background()
+	s := createTestDB(t)
+	defer s.Stop()
+
+	key := []byte("b")
+
+	time.Sleep(time.Second) // !!!
+	log.Infof(ctx, "!!! test start")
+	txn := s.DB.NewTxn(ctx, "test txn")
+	// Perform a Get so that the transaction can't refresh.
+	_, err := txn.Get(ctx, key)
+	log.Infof(ctx, "!!! test get done")
+	require.NoError(t, err)
+
+	// Another guy writes at a higher timestamp.
+	require.NoError(t, s.DB.Put(ctx, key, "newer value"))
+
+	// Now we write and expect a WriteTooOld.
+	err = txn.Put(ctx, key, "test")
+	require.IsType(t, &roachpb.TransactionRetryWithProtoRefreshError{}, err)
+	require.Error(t, err, "WriteTooOld")
+
+	b := client.Batch{}
+	b.Header.ReadConsistency = roachpb.INCONSISTENT
+	b.Get(key)
+	require.NoError(t, s.DB.Run(ctx, &b))
+	getResp := b.RawResponse().Responses[0].GetGet()
+	require.NotNil(t, getResp)
+	intent := getResp.IntentValue
+	require.NotNil(t, intent)
+	require.Equal(t, intent.RawBytes, []byte("test"))
 }

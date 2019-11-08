@@ -100,11 +100,17 @@ func TestTxnSpanRefresherRefreshesTransactions(t *testing.T) {
 	keyA, keyB := roachpb.Key("a"), roachpb.Key("b")
 
 	cases := []struct {
-		pErr         func() *roachpb.Error
+		name string
+		// The error to return on the request's first attempt.
+		pErr func() *roachpb.Error
+		// If set, the WriteTooOld flag will be set on br.Txn for the first request,
+		// and the response's txn will be forwarded to this timestamp.
+		writeTooOld  hlc.Timestamp
 		expRefresh   bool
 		expRefreshTS hlc.Timestamp
 	}{
 		{
+			name: "RETRY_SERIALIZABLE",
 			pErr: func() *roachpb.Error {
 				return roachpb.NewError(
 					&roachpb.TransactionRetryError{Reason: roachpb.RETRY_SERIALIZABLE})
@@ -113,6 +119,7 @@ func TestTxnSpanRefresherRefreshesTransactions(t *testing.T) {
 			expRefreshTS: txn.WriteTimestamp,
 		},
 		{
+			name: "RETRY_WRITE_TOO_OLD",
 			pErr: func() *roachpb.Error {
 				return roachpb.NewError(
 					&roachpb.TransactionRetryError{Reason: roachpb.RETRY_WRITE_TOO_OLD})
@@ -121,6 +128,7 @@ func TestTxnSpanRefresherRefreshesTransactions(t *testing.T) {
 			expRefreshTS: txn.WriteTimestamp,
 		},
 		{
+			name: "RETRY_POSSIBLE_REPLAY",
 			pErr: func() *roachpb.Error {
 				return roachpb.NewError(
 					&roachpb.TransactionRetryError{Reason: roachpb.RETRY_POSSIBLE_REPLAY})
@@ -128,14 +136,18 @@ func TestTxnSpanRefresherRefreshesTransactions(t *testing.T) {
 			expRefresh: false,
 		},
 		{
-			pErr: func() *roachpb.Error {
-				return roachpb.NewError(
-					&roachpb.WriteTooOldError{ActualTimestamp: txn.WriteTimestamp.Add(15, 0)})
-			},
+			name:        "WriteTooOldFlag",
+			writeTooOld: hlc.Timestamp{WallTime: 25},
+			//!!!
+			//pErr: func() *roachpb.Error {
+			//	return roachpb.NewError(
+			//		&roachpb.WriteTooOldError{ActualTimestamp: txn.WriteTimestamp.Add(15, 0)})
+			//},
 			expRefresh:   true,
 			expRefreshTS: txn.WriteTimestamp.Add(15, 0),
 		},
 		{
+			name: "ReadWithingUncertaintyInterval-1",
 			pErr: func() *roachpb.Error {
 				pErr := roachpb.NewError(&roachpb.ReadWithinUncertaintyIntervalError{})
 				pErr.OriginNode = 1
@@ -145,6 +157,7 @@ func TestTxnSpanRefresherRefreshesTransactions(t *testing.T) {
 			expRefreshTS: txn.WriteTimestamp.Add(20, 0), // see UpdateObservedTimestamp
 		},
 		{
+			name: "ReadWithingUncertaintyInterval-2",
 			pErr: func() *roachpb.Error {
 				pErr := roachpb.NewError(
 					&roachpb.ReadWithinUncertaintyIntervalError{
@@ -157,6 +170,7 @@ func TestTxnSpanRefresherRefreshesTransactions(t *testing.T) {
 			expRefreshTS: txn.WriteTimestamp.Add(25, 1), // see ExistingTimestamp
 		},
 		{
+			name: "misc error",
 			pErr: func() *roachpb.Error {
 				return roachpb.NewErrorf("no refresh")
 			},
@@ -164,7 +178,7 @@ func TestTxnSpanRefresherRefreshesTransactions(t *testing.T) {
 		},
 	}
 	for _, tc := range cases {
-		t.Run(tc.pErr().String(), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			tsr, mockSender := makeMockTxnSpanRefresher()
 
@@ -191,9 +205,20 @@ func TestTxnSpanRefresherRefreshesTransactions(t *testing.T) {
 				require.IsType(t, &roachpb.PutRequest{}, ba.Requests[0].GetInner())
 
 				// Return a transaction retry error.
-				pErr = tc.pErr()
-				pErr.SetTxn(ba.Txn)
-				return nil, pErr
+
+				if tc.pErr != nil {
+					pErr = tc.pErr()
+					pErr.SetTxn(ba.Txn)
+					return nil, pErr
+				} else {
+					br = ba.CreateReply()
+					br.Txn = ba.Txn
+					if !tc.writeTooOld.IsEmpty() {
+						br.Txn.WriteTooOld = true
+						br.Txn.WriteTimestamp.Forward(tc.writeTooOld)
+					}
+					return br, nil
+				}
 			}
 			onSecondSend := func(ba roachpb.BatchRequest) (*roachpb.BatchResponse, *roachpb.Error) {
 				// Should not be called if !expRefresh.

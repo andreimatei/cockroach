@@ -237,7 +237,7 @@ func evaluateBatch(
 	// this writing, nearly all writes issued by SQL are preceded by
 	// reads of the same key.
 	var writeTooOldErr *roachpb.Error
-	mustReturnWriteTooOldErr := false
+	// !!! mustReturnWriteTooOldErr := false
 
 	for index, union := range baReqs {
 		// Execute the command.
@@ -287,17 +287,19 @@ func evaluateBatch(
 				if writeTooOldErr != nil {
 					writeTooOldErr.GetDetail().(*roachpb.WriteTooOldError).ActualTimestamp.Forward(tErr.ActualTimestamp)
 				} else {
+					log.Infof(ctx, "!!! detected WTOE")
 					writeTooOldErr = pErr
 				}
 
-				// Requests which are both read and write are not currently
-				// accounted for in RefreshSpans, so they rely on eager
-				// returning of WriteTooOldErrors.
-				// TODO(bdarnell): add read+write requests to the read refresh spans
-				// in TxnCoordSender, and then I think this can go away.
-				if roachpb.IsReadAndWrite(args) {
-					mustReturnWriteTooOldErr = true
-				}
+				// !!!
+				//// Requests which are both read and write are not currently
+				//// accounted for in RefreshSpans, so they rely on eager
+				//// returning of WriteTooOldErrors.
+				//// TODO(bdarnell): add read+write requests to the read refresh spans
+				//// in TxnCoordSender, and then I think this can go away.
+				//if roachpb.IsReadAndWrite(args) {
+				//	mustReturnWriteTooOldErr = true
+				//}
 
 				if baHeader.Txn != nil {
 					baHeader.Txn.WriteTimestamp.Forward(tErr.ActualTimestamp)
@@ -310,6 +312,7 @@ func evaluateBatch(
 				// WriteTooOldError from this method, we will detect the
 				// pushed timestamp at commit time and refresh or retry the
 				// transaction.
+				// !!! comment
 				pErr = nil
 			default:
 				return nil, result, pErr
@@ -345,14 +348,18 @@ func evaluateBatch(
 	} else if baHeader.Txn == nil {
 		// Non-transactional requests are unable to defer WriteTooOldErrors
 		// because there is no where to defer them to.
-		mustReturnWriteTooOldErr = true
+		// !!! mustReturnWriteTooOldErr = true
+		if writeTooOldErr != nil {
+			return nil, result, writeTooOldErr
+		}
 	}
 
-	// If there's a write too old error, return now that we've found
-	// the high water timestamp for retries.
-	if writeTooOldErr != nil && (mustReturnWriteTooOldErr || !baHeader.DeferWriteTooOldError) {
-		return nil, result, writeTooOldErr
-	}
+	// !!!
+	//// If there's a write too old error, return now that we've found
+	//// the high water timestamp for retries.
+	//if writeTooOldErr != nil && (mustReturnWriteTooOldErr || !baHeader.DeferWriteTooOldError) {
+	//	return nil, result, writeTooOldErr
+	//}
 
 	if baHeader.Txn != nil {
 		// If transactional, send out the final transaction entry with the reply.
@@ -370,6 +377,9 @@ func evaluateBatch(
 	// which the batch executed.
 	br.Timestamp.Forward(baHeader.Timestamp)
 
+	if br.Txn != nil {
+		log.Infof(ctx, "!!! returning br: %s - %s", br, br.Txn)
+	}
 	return br, result, nil
 }
 

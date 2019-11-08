@@ -169,6 +169,10 @@ func (sr *txnSpanRefresher) SendLocked(
 		return nil, pErr
 	}
 
+	if br.Txn == nil {
+		log.Fatalf(ctx, "!!! nil br.Txn. br: %s", br)
+	}
+
 	// If the transaction is no longer pending, just return without
 	// attempting to record its refresh spans.
 	if br.Txn.Status != roachpb.PENDING {
@@ -204,6 +208,7 @@ func (sr *txnSpanRefresher) sendLockedWithRefreshAttempts(
 	ctx context.Context, ba roachpb.BatchRequest, maxRefreshAttempts int,
 ) (_ *roachpb.BatchResponse, _ *roachpb.Error, largestRefreshTS hlc.Timestamp) {
 	br, pErr := sr.sendHelper(ctx, ba)
+	// !!! || br.Txn.WriteTooOld {
 	if pErr != nil && maxRefreshAttempts > 0 {
 		br, pErr, largestRefreshTS = sr.maybeRetrySend(ctx, ba, br, pErr, maxRefreshAttempts)
 	}
@@ -222,10 +227,41 @@ func (sr *txnSpanRefresher) maybeRetrySend(
 	maxRefreshAttempts int,
 ) (*roachpb.BatchResponse, *roachpb.Error, hlc.Timestamp) {
 	// Check for an error which can be retried after updating spans.
-	canRetryTxn, retryTxn := roachpb.CanTransactionRetryAtRefreshedTimestamp(ctx, pErr)
-	if !canRetryTxn || !sr.canAutoRetry {
+
+	if !sr.canAutoRetry {
 		return nil, pErr, hlc.Timestamp{}
 	}
+
+	log.Infof(ctx, "!!! client got response: %s", br)
+	var retryInfo roachpb.RetryInfo
+	if pErr != nil {
+		log.Infof(ctx, "!!! client got err: %s", pErr)
+		retryInfo = roachpb.ShouldAttemptRefresh(ctx, pErr)
+	} else {
+		if br.Txn.WriteTooOld {
+			log.Info(ctx, "!!! client detected WTO flag")
+			// Note that requests which are both read and write (e.g. CPut, InitPut,
+			// Inc) force us to refresh and retry the batch eagerly; even if we wanted
+			// to defer that, we couldn't with the code as it stands. These requests
+			// are not currently accounted for in RefreshSpans, so if we move on
+			// without refreshing and retrying the batch now, we might commit
+			// erroneously.
+			retryInfo = roachpb.RetryInfo{CanRetry: true, ReadTimestamp: br.Txn.WriteTimestamp}
+		}
+	}
+	if !retryInfo.CanRetry {
+		return nil, pErr, hlc.Timestamp{}
+	}
+
+	var retryTxn *roachpb.Transaction
+	if br != nil {
+		retryTxn = br.Txn.Clone()
+	} else {
+		retryTxn = pErr.GetTxn().Clone()
+	}
+	retryTxn.WriteTimestamp.Forward(retryInfo.ReadTimestamp)
+	retryTxn.ReadTimestamp.Forward(retryInfo.ReadTimestamp)
+	retryTxn.WriteTooOld = false
 
 	// If a prefix of the batch was executed, collect refresh spans for
 	// that executed portion, and retry the remainder. The canonical

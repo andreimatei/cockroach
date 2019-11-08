@@ -767,6 +767,7 @@ func (tc *TxnCoordSender) commitReadOnlyTxnLocked(
 func (tc *TxnCoordSender) Send(
 	ctx context.Context, ba roachpb.BatchRequest,
 ) (*roachpb.BatchResponse, *roachpb.Error) {
+	log.Infof(ctx, "!!! TCS sending: %s", ba)
 	// NOTE: The locking here is unusual. Although it might look like it, we are
 	// NOT holding the lock continuously for the duration of the Send. We lock
 	// here, and unlock at the botton of the interceptor stack, in the
@@ -1015,7 +1016,9 @@ func (tc *TxnCoordSender) handleRetryableErrLocked(
 		}
 
 	case *roachpb.WriteTooOldError:
-		tc.metrics.RestartsWriteTooOldMulti.Inc()
+		log.Fatalf(ctx, "!!! unexpected WTOE in client")
+		// !!! increment the right metric somewhere
+		// !!! tc.metrics.RestartsWriteTooOldMulti.Inc()
 
 	case *roachpb.ReadWithinUncertaintyIntervalError:
 		tc.metrics.RestartsReadWithinUncertainty.Inc()

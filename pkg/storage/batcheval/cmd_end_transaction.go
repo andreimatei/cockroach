@@ -375,6 +375,8 @@ func IsEndTransactionTriggeringRetryError(
 	// If we saw any WriteTooOldErrors, we must restart to avoid lost
 	// update anomalies.
 	if txn.WriteTooOld {
+		// !!! Is this still useful or has the client / code in batch eval stopped before sending
+		// /evaluating an EndTxn whenere there was a WTO?
 		retry, reason = true, roachpb.RETRY_WRITE_TOO_OLD
 	} else {
 		readTimestamp := txn.ReadTimestamp

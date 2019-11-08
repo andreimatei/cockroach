@@ -125,6 +125,7 @@ func (tc *txnCommitter) SendLocked(
 	if !hasET {
 		return tc.wrapped.SendLocked(ctx, ba)
 	}
+	log.Info(ctx, "!!! txnCommitter")
 	et := rArgs.(*roachpb.EndTransactionRequest)
 
 	// Determine whether we can elide the EndTransaction entirely. We can do
@@ -224,6 +225,7 @@ func (tc *txnCommitter) SendLocked(
 	// interceptor above this one in the stack should ever need to deal with
 	// transaction proto in the STAGING state.
 	br.Txn = cloneWithStatus(br.Txn, roachpb.COMMITTED)
+	log.Info(ctx, "!!! txnCommitter set txn")
 	return br, nil
 }
 

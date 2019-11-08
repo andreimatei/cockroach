@@ -1260,8 +1260,10 @@ func PrepareTransactionForRetry(
 		// ahead of any timestamp cache entries or newer versions which caused
 		// the restart.
 	case *WriteTooOldError:
-		// Increase the timestamp to the ts at which we've actually written.
-		txn.WriteTimestamp.Forward(writeTooOldRetryTimestamp(&txn, tErr))
+		log.Fatalf(ctx, "!!! unexpected WTOE in client")
+		// !!!
+		//// Increase the timestamp to the ts at which we've actually written.
+		//txn.WriteTimestamp.Forward(writeTooOldRetryTimestamp(&txn, tErr))
 	default:
 		log.Fatalf(ctx, "invalid retryable err (%T): %s", pErr.GetDetail(), pErr)
 	}
@@ -1274,44 +1276,55 @@ func PrepareTransactionForRetry(
 	return txn
 }
 
+type RetryInfo struct {
+	CanRetry      bool
+	ReadTimestamp hlc.Timestamp
+}
+
 // CanTransactionRetryAtRefreshedTimestamp returns whether the transaction
 // specified in the supplied error can be retried at a refreshed timestamp to
 // avoid a client-side transaction restart. If true, returns a cloned, updated
 // Transaction object with the provisional commit timestamp and refreshed
 // timestamp set appropriately.
-func CanTransactionRetryAtRefreshedTimestamp(
-	ctx context.Context, pErr *Error,
-) (bool, *Transaction) {
+func ShouldAttemptRefresh(ctx context.Context, pErr *Error) RetryInfo {
+	if pErr == nil {
+		log.Fatalf(ctx, "CanTransactionRetryAtRefreshedTimestamp called without an error")
+	}
+
 	txn := pErr.GetTxn()
 	if txn == nil || txn.CommitTimestampFixed {
-		return false, nil
+		return RetryInfo{CanRetry: false}
 	}
 	timestamp := txn.WriteTimestamp
 	switch err := pErr.GetDetail().(type) {
 	case *TransactionRetryError:
 		if err.Reason != RETRY_SERIALIZABLE && err.Reason != RETRY_WRITE_TOO_OLD {
-			return false, nil
+			return RetryInfo{CanRetry: false}
 		}
 	case *WriteTooOldError:
-		// TODO(andrei): Chances of success for on write-too-old conditions might be
-		// usually small: if our txn previously read the key that generated this
-		// error, obviously the refresh will fail. It might be worth trying to
-		// detect these cases and save the futile attempt; we'd need to have access
-		// to the key that generated the error.
-		timestamp.Forward(writeTooOldRetryTimestamp(txn, err))
+		log.Fatalf(ctx, "!!! unexpected WTOE in client")
+		// !!!
+		//	// TODO(andrei): Chances of success for on write-too-old conditions might be
+		//	// usually small: if our txn previously read the key that generated this
+		//	// error, obviously the refresh will fail. It might be worth trying to
+		//	// detect these cases and save the futile attempt; we'd need to have access
+		//	// to the key that generated the error.
+		//	timestamp.Forward(writeTooOldRetryTimestamp(txn, err))
 	case *ReadWithinUncertaintyIntervalError:
 		timestamp.Forward(
 			readWithinUncertaintyIntervalRetryTimestamp(ctx, txn, err, pErr.OriginNode))
 	default:
-		return false, nil
+		return RetryInfo{CanRetry: false}
 	}
 
-	newTxn := txn.Clone()
-	newTxn.WriteTimestamp.Forward(timestamp)
-	newTxn.ReadTimestamp.Forward(newTxn.WriteTimestamp)
-	newTxn.WriteTooOld = false
-
-	return true, newTxn
+	return RetryInfo{CanRetry: true, ReadTimestamp: timestamp}
+	// !!!
+	// newTxn := txn.Clone()
+	// newTxn.WriteTimestamp.Forward(timestamp)
+	// newTxn.ReadTimestamp.Forward(newTxn.WriteTimestamp)
+	// newTxn.WriteTooOld = false
+    //
+	// return true, newTxn
 }
 
 func readWithinUncertaintyIntervalRetryTimestamp(
