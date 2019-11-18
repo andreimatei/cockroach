@@ -427,41 +427,6 @@ func TestEndTransactionUpdatesTransactionRecord(t *testing.T) {
 			}(),
 		},
 		{
-			// The transaction has run into a WriteTooOld error during its
-			// lifetime. The stage will be rejected.
-			name: "record missing, can create, try stage after write too old",
-			// Replica state.
-			existingTxn:  nil,
-			canCreateTxn: func() (bool, hlc.Timestamp) { return true, hlc.Timestamp{} },
-			// Request state.
-			headerTxn: func() *roachpb.Transaction {
-				clone := txn.Clone()
-				clone.WriteTooOld = true
-				return clone
-			}(),
-			commit:         true,
-			inFlightWrites: writes,
-			// Expected result.
-			expError: "TransactionRetryError: retry txn (RETRY_WRITE_TOO_OLD)",
-		},
-		{
-			// The transaction has run into a WriteTooOld error during its
-			// lifetime. The stage will be rejected.
-			name: "record missing, can create, try commit after write too old",
-			// Replica state.
-			existingTxn:  nil,
-			canCreateTxn: func() (bool, hlc.Timestamp) { return true, hlc.Timestamp{} },
-			// Request state.
-			headerTxn: func() *roachpb.Transaction {
-				clone := txn.Clone()
-				clone.WriteTooOld = true
-				return clone
-			}(),
-			commit: true,
-			// Expected result.
-			expError: "TransactionRetryError: retry txn (RETRY_WRITE_TOO_OLD)",
-		},
-		{
 			// Standard case where a transaction is rolled back. The record
 			// already exists because it has been heartbeated.
 			name: "record pending, try rollback",
@@ -596,39 +561,6 @@ func TestEndTransactionUpdatesTransactionRecord(t *testing.T) {
 				record.Timestamp.Forward(ts2)
 				return &record
 			}(),
-		},
-		{
-			// The transaction has run into a WriteTooOld error during its
-			// lifetime. The stage will be rejected.
-			name: "record pending, try stage after write too old",
-			// Replica state.
-			existingTxn: pendingRecord,
-			// Request state.
-			headerTxn: func() *roachpb.Transaction {
-				clone := txn.Clone()
-				clone.WriteTooOld = true
-				return clone
-			}(),
-			commit:         true,
-			inFlightWrites: writes,
-			// Expected result.
-			expError: "TransactionRetryError: retry txn (RETRY_WRITE_TOO_OLD)",
-		},
-		{
-			// The transaction has run into a WriteTooOld error during its
-			// lifetime. The stage will be rejected.
-			name: "record pending, try commit after write too old",
-			// Replica state.
-			existingTxn: pendingRecord,
-			// Request state.
-			headerTxn: func() *roachpb.Transaction {
-				clone := txn.Clone()
-				clone.WriteTooOld = true
-				return clone
-			}(),
-			commit: true,
-			// Expected result.
-			expError: "TransactionRetryError: retry txn (RETRY_WRITE_TOO_OLD)",
 		},
 		{
 			// Standard case where a transaction is rolled back after it has

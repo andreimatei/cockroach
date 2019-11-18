@@ -382,20 +382,14 @@ func IsEndTransactionExceedingDeadline(t hlc.Timestamp, args *roachpb.EndTransac
 func IsEndTransactionTriggeringRetryError(
 	txn *roachpb.Transaction, args *roachpb.EndTransactionRequest,
 ) (retry bool, reason roachpb.TransactionRetryReason, extraMsg string) {
-	// If we saw any WriteTooOldErrors, we must restart to avoid lost
-	// update anomalies.
-	if txn.WriteTooOld {
-		retry, reason = true, roachpb.RETRY_WRITE_TOO_OLD
-	} else {
-		origTimestamp := txn.OrigTimestamp
-		origTimestamp.Forward(txn.RefreshedTimestamp)
-		isTxnPushed := txn.Timestamp != origTimestamp
+	// Return a transaction retry error if the commit timestamp isn't equal to
+	// the txn timestamp.
+	origTimestamp := txn.OrigTimestamp
+	origTimestamp.Forward(txn.RefreshedTimestamp)
+	isTxnPushed := txn.Timestamp != origTimestamp
 
-		// Return a transaction retry error if the commit timestamp isn't equal to
-		// the txn timestamp.
-		if isTxnPushed {
-			retry, reason = true, roachpb.RETRY_SERIALIZABLE
-		}
+	if isTxnPushed {
+		retry, reason = true, roachpb.RETRY_SERIALIZABLE
 	}
 
 	// A transaction can still avoid a retry under certain conditions.
