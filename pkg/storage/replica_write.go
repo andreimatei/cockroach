@@ -256,6 +256,7 @@ and the following Raft status: %+v`,
 func (r *Replica) evaluateWriteBatch(
 	ctx context.Context, idKey storagebase.CmdIDKey, ba *roachpb.BatchRequest, spans *spanset.SpanSet,
 ) (engine.Batch, enginepb.MVCCStats, *roachpb.BatchResponse, result.Result, *roachpb.Error) {
+	log.Infof(ctx, "!!! write batch: %s", ba)
 	ms := enginepb.MVCCStats{}
 	// If not transactional or there are indications that the batch's txn will
 	// require restart or retry, execute as normal.
@@ -279,6 +280,7 @@ func (r *Replica) evaluateWriteBatch(
 		// write too old errors? This is only allowed if it is able to
 		// forward its commit timestamp without a read refresh.
 		canForwardTimestamp := batcheval.CanForwardCommitTimestampWithoutRefresh(ba.Txn, etArg)
+		log.Infof(ctx, "!!! about to attempt stripped. canForward: %t", canForwardTimestamp)
 
 		// If all writes occurred at the intended timestamp, we've succeeded on the fast path.
 		rec := NewReplicaEvalContext(r, spans)
@@ -416,6 +418,7 @@ func (r *Replica) evaluateWriteBatchWithLocalRetries(
 		}
 
 		br, res, pErr = evaluateBatch(ctx, idKey, batch, rec, ms, ba, false /* readOnly */)
+		log.Infof(ctx, "!!! eval for %s got err: %v. canRetry: %t", ba, pErr, canRetry)
 		// If we can retry, set a higher batch timestamp and continue.
 		if wtoErr, ok := pErr.GetDetail().(*roachpb.WriteTooOldError); ok && canRetry {
 			// Allow one retry only; a non-txn batch containing overlapping

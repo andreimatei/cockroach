@@ -1615,6 +1615,7 @@ func mvccPutInternal(
 			// instead of allowing their transactions to continue and be retried
 			// before committing.
 			writeTimestamp.Forward(metaTimestamp.Next())
+			log.Infof(ctx, "!!! detected WriteTooOldError")
 			maybeTooOldErr = &roachpb.WriteTooOldError{
 				Timestamp: readTimestamp, ActualTimestamp: writeTimestamp,
 			}

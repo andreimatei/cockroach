@@ -301,15 +301,12 @@ func evaluateBatch(
 
 				if baHeader.Txn != nil {
 					baHeader.Txn.Timestamp.Forward(tErr.ActualTimestamp)
-					baHeader.Txn.WriteTooOld = true
 				}
 
 				// Clear pErr; we're done processing it by having moved the
-				// batch or txn timestamps forward and set WriteTooOld if this
-				// is a transactional write. If we don't return the
-				// WriteTooOldError from this method, we will detect the
-				// pushed timestamp at commit time and refresh or retry the
-				// transaction.
+				// batch or txn timestamps forward. If we don't return the
+				// WriteTooOldError from this method, we will detect the pushed
+				// timestamp at commit time and refresh or retry the transaction.
 				pErr = nil
 			default:
 				return nil, result, pErr

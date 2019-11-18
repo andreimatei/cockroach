@@ -572,7 +572,6 @@ func TestIsOnePhaseCommit(t *testing.T) {
 		ru          []roachpb.RequestUnion
 		isTxn       bool
 		isRestarted bool
-		isWTO       bool
 		isTSOff     bool
 		exp1PC      bool
 	}{
@@ -620,15 +619,11 @@ func TestIsOnePhaseCommit(t *testing.T) {
 			if c.isRestarted {
 				ba.Txn.Restart(-1, 0, clock.Now())
 			}
-			if c.isWTO {
-				ba.Txn.WriteTooOld = true
-			}
 			if c.isTSOff {
 				ba.Txn.Timestamp = ba.Txn.OrigTimestamp.Add(1, 0)
 			}
 		} else {
 			require.False(t, c.isRestarted)
-			require.False(t, c.isWTO)
 			require.False(t, c.isTSOff)
 		}
 		if is1PC := isOnePhaseCommit(&ba); is1PC != c.exp1PC {
@@ -9890,7 +9885,7 @@ func TestReplicaLocalRetries(t *testing.T) {
 				assignSeqNumsForReqs(ba.Txn, &bt, &cput, &et)
 				return
 			},
-			expErr: "RETRY_WRITE_TOO_OLD",
+			expErr: "RETRY_SERIALIZABLE",
 		},
 		// 1PC serializable transaction will retry locally.
 		{
@@ -10103,13 +10098,13 @@ func TestReplicaPushed1PC(t *testing.T) {
 	txn.Timestamp.Forward(ts3)
 
 	// Execute the write phase of the transaction as a single batch,
-	// which must return a WRITE_TOO_OLD TransactionRetryError.
+	// which must return a TransactionRetryError.
 	//
 	// TODO(bdarnell): When this test was written, in SNAPSHOT
 	// isolation we would attempt to execute the transaction on the
 	// 1PC path, see a timestamp mismatch, and then then throw the
 	// 1PC results away and re-execute it on the regular path (which
-	// would generate the WRITE_TOO_OLD error). We have added earlier
+	// would generate the serializable error). We have added earlier
 	// timestamp checks for a small performance improvement, but
 	// this difference is difficult to observe in a test. If we had
 	// more detailed metrics we could assert that the 1PC path was
@@ -10125,8 +10120,8 @@ func TestReplicaPushed1PC(t *testing.T) {
 		t.Errorf("did not get expected error. resp=%s", br)
 	} else if trErr, ok := pErr.GetDetail().(*roachpb.TransactionRetryError); !ok {
 		t.Errorf("expected TransactionRetryError, got %s", pErr)
-	} else if trErr.Reason != roachpb.RETRY_WRITE_TOO_OLD {
-		t.Errorf("expected RETRY_WRITE_TOO_OLD, got %s", trErr)
+	} else if trErr.Reason != roachpb.RETRY_SERIALIZABLE {
+		t.Errorf("expected RETRY_SERIALIZABLE, got %s", trErr)
 	}
 }
 
