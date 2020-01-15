@@ -1840,6 +1840,11 @@ func (s *Server) startListenRPCAndSQL(
 		})
 	}
 
+	THIS IS IN A FUNCTION THAT GETS CALLED REALLY EARLY
+	// Now that the DistSQL RPC server has been started, tell the DistSQLPlanner
+	// to start planning remote flows.
+	s.execCfg.DistSQLPlanner.EnableRemotePlanning()
+
 	return pgL, startRPCServer, nil
 }
 

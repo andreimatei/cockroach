@@ -694,6 +694,9 @@ func shouldDistributeGivenRecAndMode(
 func shouldDistributePlan(
 	ctx context.Context, distSQLMode sessiondata.DistSQLExecMode, dp *DistSQLPlanner, plan planNode,
 ) bool {
+	if !dp.RemotePlanningEnabled() {
+		return false
+	}
 	if distSQLMode == sessiondata.DistSQLOff {
 		return false
 	}

@@ -210,6 +210,10 @@ func (dsp *DistSQLPlanner) setupFlows(
 			// Skip this node.
 			continue
 		}
+		if !dsp.RemotePlanningEnabled() {
+			return nil, nil, errors.AssertionFailedf(
+				"trying to schedule remote flows while remote planning not yet enabled")
+		}
 		req := setupReq
 		req.Flow = *flowSpec
 		runReq := runnerRequest{

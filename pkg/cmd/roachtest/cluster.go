@@ -816,6 +816,9 @@ type cluster struct {
 
 	// destroyState contains state related to the cluster's destruction.
 	destroyState destroyState
+
+	// !!!
+	Reused bool
 }
 
 func (c *cluster) String() string {

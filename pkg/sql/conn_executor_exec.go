@@ -676,6 +676,7 @@ func (ex *connExecutor) dispatchToExecutionEngine(
 	distributePlan := false
 	distributePlan = shouldDistributePlan(
 		ctx, ex.sessionData.DistSQLMode, ex.server.cfg.DistSQLPlanner, planner.curPlan.plan)
+	log.Infof(ctx, "!!! distribute query: %s - %t", stmt, distributePlan)
 	ex.sessionTracing.TracePlanCheckEnd(ctx, nil, distributePlan)
 
 	if ex.server.cfg.TestingKnobs.BeforeExecute != nil {

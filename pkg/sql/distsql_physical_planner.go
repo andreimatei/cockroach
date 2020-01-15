@@ -16,6 +16,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/cockroachdb/cockroach/pkg/gossip"
 	"github.com/cockroachdb/cockroach/pkg/internal/client"
@@ -38,7 +39,6 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/sql/types"
 	"github.com/cockroachdb/cockroach/pkg/util"
 	"github.com/cockroachdb/cockroach/pkg/util/encoding"
-	"github.com/cockroachdb/cockroach/pkg/util/envutil"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
@@ -90,6 +90,13 @@ type DistSQLPlanner struct {
 	gossip *gossip.Gossip
 
 	nodeDialer *nodedialer.Dialer
+	// remotePlanningEnabled is set to a non-zero value when planning remote flows
+	// is allowed. When a node is starting up, planning remotely is initially not
+	// permitted because the gRPC service on which results from remote nodes are
+	// supposed to get to the gateway is not started.
+	//
+	// Accessed atomically.
+	remotePlanningEnabled int64
 
 	// nodeHealth encapsulates the various node health checks to avoid planning
 	// on unhealthy nodes.
@@ -108,7 +115,8 @@ var ReplicaOraclePolicy = replicaoracle.BinPackingChoice
 
 // If true, the plan diagram (in JSON) is logged for each plan (used for
 // debugging).
-var logPlanDiagram = envutil.EnvOrDefaultBool("COCKROACH_DISTSQL_LOG_PLAN", false)
+// !!! var logPlanDiagram = envutil.EnvOrDefaultBool("COCKROACH_DISTSQL_LOG_PLAN", false)
+var logPlanDiagram = true
 
 // If true, for index joins we instantiate a join reader on every node that
 // has a stream (usually from a table reader). If false, there is a single join
@@ -133,6 +141,10 @@ type livenessProvider interface {
 }
 
 // NewDistSQLPlanner initializes a DistSQLPlanner.
+//
+// Until EnableRemotePlanning() is called, this planner will refuse to schedule
+// any remote flows. This allows the planner to be used to plan queries locally
+// before the DistSQL RPC service is started.
 //
 // nodeDesc is the descriptor of the node on which this planner runs. It is used
 // to favor itself and other close-by nodes when planning. An empty descriptor
@@ -174,6 +186,19 @@ func NewDistSQLPlanner(
 
 	dsp.initRunners()
 	return dsp
+}
+
+// EnabledRemotePlanning allows the DistSQLPlanner to start scheduling remote
+// flows. This should be called once DistSQL's gRPC service is started.
+func (dsp *DistSQLPlanner) EnableRemotePlanning() {
+	log.Infof(context.TODO(), "!!! EnabledRemotePlanning")
+	atomic.StoreInt64(&dsp.remotePlanningEnabled, 1)
+}
+
+// RemotePlanningEnabled returns true if EnabledRemotePlanning() has been
+// previously called.
+func (dsp *DistSQLPlanner) RemotePlanningEnabled() bool {
+	return atomic.LoadInt64(&dsp.remotePlanningEnabled) > 0
 }
 
 func (dsp *DistSQLPlanner) shouldPlanTestMetadata() bool {

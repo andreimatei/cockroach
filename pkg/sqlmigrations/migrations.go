@@ -353,7 +353,9 @@ func init() {
 }
 
 type runner struct {
-	db          db
+	db db
+	// sqlExecutor can be used to execute SQL queries. Note that at migration
+	// running time, all queries will be planned exclusively locally.
 	sqlExecutor *sql.InternalExecutor
 }
 
@@ -702,6 +704,7 @@ func createNewSystemNamespaceDescriptor(ctx context.Context, r runner) error {
 // lookups fall back to the deprecated table if a name is not found in the new
 // one.
 func migrateSystemNamespace(ctx context.Context, r runner) error {
+	log.Infof(ctx, "!!! migrateSystemNamespace start")
 	q := fmt.Sprintf(
 		`SELECT "parentID", name, id FROM [%d AS namespace_deprecated]`,
 		sqlbase.DeprecatedNamespaceTable.ID)
@@ -740,6 +743,7 @@ func migrateSystemNamespace(ctx context.Context, r runner) error {
 			}
 		}
 	}
+	log.Infof(ctx, "!!! migrateSystemNamespace done")
 	return nil
 }
 

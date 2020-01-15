@@ -297,7 +297,9 @@ func runVersionUpgrade(ctx context.Context, t *test, c *cluster) {
 		}
 
 		target := "./cockroach-" + newVersion
-		c.Put(ctx, binary, target, nodes)
+		if !c.Reused {
+			c.Put(ctx, binary, target, nodes)
+		}
 		return startArgs("--binary=" + target)
 	}
 
@@ -573,6 +575,7 @@ func runVersionUpgrade(ctx context.Context, t *test, c *cluster) {
 		db := c.Conn(ctx, 1)
 		defer db.Close()
 
+		t.l.Printf("!!! creating persistent_db")
 		_, err := db.Exec(fmt.Sprintf("create database persistent_db"))
 		if err != nil {
 			t.Fatal(err)
@@ -587,6 +590,8 @@ func runVersionUpgrade(ctx context.Context, t *test, c *cluster) {
 		// from the objects using their FQNs. Prevents bugs such as #43141, where
 		// databases created before the migration were inaccessible after the
 		// migration.
+		//node := 1 + rand.Intn(3) // !!!
+		//log.Infof(ctx, "!!! using node %d to verify objects", node)
 		db := c.Conn(ctx, 1)
 		defer db.Close()
 		var cv string
@@ -594,12 +599,14 @@ func runVersionUpgrade(ctx context.Context, t *test, c *cluster) {
 			t.Fatal(err)
 		}
 
+		t.l.Printf("!!! querying persistent_db 1")
 		_, err := db.Query(fmt.Sprintf("select * from persistent_db.persistent_table"))
 		if err != nil {
 			t.Fatalf(
 				"expected querying a table created before upgrade to succeed in version %s, got %s",
 				cv, err)
 		}
+		t.l.Printf("!!! querying persistent_db 2")
 		_, err = db.Query(fmt.Sprintf("show tables from persistent_db"))
 		if err != nil {
 			t.Fatalf(

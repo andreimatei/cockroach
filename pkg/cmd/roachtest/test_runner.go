@@ -872,6 +872,7 @@ func (r *testRunner) getWork(
 		// particular, this overwrites the reuse policy to reflect what the test
 		// intends to do with it.
 		c.spec = testToRun.spec.Cluster
+		c.Reused = true
 	} else {
 		var err error
 		c, err = callbacks.createCluster(ctx, testToRun)
