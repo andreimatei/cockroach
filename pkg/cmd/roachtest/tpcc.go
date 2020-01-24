@@ -140,7 +140,7 @@ func setupTPCC(
 }
 
 func runTPCC(ctx context.Context, t *test, c *cluster, opts tpccOptions) {
-	rampDuration := 5 * time.Minute
+	rampDuration := 1 * time.Minute
 	if c.isLocal() {
 		opts.Warehouses = 1
 		opts.Duration = time.Minute
@@ -263,8 +263,9 @@ func registerTPCC(r *testRegistry) {
 			t.l.Printf("computed headroom warehouses of %d; running mixed with %s\n", headroomWarehouses, oldV)
 			runTPCC(ctx, t, c, tpccOptions{
 				Warehouses: headroomWarehouses,
-				Duration:   120 * time.Minute,
+				Duration:   10 * time.Minute,
 				Versions:   []string{oldV, "", oldV, ""},
+				Extra:      "--wait=false",
 			})
 			// TODO(tbg): run another TPCC with the final binaries here and
 			// teach TPCC to re-use the dataset (seems easy enough) to at least
