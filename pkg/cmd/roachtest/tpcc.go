@@ -236,7 +236,8 @@ func registerTPCC(r *testRegistry) {
 			})
 		},
 	})
-	mixedHeadroomSpec := makeClusterSpec(5, cpu(16))
+	mixedHeadroomSpec := makeClusterSpec(5, cpu(4))
+	// !!! mixedHeadroomSpec := makeClusterSpec(5, cpu(16))
 	r.Add(testSpec{
 		// mixed-headroom is similar to w=headroom, but with an additional node
 		// and on a mixed version cluster. It simulates a real production
@@ -250,8 +251,9 @@ func registerTPCC(r *testRegistry) {
 		Tags:    []string{`default`},
 		Cluster: mixedHeadroomSpec,
 		Run: func(ctx context.Context, t *test, c *cluster) {
-			maxWarehouses := maxSupportedTPCCWarehouses(r.buildVersion, cloud, t.spec.Cluster)
-			headroomWarehouses := int(float64(maxWarehouses) * 0.7)
+			// !!! maxWarehouses := maxSupportedTPCCWarehouses(r.buildVersion, cloud, t.spec.Cluster)
+			// headroomWarehouses := int(float64(maxWarehouses) * 0.7)
+			headroomWarehouses := 100
 			oldV, err := PredecessorVersion(r.buildVersion)
 			if err != nil {
 				t.Fatal(err)
