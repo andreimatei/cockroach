@@ -352,10 +352,11 @@ func evaluateBatch(
 		// that this might be higher than baHeader.Timestamp if we had an
 		// EndTransaction that decided that it can essentially refresh to something
 		// higher than baHeader.Timestamp because there were no refresh spans.
-		br.Timestamp.Forward(baHeader.Txn.ReadTimestamp)
+		br.Timestamp.Forward(br.Txn.ReadTimestamp)
+		br.Timestamp.Forward(br.Txn.DeprecatedOrigTimestamp)
 	} else {
-		// Always update the batch response timestamp field to the timestamp at
-		// which the batch executed.
+		// Update the batch response timestamp field to the timestamp at which the
+		// batch executed.
 		br.Timestamp.Forward(baHeader.Timestamp)
 	}
 

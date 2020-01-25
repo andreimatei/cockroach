@@ -283,6 +283,8 @@ func (r *Replica) evaluateWriteBatch(
 			// timestamp. This can be different if the stripped batch was
 			// executed at the server's hlc now timestamp.
 			clonedTxn.WriteTimestamp = br.Timestamp
+			// !!! didn't help, but maybe it doesn't hurt?
+			// !!! clonedTxn.ReadTimestamp = br.Timestamp
 
 			// If the end transaction is not committed, clear the batch and mark the status aborted.
 			if !etArg.Commit {
@@ -407,7 +409,6 @@ func (r *Replica) evaluateWriteBatchWithLocalRetries(
 			if retries == 1 {
 				break
 			}
-			log.Infof(ctx, "!!! local retries updating ba.Timestamp %s->%s", ba.Timestamp, wtoErr.ActualTimestamp)
 			ba.Timestamp = wtoErr.ActualTimestamp
 			continue
 		}
