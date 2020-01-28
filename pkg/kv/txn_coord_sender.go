@@ -307,6 +307,7 @@ func newLeafTxnCoordSender(
 	tcf *TxnCoordSenderFactory, tis *roachpb.LeafTxnInputState,
 ) client.TxnSender {
 	tis.Txn.AssertInitialized(context.TODO())
+	log.Infof(context.TODO(), "!!! newLeafTxnCoordSender: %s", tis.Txn)
 
 	if tis.Txn.Status != roachpb.PENDING {
 		log.Fatalf(context.TODO(), "unexpected non-pending txn in LeafTransactionalSender: %s", tis)

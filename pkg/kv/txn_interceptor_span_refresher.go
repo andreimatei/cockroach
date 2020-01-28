@@ -164,7 +164,7 @@ func (sr *txnSpanRefresher) SendLocked(
 		log.Fatalf(ctx,
 			"unexpected batch read timestamp: %s. Expected refreshed timestamp: %s. ba: %s. txn: %s canAutoRetry: %t",
 			batchReadTimestamp, sr.refreshedTimestamp, ba, ba.Txn,
-			sr.refreshInvalid, sr.canAutoRetry)
+			sr.canAutoRetry)
 	}
 
 	if rArgs, hasET := ba.GetArg(roachpb.EndTxn); hasET {

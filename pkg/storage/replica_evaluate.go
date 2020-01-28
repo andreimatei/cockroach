@@ -361,6 +361,10 @@ func evaluateBatch(
 			log.Fatalf(ctx, "br.Txn.ReadTimestamp < ba.Timestamp (%s < %s). ba: %s",
 				br.Txn.ReadTimestamp, baHeader.Timestamp, ba)
 		}
+		if br.Txn.ReadTimestamp != baHeader.Timestamp {
+			log.Infof(ctx, "!!! read timestamp changed in br %s -> %s (%s)",
+				baHeader.Timestamp, br.Txn.ReadTimestamp)
+		}
 		br.Timestamp = br.Txn.ReadTimestamp
 	} else {
 		br.Timestamp = baHeader.Timestamp
