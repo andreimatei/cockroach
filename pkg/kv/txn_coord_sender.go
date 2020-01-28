@@ -479,6 +479,9 @@ func (tc *TxnCoordSender) Send(
 	ba.Txn = tc.mu.txn.Clone()
 
 	// Send the command through the txnInterceptor stack.
+	log.Infof(ctx, "!!! sending request: %s. txn.ReadTimestamp: %s. refreshed: %s. \ntxn: %s",
+		ba, tc.mu.txn.ReadTimestamp, tc.interceptorAlloc.txnSpanRefresher.RefreshedTimestamp(),
+		tc.mu.txn)
 	br, pErr := tc.interceptorStack[0].SendLocked(ctx, ba)
 
 	pErr = tc.updateStateLocked(ctx, ba, br, pErr)
@@ -646,6 +649,7 @@ func (tc *TxnCoordSender) UpdateStateOnRemoteRetryableErr(
 func (tc *TxnCoordSender) handleRetryableErrLocked(
 	ctx context.Context, pErr *roachpb.Error,
 ) *roachpb.TransactionRetryWithProtoRefreshError {
+	log.Infof(ctx, "!!! handleRetryableErrLocked: %s", pErr)
 	// If the error is a transaction retry error, update metrics to
 	// reflect the reason for the restart. More details about the
 	// different error types are documented above on the metaRestart
