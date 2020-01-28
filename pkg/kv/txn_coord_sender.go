@@ -308,6 +308,11 @@ func newLeafTxnCoordSender(
 ) client.TxnSender {
 	tis.Txn.AssertInitialized(context.TODO())
 	log.Infof(context.TODO(), "!!! newLeafTxnCoordSender: %s", tis.Txn)
+	// !!!
+	txn := &tis.Txn
+	if txn.ReadTimestamp.Less(txn.DeprecatedOrigTimestamp) {
+		txn.ReadTimestamp = txn.DeprecatedOrigTimestamp
+	}
 
 	if tis.Txn.Status != roachpb.PENDING {
 		log.Fatalf(context.TODO(), "unexpected non-pending txn in LeafTransactionalSender: %s", tis)
