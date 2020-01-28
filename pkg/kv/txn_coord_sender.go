@@ -480,9 +480,10 @@ func (tc *TxnCoordSender) Send(
 	ba.Txn = tc.mu.txn.Clone()
 
 	// Send the command through the txnInterceptor stack.
-	log.Infof(ctx, "!!! sending request: %s. txn.ReadTimestamp: %s. refreshed: %s. \ntxn: %s",
+	log.Infof(ctx, "!!! sending request: %s. txn.ReadTimestamp: %s. refreshed: %s. \ntxn: %s\n"+
+		"ba: %s,\nba.txn:%s",
 		ba, tc.mu.txn.ReadTimestamp, tc.interceptorAlloc.txnSpanRefresher.RefreshedTimestamp(),
-		tc.mu.txn)
+		tc.mu.txn, ba, ba.Txn)
 	br, pErr := tc.interceptorStack[0].SendLocked(ctx, ba)
 
 	pErr = tc.updateStateLocked(ctx, ba, br, pErr)
