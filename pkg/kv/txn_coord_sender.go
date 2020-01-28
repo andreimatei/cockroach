@@ -484,7 +484,7 @@ func (tc *TxnCoordSender) Send(
 	pErr = tc.updateStateLocked(ctx, ba, br, pErr)
 	refreshed := tc.interceptorAlloc.txnSpanRefresher.RefreshedTimestamp()
 	if !refreshed.IsEmpty() && tc.mu.txn.ReadTimestamp != refreshed {
-		log.Fatalf(ctx, "!!! txn.ReadTimestamp: %s. refreshed: %s. \nba: %s. \nbr: %s, \npErr: %s\n, txn: %s",
+		log.Infof(ctx, "!!! after request finished: txn.ReadTimestamp: %s. refreshed: %s. \nba: %s. \nbr: %s, \npErr: %s\n, txn: %s",
 			tc.mu.txn.ReadTimestamp, tc.interceptorAlloc.txnSpanRefresher.RefreshedTimestamp(),
 			ba, br, pErr, tc.mu.txn)
 	}
