@@ -759,6 +759,7 @@ func (tc *TxnCoordSender) updateStateLocked(
 
 			// Cleanup.
 			tc.mu.txn.Update(pErr.GetTxn())
+			log.Infof(ctx, "!!! leaf cleaning up txn after error: %s. err txn: %s", pErr, pErr.GetTxn())
 			tc.cleanupTxnLocked(ctx)
 			return pErr
 		}

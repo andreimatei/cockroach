@@ -147,6 +147,8 @@ func (sr *txnSpanRefresher) SendLocked(
 		// refreshes shouldn't check values below batchReadTimestamp, so initialize
 		// sr.refreshedTimestamp.
 		sr.refreshedTimestamp = batchReadTimestamp
+		log.Infof(ctx, "!!! initializing refreshedTimestamp to: %s. ba: %s. txn: %s", batchReadTimestamp,
+			ba, ba.Txn)
 	} else if batchReadTimestamp.Less(sr.refreshedTimestamp) {
 		// sr.refreshedTimestamp might be ahead of batchReadTimestamp. We want to
 		// read at the latest refreshed timestamp, so bump the batch.
@@ -160,8 +162,9 @@ func (sr *txnSpanRefresher) SendLocked(
 		ba.Txn.WriteTimestamp.Forward(sr.refreshedTimestamp)
 	} else if sr.refreshedTimestamp != batchReadTimestamp {
 		log.Fatalf(ctx,
-			"unexpected batch read timestamp: %s. Expected refreshed timestamp: %s. ba: %s. txn: %s",
-			batchReadTimestamp, sr.refreshedTimestamp, ba, ba.Txn)
+			"unexpected batch read timestamp: %s. Expected refreshed timestamp: %s. ba: %s. txn: %s canAutoRetry: %t",
+			batchReadTimestamp, sr.refreshedTimestamp, ba, ba.Txn,
+			sr.refreshInvalid, sr.canAutoRetry)
 	}
 
 	if rArgs, hasET := ba.GetArg(roachpb.EndTxn); hasET {
