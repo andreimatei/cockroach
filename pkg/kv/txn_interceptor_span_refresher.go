@@ -132,6 +132,11 @@ type txnSpanRefresher struct {
 	autoRetryCounter *metric.Counter
 }
 
+// !!!
+func (sr *txnSpanRefresher) RefreshedTimestamp() hlc.Timestamp {
+	return sr.refreshedTimestamp
+}
+
 // SendLocked implements the lockedSender interface.
 func (sr *txnSpanRefresher) SendLocked(
 	ctx context.Context, ba roachpb.BatchRequest,

@@ -482,6 +482,12 @@ func (tc *TxnCoordSender) Send(
 	br, pErr := tc.interceptorStack[0].SendLocked(ctx, ba)
 
 	pErr = tc.updateStateLocked(ctx, ba, br, pErr)
+	refreshed := tc.interceptorAlloc.txnSpanRefresher.RefreshedTimestamp()
+	if !refreshed.IsEmpty() && tc.mu.txn.ReadTimestamp != refreshed {
+		log.Fatalf(ctx, "!!! txn.ReadTimestamp: %s. refreshed: %s. \nba: %s. \nbr: %s, \npErr: %s\n, txn: %s",
+			tc.mu.txn.ReadTimestamp, tc.interceptorAlloc.txnSpanRefresher.RefreshedTimestamp(),
+			ba, br, pErr, tc.mu.txn)
+	}
 
 	// If we succeeded to commit, or we attempted to rollback, we move to
 	// txnFinalized.
@@ -699,6 +705,7 @@ func (tc *TxnCoordSender) handleRetryableErrLocked(
 	// the transaction's epoch.
 	log.VEventf(ctx, 2, "resetting epoch-based coordinator state on retry")
 	for _, reqInt := range tc.interceptorStack {
+		log.Infof(ctx, "!!! calling epochBumpedLocked() on txn: %s", errTxnID)
 		reqInt.epochBumpedLocked()
 	}
 	return retErr
