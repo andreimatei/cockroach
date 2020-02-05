@@ -1972,3 +1972,97 @@ func (s *sqlStatsCollector) reset(sqlStats *sqlStats, appStats *appStats, phaseT
 		phaseTimes: *phaseTimes,
 	}
 }
+
+type tracingRequestRegistry struct {
+	mu struct {
+		syncutil.Mutex
+		outstanding  []tracingRequest
+		traceOngoing []tracingRequest
+	}
+	ie     *InternalExecutor
+	nodeID int
+}
+
+type tracingRequest struct {
+	id          int
+	fingerprint int
+}
+
+type claim struct {
+	tracingRequest
+	claimedAt time.Time
+}
+
+func (r *tracingRequestRegistry) shouldTrace(
+	statement string,
+) (bool, func(trace tracing.Recording)) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var req tracingRequest
+
+	// remove the request from outstanding
+
+	// add the request to traceOngoing
+
+	// Start claiming the request in the background.
+	claimCh := make(chan claim)
+	go func() {
+		ok, claim := r.claimRequest(req)
+		if !ok {
+			close(claimCh)
+		} else {
+			claimCh <- claim
+		}
+	}()
+
+	return true, func(trace tracing.Recording) {
+		defer func() {
+			// remove from traceOngoing.
+		}()
+
+		myClaim := <-claimCh
+		if myClaim == (claim{}) {
+			// Somebody else raced with us for claiming this request and won.
+			return
+		}
+		r.insertTrace(myClaim, trace)
+	}
+}
+
+func (r *tracingRequestRegistry) claimRequest(req tracingRequest) (bool, claim) {
+	// try to update the request to put it in the pending state
+}
+
+func (r *tracingRequestRegistry) insertTrace(claim claim, trace tracing.Recording) {
+	// in a single txn...
+
+	// mark the request as completed unless somebody else did. Refill
+	// claimed_nodeid and claimed_at in case some cleanup process cleared them.
+
+	// insert the trace
+}
+
+// !!!
+/*
+create table system.trace_requests (
+  id int DEFAULT unique_rowid() primary key,
+  status int,  // pending, picked up, completed
+  statement_fingerprint int,
+  statement string,  // FmtHideConstants
+  completion_id int,
+  requested_at timestamptz,
+  claimed_at timestamptz,
+  claimed_nodeid int,
+  completed_at timestamptz,
+  index(status, id) containing (statement)
+);
+
+create table system.traces (
+  id int DEFAULT unique_rowid() primary key,
+  statement_fingerprint int,
+  statement string,  // FmtHideConstants
+  collected_at timestamptz,
+  trace jsonb,
+  error string
+);
+*/
