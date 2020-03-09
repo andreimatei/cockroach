@@ -980,8 +980,8 @@ type connExecutor struct {
 		// stateOpen.
 		autoRetryCounter int
 
-		// numDDL keeps track of how many DDL statements have been
-		// executed so far.
+		// numDDL keeps track of how many DDL statements have been executed so far
+		// in the current transaction.
 		numDDL int
 
 		// txnRewindPos is the position within stmtBuf to which we'll rewind when
@@ -1186,6 +1186,8 @@ func (ns *prepStmtNamespace) resetTo(ctx context.Context, to prepStmtNamespace) 
 func (ex *connExecutor) resetExtraTxnState(
 	ctx context.Context, dbCacheHolder *databaseCacheHolder, ev txnEvent,
 ) error {
+	ex.extraTxnState.numDDL = 0
+
 	ex.extraTxnState.jobs = nil
 
 	ex.extraTxnState.schemaChangers.reset()
