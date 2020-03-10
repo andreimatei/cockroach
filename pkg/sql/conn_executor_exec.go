@@ -865,7 +865,7 @@ func (ex *connExecutor) execWithDistSQLEngine(
 // connExecutor's planner in order to compute the timestamp for the AsOf clause
 // if it exists. The timestamps correspond to the timestamps passed to
 // makeEventTxnStartPayload; txnSQLTimestamp propagates to become the
-// TxnTimestamp while historicalTimestamp populated with a non-nil value only
+// TxnTimestamp while historicalTimestamp populated with a non-empty value only
 // if the BeginTransaction statement has a non-nil AsOf clause expression. A
 // non-nil historicalTimestamp implies a ReadOnly rwMode.
 func (ex *connExecutor) beginTransactionTimestampsAndReadMode(
@@ -873,20 +873,20 @@ func (ex *connExecutor) beginTransactionTimestampsAndReadMode(
 ) (
 	rwMode tree.ReadWriteMode,
 	txnSQLTimestamp time.Time,
-	historicalTimestamp *hlc.Timestamp,
+	historicalTimestamp hlc.Timestamp,
 	err error,
 ) {
 	now := ex.server.cfg.Clock.Now()
 	if s.Modes.AsOf.Expr == nil {
 		rwMode = ex.readWriteModeWithSessionDefault(s.Modes.ReadWriteMode)
-		return rwMode, now.GoTime(), nil, nil
+		return rwMode, now.GoTime(), hlc.Timestamp{}, nil
 	}
 	ex.statsCollector.reset(&ex.server.sqlStats, ex.appStats, &ex.phaseTimes)
 	p := &ex.planner
 	ex.resetPlanner(ctx, p, nil /* txn */, now.GoTime(), 0 /* numAnnotations */)
 	ts, err := p.EvalAsOfTimestamp(s.Modes.AsOf)
 	if err != nil {
-		return 0, time.Time{}, nil, err
+		return 0, time.Time{}, hlc.Timestamp{}, err
 	}
 	// NB: This check should never return an error because the parser should
 	// disallow the creation of a TransactionModes struct which both has an
@@ -894,9 +894,9 @@ func (ex *connExecutor) beginTransactionTimestampsAndReadMode(
 	// from that and hopefully adds clarity that the returning of ReadOnly with
 	// a historical timestamp is intended.
 	if s.Modes.ReadWriteMode == tree.ReadWrite {
-		return 0, time.Time{}, nil, tree.ErrAsOfSpecifiedWithReadWrite
+		return 0, time.Time{}, hlc.Timestamp{}, tree.ErrAsOfSpecifiedWithReadWrite
 	}
-	return tree.ReadOnly, ts.GoTime(), &ts, nil
+	return tree.ReadOnly, ts.GoTime(), ts, nil
 }
 
 // execStmtInNoTxnState "executes" a statement when no transaction is in scope.
@@ -929,6 +929,7 @@ func (ex *connExecutor) execStmtInNoTxnState(
 		}
 		return eventTxnStart{ImplicitTxn: fsm.False},
 			makeEventTxnStartPayload(
+				explicitTxn,
 				pri, mode, sqlTs,
 				historicalTs,
 				ex.transitionCtx)
@@ -945,10 +946,11 @@ func (ex *connExecutor) execStmtInNoTxnState(
 		// clause is evaluated and applied execStmtInOpenState.
 		return eventTxnStart{ImplicitTxn: fsm.True},
 			makeEventTxnStartPayload(
+				implicitTxn,
 				roachpb.NormalUserPriority,
 				mode,
 				ex.server.cfg.Clock.PhysicalTime(),
-				nil, /* historicalTimestamp */
+				hlc.Timestamp{}, /* historicalTimestamp */
 				ex.transitionCtx)
 	}
 }

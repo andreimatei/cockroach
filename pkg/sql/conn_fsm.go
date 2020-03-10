@@ -100,24 +100,27 @@ type eventTxnStart struct {
 type eventTxnStartPayload struct {
 	tranCtx transitionCtx
 
-	pri roachpb.UserPriority
+	txnType txnType
+	pri     roachpb.UserPriority
 	// txnSQLTimestamp is the timestamp that statements executed in the
 	// transaction that is started by this event will report for now(),
 	// current_timestamp(), transaction_timestamp().
 	txnSQLTimestamp     time.Time
 	readOnly            tree.ReadWriteMode
-	historicalTimestamp *hlc.Timestamp
+	historicalTimestamp hlc.Timestamp
 }
 
 // makeEventTxnStartPayload creates an eventTxnStartPayload.
 func makeEventTxnStartPayload(
+	txnType txnType,
 	pri roachpb.UserPriority,
 	readOnly tree.ReadWriteMode,
 	txnSQLTimestamp time.Time,
-	historicalTimestamp *hlc.Timestamp,
+	historicalTimestamp hlc.Timestamp,
 	tranCtx transitionCtx,
 ) eventTxnStartPayload {
 	return eventTxnStartPayload{
+		txnType:             txnType,
 		pri:                 pri,
 		readOnly:            readOnly,
 		txnSQLTimestamp:     txnSQLTimestamp,

@@ -713,7 +713,7 @@ func (s *Server) newConnExecutorWithTxn(
 		ctx,
 		explicitTxn,
 		txn.ReadTimestamp().GoTime(),
-		nil, /* historicalTimestamp */
+		hlc.Timestamp{}, /* historicalTimestamp */
 		txn.UserPriority(),
 		tree.ReadWrite,
 		txn,
@@ -2211,6 +2211,19 @@ func (ex *connExecutor) txnStateTransitionsApplyWrapper(
 
 		fallthrough
 	case txnRestart, txnRollback:
+		if advInfo.txnEvent == txnRestart && ex.extraTxnState.numDDL > 0 {
+			ex.state.mu.txn.Rollback(ex.Ctx())
+			ex.state.finishSQLTxn()
+			ex.state.resetForNewSQLTxn(ex.ctxHolder.ctx(),
+				ex.state.txnType,
+				ex.state.sqlTimestamp,
+				ex.state.historicalTimestamp,
+				ex.state.priority,
+				ex.state.mode,
+				nil, /* txn */
+				ex.transitionCtx)
+		}
+
 		if err := ex.resetExtraTxnState(ex.Ctx(), ex.server.dbCache, advInfo.txnEvent); err != nil {
 			return advanceInfo{}, err
 		}

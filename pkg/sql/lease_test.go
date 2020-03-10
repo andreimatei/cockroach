@@ -911,6 +911,7 @@ CREATE TABLE t.foo (v INT);
 // table descriptor.
 func TestTxnObeysTableModificationTime(t *testing.T) {
 	defer leaktest.AfterTest(t)()
+	ctx := context.TODO()
 	params, _ := tests.CreateTestServerParams()
 	params.Knobs = base.TestingKnobs{
 		SQLSchemaChanger: &sql.SchemaChangerTestingKnobs{
@@ -927,6 +928,7 @@ INSERT INTO t.kv VALUES ('a', 'b');
 `); err != nil {
 		t.Fatal(err)
 	}
+	log.Infof(ctx, "!!! test 1")
 	tableDesc := sqlbase.GetTableDescriptor(kvDB, "t", "kv")
 
 	// A read-write transaction that uses the old version of the descriptor.
@@ -947,11 +949,13 @@ INSERT INTO t.kv VALUES ('a', 'b');
 		t.Fatal(err)
 	}
 
+	log.Infof(ctx, "!!! test 2")
 	// Modify the table descriptor.
 	if _, err := sqlDB.Exec(`ALTER TABLE t.kv ADD m CHAR DEFAULT 'z';`); err != nil {
 		t.Fatal(err)
 	}
 
+	log.Infof(ctx, "!!! test 3")
 	rows, err := txReadWrite.Query(`SELECT * FROM t.kv`)
 	if err != nil {
 		t.Fatal(err)
@@ -983,6 +987,7 @@ INSERT INTO t.kv VALUES ('a', 'b');
 
 	checkSelectResults(rows)
 
+	log.Infof(ctx, "!!! test 4")
 	rows, err = txRead.Query(`SELECT * FROM t.kv`)
 	if err != nil {
 		t.Fatal(err)
@@ -995,12 +1000,14 @@ INSERT INTO t.kv VALUES ('a', 'b');
 		t.Fatal(err)
 	}
 
+	log.Infof(ctx, "!!! test 5")
 	// This INSERT will cause the transaction to be pushed,
 	// which will be detected when we attempt to Commit() below.
 	if _, err := txReadWrite.Exec(`INSERT INTO t.kv VALUES ('c', 'd');`); err != nil {
 		t.Fatal(err)
 	}
 
+	log.Infof(ctx, "!!! test 6")
 	// The transaction read at one timestamp and wrote at another so it
 	// has to be restarted because the spans read were modified by the backfill.
 	if err := txReadWrite.Commit(); !testutils.IsError(err,
@@ -1008,6 +1015,7 @@ INSERT INTO t.kv VALUES ('a', 'b');
 		t.Fatalf("err = %v", err)
 	}
 
+	log.Infof(ctx, "!!! test 7")
 	// This INSERT will cause the transaction to be pushed transparently,
 	// which will be detected when we attempt to Commit() below only because
 	// a deadline has been set.
@@ -1034,6 +1042,7 @@ INSERT INTO t.kv VALUES ('a', 'b');
 		t.Fatal(err)
 	}
 
+	log.Infof(ctx, "!!! test 8")
 	// Modify the table descriptor.
 	if _, err := sqlDB.Exec(`CREATE INDEX foo ON t.kv (v)`); err != nil {
 		t.Fatal(err)
@@ -1048,6 +1057,7 @@ INSERT INTO t.kv VALUES ('a', 'b');
 
 	checkDeadlineErr(txWrite.Commit(), t)
 
+	log.Infof(ctx, "!!! test 9")
 	if _, err := txUpdate.Exec(`UPDATE t.kv SET v = 'c' WHERE k = 'a';`); err != nil {
 		t.Fatal(err)
 	}

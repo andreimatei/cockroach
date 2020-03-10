@@ -73,6 +73,8 @@ type txnState struct {
 	// txn is in progress.
 	cancel context.CancelFunc
 
+	txnType txnType
+
 	// The timestamp to report for current_timestamp(), now() etc.
 	// This must be constant for the lifetime of a SQL transaction.
 	sqlTimestamp time.Time
@@ -82,10 +84,12 @@ type txnState struct {
 
 	// The transaction's read only state.
 	readOnly bool
+	mode     tree.ReadWriteMode
 
 	// Set to true when the current transaction is using a historical timestamp
 	// through the use of AS OF SYSTEM TIME.
-	isHistorical bool
+	isHistorical        bool
+	historicalTimestamp hlc.Timestamp
 
 	// mon tracks txn-bound objects like the running state of
 	// planNode in the midst of performing a computation.
@@ -138,15 +142,16 @@ func (ts *txnState) resetForNewSQLTxn(
 	connCtx context.Context,
 	txnType txnType,
 	sqlTimestamp time.Time,
-	historicalTimestamp *hlc.Timestamp,
+	historicalTimestamp hlc.Timestamp,
 	priority roachpb.UserPriority,
 	readOnly tree.ReadWriteMode,
 	txn *client.Txn,
 	tranCtx transitionCtx,
 ) {
+	ts.txnType = txnType
+
 	// Reset state vars to defaults.
 	ts.sqlTimestamp = sqlTimestamp
-	ts.isHistorical = false
 
 	// Create a context for this transaction. It will include a root span that
 	// will contain everything executed as part of the upcoming SQL txn, including
@@ -205,12 +210,16 @@ func (ts *txnState) resetForNewSQLTxn(
 		ts.mu.txn = txn
 	}
 	ts.mu.Unlock()
-	if historicalTimestamp != nil {
-		ts.setHistoricalTimestamp(ts.Ctx, *historicalTimestamp)
+	ts.historicalTimestamp = historicalTimestamp
+	if !historicalTimestamp.IsEmpty() {
+		ts.setHistoricalTimestamp(ts.Ctx, historicalTimestamp)
+	} else {
+		ts.isHistorical = false
 	}
 	if err := ts.setPriority(priority); err != nil {
 		panic(err)
 	}
+	ts.mode = readOnly
 	if err := ts.setReadOnlyMode(readOnly); err != nil {
 		panic(err)
 	}
@@ -284,6 +293,7 @@ func (ts *txnState) setHistoricalTimestamp(ctx context.Context, historicalTimest
 	ts.mu.txn.SetFixedTimestamp(ctx, historicalTimestamp)
 	ts.mu.Unlock()
 	ts.isHistorical = true
+	ts.historicalTimestamp = historicalTimestamp
 }
 
 // getReadTimestamp returns the transaction's current read timestamp.

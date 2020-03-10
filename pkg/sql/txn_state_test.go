@@ -266,8 +266,8 @@ func TestTransitions(t *testing.T) {
 				return s, ts, nil
 			},
 			ev: eventTxnStart{ImplicitTxn: fsm.True},
-			evPayload: makeEventTxnStartPayload(pri, tree.ReadWrite, timeutil.Now(),
-				nil /* historicalTimestamp */, tranCtx),
+			evPayload: makeEventTxnStartPayload(implicitTxn, pri, tree.ReadWrite, timeutil.Now(),
+				hlc.Timestamp{} /* historicalTimestamp */, tranCtx),
 			expState: stateOpen{ImplicitTxn: fsm.True},
 			expAdv: expAdvance{
 				// We expect to stayInPlace; upon starting a txn the statement is
@@ -291,8 +291,8 @@ func TestTransitions(t *testing.T) {
 				return s, ts, nil
 			},
 			ev: eventTxnStart{ImplicitTxn: fsm.False},
-			evPayload: makeEventTxnStartPayload(pri, tree.ReadWrite, timeutil.Now(),
-				nil /* historicalTimestamp */, tranCtx),
+			evPayload: makeEventTxnStartPayload(explicitTxn, pri, tree.ReadWrite, timeutil.Now(),
+				hlc.Timestamp{} /* historicalTimestamp */, tranCtx),
 			expState: stateOpen{ImplicitTxn: fsm.False},
 			expAdv: expAdvance{
 				expCode: advanceOne,
