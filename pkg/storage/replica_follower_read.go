@@ -12,13 +12,14 @@ package storage
 
 import (
 	"context"
-
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/settings"
 	"github.com/cockroachdb/cockroach/pkg/storage/closedts/ctpb"
 	ctstorage "github.com/cockroachdb/cockroach/pkg/storage/closedts/storage"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
+	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
+	"time"
 )
 
 // FollowerReadsEnabled controls whether replicas attempt to serve follower
@@ -44,15 +45,18 @@ func (r *Replica) canServeFollowerRead(
 	// to be able to serve follower reads.
 	repDesc, err := r.GetReplicaDescriptor()
 	if err != nil {
+		log.VEventf(ctx, 2, "can't serve follower reads because repl desc err: %s", err)
 		return roachpb.NewError(err)
 	}
 	if typ := repDesc.GetType(); typ != roachpb.VOTER_FULL {
-		log.Eventf(ctx, "%s replicas cannot serve follower reads", typ)
+		log.VEventf(ctx, 2, "%s replicas cannot serve follower reads", typ)
 		return pErr
 	}
 
 	canServeFollowerRead := false
-	if lErr, ok := pErr.GetDetail().(*roachpb.NotLeaseHolderError); ok &&
+	lErr, nlhe := pErr.GetDetail().(*roachpb.NotLeaseHolderError)
+	shouldLog := nlhe && (ba.Timestamp.WallTime < timeutil.Now().Add(-time.Second).UnixNano())
+	if nlhe &&
 		lErr.LeaseHolder != nil && lErr.Lease.Type() == roachpb.LeaseEpoch &&
 		ba.IsAllTransactional() && // followerreadsccl.batchCanBeEvaluatedOnFollower
 		(ba.Txn == nil || !ba.Txn.IsWriting()) && // followerreadsccl.txnCanPerformFollowerRead
@@ -63,22 +67,33 @@ func (r *Replica) canServeFollowerRead(
 			ts.Forward(ba.Txn.MaxTimestamp)
 		}
 
-		canServeFollowerRead = !r.maxClosed(ctx).Less(ts)
+		maxClosed := r.maxClosed(ctx)
+		canServeFollowerRead = !maxClosed.Less(ts)
 		if !canServeFollowerRead {
 			// We can't actually serve the read based on the closed timestamp.
 			// Signal the clients that we want an update so that future requests can succeed.
 			r.store.cfg.ClosedTimestamp.Clients.Request(lErr.LeaseHolder.NodeID, r.RangeID)
 
-			if false {
+			if shouldLog {
 				// NB: this can't go behind V(x) because the log message created by the
 				// storage might be gigantic in real clusters, and we don't want to trip it
 				// using logspy.
-				log.Warningf(ctx, "can't serve follower read for %s at epo %d, storage is %s",
-					ba.Timestamp, lErr.Lease.Epoch,
+				log.VEventf(ctx, 2, "can't serve follower read for %s (%s) at epo %d. max closed: %s. storage is %s",
+					ba, ba.Timestamp, lErr.Lease.Epoch, maxClosed,
 					r.store.cfg.ClosedTimestamp.Storage.(*ctstorage.MultiStorage).StringForNodes(lErr.LeaseHolder.NodeID),
 				)
 			}
 		}
+	} else if shouldLog {
+		log.VEventf(ctx, 4, "not considered for follower read: %s. " +
+			"leaseholder: %s, lease: %s, allTxn: %t, txn: %v, cluster setting: %t",
+			ba,
+			lErr.LeaseHolder,
+			lErr.Lease,
+			ba.IsAllTransactional(),
+			ba.Txn,
+			FollowerReadsEnabled.Get(&r.store.cfg.Settings.SV),
+			)
 	}
 
 	if !canServeFollowerRead {
