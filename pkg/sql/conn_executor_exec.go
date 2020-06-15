@@ -133,6 +133,24 @@ func (ex *connExecutor) recordFailure() {
 func (ex *connExecutor) execStmtInOpenState(
 	ctx context.Context, stmt Statement, res RestrictedCommandResult, pinfo *tree.PlaceholderInfo,
 ) (retEv fsm.Event, retPayload fsm.EventPayload, retErr error) {
+	start := timeutil.Now()
+	ch := make(chan struct{})
+	defer close(ch)
+	go func() {
+		var timer timeutil.Timer
+		for {
+			timer.Reset(10 * time.Second)
+			select {
+			case <-ch:
+				return
+			case <-timer.C:
+				timer.Read = true
+				log.Infof(ctx, "!!! have been waiting for %s for %s (%s)", timeutil.Since(start), stmt, pinfo)
+				break
+			}
+		}
+	}()
+
 	ex.incrementStartedStmtCounter(stmt)
 	defer func() {
 		if retErr == nil && !payloadHasError(retPayload) {

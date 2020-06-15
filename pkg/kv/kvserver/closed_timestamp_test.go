@@ -34,6 +34,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/encoding"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/cockroachdb/cockroach/pkg/util/leaktest"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/retry"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/cockroachdb/errors"
@@ -182,7 +183,7 @@ func TestClosedTimestampCanServeThroughoutLeaseTransfer(t *testing.T) {
 func TestClosedTimestampCanServeWithConflictingIntent(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 
-	t.Skip("https://github.com/cockroachdb/cockroach/issues/50091")
+	// !!! t.Skip("https://github.com/cockroachdb/cockroach/issues/50091")
 
 	ctx := context.Background()
 	tc, _, desc, repls := setupTestClusterForClosedTimestampTesting(ctx, t, testingTargetDuration)
@@ -540,6 +541,7 @@ func setupTestClusterForClosedTimestampTesting(
 	repls []*kvserver.Replica,
 ) {
 
+	start := timeutil.Now()
 	tc = serverutils.StartTestCluster(t, numNodes, base.TestClusterArgs{
 		ServerArgs: base.TestServerArgs{
 			Knobs: base.TestingKnobs{
@@ -551,16 +553,34 @@ func setupTestClusterForClosedTimestampTesting(
 		},
 	})
 	db0 = tc.ServerConn(0)
+	log.Infof(ctx, "!!! started TestCluster. Took: %s", timeutil.Since(start))
 
-	if _, err := db0.Exec(fmt.Sprintf(`
-SET CLUSTER SETTING kv.closed_timestamp.target_duration = '%s';
-SET CLUSTER SETTING kv.closed_timestamp.close_fraction = %.3f;
-SET CLUSTER SETTING kv.closed_timestamp.follower_reads_enabled = true;
-CREATE DATABASE cttest;
-CREATE TABLE cttest.kv (id INT PRIMARY KEY, value STRING);
-`, targetDuration, closeFraction)); err != nil {
-		t.Fatal(err)
-	}
+	log.Infof(ctx, "!!! setting target_duration")
+	_, err := db0.Exec(fmt.Sprintf("SET CLUSTER SETTING kv.closed_timestamp.target_duration = '%s'", targetDuration))
+	require.NoError(t, err)
+	log.Infof(ctx, "!!! setting close_fraction")
+	_, err = db0.Exec(fmt.Sprintf("SET CLUSTER SETTING kv.closed_timestamp.close_fraction = %.3f", closeFraction))
+	require.NoError(t, err)
+	log.Infof(ctx, "!!! setting follower_reads_enabled")
+	_, err = db0.Exec("SET CLUSTER SETTING kv.closed_timestamp.follower_reads_enabled = true")
+	require.NoError(t, err)
+	log.Infof(ctx, "!!! create database")
+	_, err = db0.Exec("CREATE DATABASE cttest")
+	require.NoError(t, err)
+	log.Infof(ctx, "!!! create table")
+	_, err = db0.Exec("CREATE TABLE cttest.kv (id INT PRIMARY KEY, value STRING);")
+	require.NoError(t, err)
+
+	// !!!
+	//	if _, err := db0.Exec(fmt.Sprintf(`
+	//SET CLUSTER SETTING kv.closed_timestamp.target_duration = '%s';
+	//SET CLUSTER SETTING kv.closed_timestamp.close_fraction = %.3f;
+	//SET CLUSTER SETTING kv.closed_timestamp.follower_reads_enabled = true;
+	//CREATE DATABASE cttest;
+	//CREATE TABLE cttest.kv (id INT PRIMARY KEY, value STRING);
+	//`, targetDuration, closeFraction)); err != nil {
+	//		t.Fatal(err)
+	//	}
 
 	var rangeID roachpb.RangeID
 	var startKey roachpb.Key
