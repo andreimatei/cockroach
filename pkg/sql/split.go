@@ -14,9 +14,11 @@ import (
 	"context"
 
 	"github.com/cockroachdb/cockroach/pkg/keys"
+	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlbase"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/errors"
 )
 
@@ -54,6 +56,7 @@ func (n *splitNode) Next(params runParams) (bool, error) {
 		return false, err
 	}
 
+	log.Infof(params.ctx, "!!! splitting at key: %s", roachpb.Key(rowKey))
 	if err := params.ExecCfg().DB.AdminSplit(params.ctx, rowKey, n.expirationTime); err != nil {
 		return false, err
 	}
