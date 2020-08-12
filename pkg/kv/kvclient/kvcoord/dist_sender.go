@@ -1936,6 +1936,7 @@ func (ds *DistSender) sendToReplicas(
 						routing = routing.UpdateLeaseholder(ctx, *tErr.LeaseHolder)
 						ok = true
 					}
+					log.VEventf(ctx, 3, "!!! updated leaseholder on NLHE. ok: %t routing: %s", routing.entry)
 					// Move the new lease holder to the head of the queue for the next retry.
 					if lh := routing.Leaseholder(); lh != nil {
 						transport.MoveToFront(*lh)

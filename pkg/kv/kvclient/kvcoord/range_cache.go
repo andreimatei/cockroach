@@ -330,6 +330,7 @@ func (et EvictionToken) UpdateLease(
 	{
 		shouldUpdate, _ := et.entry.updateLease(lease)
 		if !shouldUpdate {
+			log.VEventf(ctx, 3, "!!! UpdateLease shouldn't update %s with %s", et.entry, lease)
 			return et, false
 		}
 	}
