@@ -623,6 +623,7 @@ func (rdc *RangeDescriptorCache) tryLookup(
 ) (EvictionToken, error) {
 	rdc.rangeCache.RLock()
 	if entry, _ := rdc.getCachedLocked(key, useReverseScan); entry != nil {
+		log.VEventf(ctx, 3, "!!! cache hit: %s", entry)
 		rdc.rangeCache.RUnlock()
 		returnToken := rdc.makeEvictionToken(entry, nil /* nextDesc */)
 		return returnToken, nil
@@ -842,8 +843,10 @@ func (rdc *RangeDescriptorCache) evictLocked(
 	cachedEntry, rawEntry := rdc.getCachedLocked(entry.desc.StartKey, false /* inverted */)
 	if cachedEntry != entry {
 		if cachedEntry != nil && descsCompatible(cachedEntry.Desc(), entry.Desc()) {
+			log.VEventf(ctx, 3, "!!! not evicting %s because cache has newer %s", entry, cachedEntry)
 			return false, cachedEntry
 		}
+		log.VEventf(ctx, 3, "!!! not evicting %s because cache has newer (incompatible) %s", entry, cachedEntry)
 		return false, nil
 	}
 

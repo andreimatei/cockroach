@@ -1427,6 +1427,7 @@ func (ds *DistSender) sendPartialBatch(
 			} else {
 				descKey = rs.Key
 			}
+			log.VEventf(ctx, 3, "!!! no routing info; looking up for key: %s", descKey)
 			routing, err = ds.getRoutingInfo(ctx, descKey, prevTok, isReverse)
 			if err != nil {
 				log.VErrEventf(ctx, 1, "range descriptor re-lookup failed: %s", err)
@@ -1437,6 +1438,8 @@ func (ds *DistSender) sendPartialBatch(
 					return response{pErr: roachpb.NewError(err)}
 				}
 				continue
+			} else {
+				log.VEventf(ctx, 3, "!!! range lookup returned: %s", routing.entry)
 			}
 
 			// See if the range shrunk. If it has, we need to to sub-divide the
