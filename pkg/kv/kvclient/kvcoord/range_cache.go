@@ -926,7 +926,7 @@ func (rdc *RangeDescriptorCache) getCachedLocked(
 func (rdc *RangeDescriptorCache) printFirstLocked(ctx context.Context) {
 	i := 0
 	rdc.rangeCache.cache.DoRangeEntry(func(e *cache.Entry) (exit bool) {
-		key := e.Value.(roachpb.RKey)
+		key := e.Value.(*rangeCacheEntry)
 		ent := rdc.getValue(e)
 		log.VEventf(ctx, 3, "!!! first in cache: %s->%s", key, ent)
 		i++
