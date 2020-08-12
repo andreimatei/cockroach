@@ -623,7 +623,7 @@ func (rdc *RangeDescriptorCache) tryLookup(
 	ctx context.Context, key roachpb.RKey, evictToken EvictionToken, useReverseScan bool,
 ) (EvictionToken, error) {
 	rdc.rangeCache.RLock()
-	if entry, _ := rdc.getCachedLocked(key, useReverseScan); entry != nil {
+	if entry, _ := rdc.getCachedLocked(ctx, key, useReverseScan); entry != nil {
 		log.VEventf(ctx, 3, "!!! cache hit: %s", entry)
 		rdc.rangeCache.RUnlock()
 		returnToken := rdc.makeEvictionToken(entry, nil /* nextDesc */)
@@ -819,7 +819,7 @@ func (rdc *RangeDescriptorCache) EvictByKey(ctx context.Context, descKey roachpb
 	rdc.rangeCache.Lock()
 	defer rdc.rangeCache.Unlock()
 
-	cachedDesc, entry := rdc.getCachedLocked(descKey, false /* inverted */)
+	cachedDesc, entry := rdc.getCachedLocked(ctx, descKey, false /* inverted */)
 	if cachedDesc == nil {
 		return false
 	}
@@ -841,7 +841,8 @@ func (rdc *RangeDescriptorCache) EvictByKey(ctx context.Context, descKey roachpb
 func (rdc *RangeDescriptorCache) evictLocked(
 	ctx context.Context, entry *rangeCacheEntry,
 ) (ok bool, updatedEntry *rangeCacheEntry) {
-	cachedEntry, rawEntry := rdc.getCachedLocked(entry.desc.StartKey, false /* inverted */)
+	log.VEventf(ctx, 3, "!!! trying to evict: %s", entry)
+	cachedEntry, rawEntry := rdc.getCachedLocked(ctx, entry.desc.StartKey, false /* inverted */)
 	if cachedEntry != entry {
 		if cachedEntry != nil && descsCompatible(cachedEntry.Desc(), entry.Desc()) {
 			log.VEventf(ctx, 3, "!!! not evicting %s because cache has newer %s", entry, cachedEntry)
@@ -875,7 +876,7 @@ func (rdc *RangeDescriptorCache) mustEvictLocked(ctx context.Context, entry *ran
 func (rdc *RangeDescriptorCache) GetCached(key roachpb.RKey, inverted bool) kvbase.RangeCacheEntry {
 	rdc.rangeCache.RLock()
 	defer rdc.rangeCache.RUnlock()
-	entry, _ := rdc.getCachedLocked(key, inverted)
+	entry, _ := rdc.getCachedLocked(context.TODO(), key, inverted)
 	if entry == nil {
 		// This return avoids boxing a nil into a non-nil iface.
 		return nil
@@ -889,7 +890,7 @@ func (rdc *RangeDescriptorCache) GetCached(key roachpb.RKey, inverted bool) kvba
 // In addition to GetCached, it also returns an internal cache Entry that can be
 // used for descriptor eviction.
 func (rdc *RangeDescriptorCache) getCachedLocked(
-	key roachpb.RKey, inverted bool,
+	ctx context.Context, key roachpb.RKey, inverted bool,
 ) (*rangeCacheEntry, *cache.Entry) {
 	// The cache is indexed using the end-key of the range, but the
 	// end-key is non-inverted by default.
@@ -902,6 +903,7 @@ func (rdc *RangeDescriptorCache) getCachedLocked(
 
 	rawEntry, ok := rdc.rangeCache.cache.CeilEntry(rangeCacheKey(metaKey))
 	if !ok {
+		log.VEventf(ctx, 3, "!!! RDC.getCachedLocked didn't find any ceil for %s (%s)", key, metaKey)
 		return nil, nil
 	}
 	entry := rdc.getValue(rawEntry)
@@ -914,6 +916,7 @@ func (rdc *RangeDescriptorCache) getCachedLocked(
 
 	// Return nil if the key does not belong to the range.
 	if !containsFn(desc, key) {
+		log.VEventf(ctx, 3, "!!! RDC.getCachedLocked got ceil for %s (%s) that doesn't include it: %s", key, metaKey, desc)
 		return nil, nil
 	}
 	return entry, rawEntry
