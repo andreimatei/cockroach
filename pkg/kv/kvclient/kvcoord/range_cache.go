@@ -903,7 +903,8 @@ func (rdc *RangeDescriptorCache) getCachedLocked(
 
 	rawEntry, ok := rdc.rangeCache.cache.CeilEntry(rangeCacheKey(metaKey))
 	if !ok {
-		log.VEventf(ctx, 3, "!!! RDC.getCachedLocked didn't find any ceil for %s (%s)", key, metaKey)
+		log.VEventf(ctx, 3, "!!! RDC.getCachedLocked (inverted: %t) didn't find any ceil for %s (%s)", inverted, key, metaKey)
+		rdc.printFirstLocked(ctx)
 		return nil, nil
 	}
 	entry := rdc.getValue(rawEntry)
@@ -920,6 +921,17 @@ func (rdc *RangeDescriptorCache) getCachedLocked(
 		return nil, nil
 	}
 	return entry, rawEntry
+}
+
+func (rdc *RangeDescriptorCache) printFirstLocked(ctx context.Context) {
+	i := 0
+	rdc.rangeCache.cache.DoRangeEntry(func(e *cache.Entry) (exit bool) {
+		key := e.Value.(roachpb.RKey)
+		ent := rdc.getValue(e)
+		log.VEventf(ctx, 3, "!!! first in cache: %s->%s", key, ent)
+		i++
+		return i == 5
+	}, rangeCacheKey(roachpb.RKeyMin), maxCacheKey)
 }
 
 // Insert inserts range info into the cache.
