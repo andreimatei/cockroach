@@ -41,6 +41,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/leaktest"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/retry"
+	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/cockroachdb/errors"
 	"github.com/stretchr/testify/require"
@@ -508,16 +509,13 @@ func TestClosedTimestampInactiveAfterSubsumption(t *testing.T) {
 
 	runTest := func(t *testing.T, callback postSubsumptionCallback) {
 		ctx := context.Background()
-		st := mergeFilterState{
-			// Range merges can be internally retried by the coordinating node (the
-			// leaseholder of the left hand side range). If this happens, the right
-			// hand side can get re-subsumed. However, in the current implementation,
-			// even if the merge txn gets retried, the follower replicas should not be
-			// able to activate any closed timestamp updates succeeding the timestamp
-			// the RHS was subsumed _for the first time_.
-			blockMergeTrigger: make(chan hlc.Timestamp),
-			finishMergeTxn:    make(chan struct{}),
-		}
+		// Range merges can be internally retried by the coordinating node (the
+		// leaseholder of the left hand side range). If this happens, the right hand
+		// side can get re-subsumed. However, in the current implementation, even if
+		// the merge txn gets retried, the follower replicas should not be able to
+		// activate any closed timestamp updates succeeding the timestamp the RHS
+		// was subsumed _for the first time_.
+		st := mergeFilter{}
 		var leaseAcquisitionTrap atomic.Value
 		clusterArgs := base.TestClusterArgs{
 			ServerArgs: base.TestServerArgs{
@@ -589,7 +587,7 @@ func TestClosedTimestampInactiveAfterSubsumption(t *testing.T) {
 		// Merge the ranges back together. The LHS rightLeaseholder should block right
 		// before the merge trigger request is sent.
 		leftLeaseholderStore := getTargetStoreOrFatal(t, tc, leftLeaseholder)
-		st.BlockNextMerge()
+		blocker := st.BlockNextMerge()
 		mergeErrCh := make(chan error, 1)
 		g.Go(func() error {
 			err := mergeTxn(ctx, leftLeaseholderStore, leftDesc)
@@ -598,7 +596,7 @@ func TestClosedTimestampInactiveAfterSubsumption(t *testing.T) {
 		})
 		defer func() {
 			// Unblock the rightLeaseholder so it can finally commit the merge.
-			st.UnblockMerge()
+			blocker.Unblock()
 			if err := g.Wait(); err != nil {
 				t.Error(err)
 			}
@@ -607,8 +605,7 @@ func TestClosedTimestampInactiveAfterSubsumption(t *testing.T) {
 		var freezeStartTimestamp hlc.Timestamp
 		// We now have the RHS in its subsumed state.
 		select {
-		case ts := <-st.FirstMergeFreezeStart():
-			freezeStartTimestamp = ts
+		case freezeStartTimestamp = <-blocker.WaitCh():
 		case err := <-mergeErrCh:
 			t.Fatal(err)
 		case <-time.After(45 * time.Second):
@@ -757,61 +754,122 @@ func forceLeaseTransferOnSubsumedRange(
 	return rightLeaseholder, leaseStart, nil
 }
 
-type mergeFilterState struct {
-	active            atomic.Value
-	blockMergeTrigger chan hlc.Timestamp
-	finishMergeTxn    chan struct{}
+// mergeFilter provides a method (SuspendMergeTrigger) that can be installed as
+// a TestingRequestFilter, blocking commits with the MergeTrigger set.
+type mergeFilter struct {
+	mu struct {
+		syncutil.Mutex
+		// blocker is set when the next merge commit is to be trapped.
+		blocker *mergeBlocker
+	}
 }
 
-// BlockNextMerge arms the merge filter state to block the next merge commit
-// trigger it sees. The freezeStart of this blocked merge will be returned via
-// the FirstMergeFreezeStart() method.
-func (state *mergeFilterState) BlockNextMerge() {
-	state.active.Store(true)
+// mergeBlocker represents the blocker that the mergeFilter installs. The
+// blocker encapsulates the communication of a blocked merge to tests, and the
+// unblocking of that merge by the test.
+type mergeBlocker struct {
+	unblockCh chan struct{}
+	mu        struct {
+		syncutil.Mutex
+		// mergeCh is the channel on which the merge is signaled. If nil, means that
+		// the reader is not interested in receiving the notification any more.
+		mergeCh chan hlc.Timestamp
+	}
 }
 
-// FirstMergeFreezeStart returns a channel that will contain the freezeStart of
-// the first merge that has its commit trigger blocked by this mergeFilterState.
-func (state *mergeFilterState) FirstMergeFreezeStart() <-chan hlc.Timestamp {
-	return state.blockMergeTrigger
+// WaitCh returns the channel on which the blocked merge will be signaled. The
+// channel will carry the freeze start timestamp for the RHS.
+func (mb *mergeBlocker) WaitCh() <-chan hlc.Timestamp {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	return mb.mu.mergeCh
 }
 
-// UnblockMerge allows the suspended merge commit trigger to proceed.
-func (state *mergeFilterState) UnblockMerge() {
-	close(state.finishMergeTxn)
+// Unblock unblocks the blocked merge, if any. It's legal to call this even if
+// no merge is currently blocked, in which case the next merge trigger will no
+// longer block.
+//
+// Calls to Unblock() need to be synchronized with reading from the channel
+// returned by WaitCh().
+func (mb *mergeBlocker) Unblock() {
+	close(mb.unblockCh)
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	mb.mu.mergeCh = nil
 }
 
-// SuspendMergeTrigger blocks a merge transaction right before its commit
-// trigger is evaluated (along with subsequent merge attempts for the subsumed
-// range it first blocked the merge for). This is intended to get the RHS range
-// suspended in its subsumed state. The `finishMergeTxn` channel must be closed
-// by the caller in order to unblock the merge txn.
-func (state *mergeFilterState) SuspendMergeTrigger(
+// signal sends a freezeTs to someone waiting for a blocked merge.
+func (mb *mergeBlocker) signal(freezeTs hlc.Timestamp) {
+	mb.mu.Lock()
+	defer mb.mu.Unlock()
+	ch := mb.mu.mergeCh
+	if ch == nil {
+		// Nobody's waiting on this merge any more.
+		return
+	}
+	ch <- freezeTs
+}
+
+// BlockNextMerge arms the merge filter state, installing a blocker for the next
+// merge commit trigger it sees. The blocker is returned, to be be used for waiting
+// on the upcoming merge.
+//
+// After calling BlockNextMerge(), the next merge will be merge blocked and, at
+// that point, the filter will be automatically disarmed again. Once the next
+// merge has been trapped, BlockNextMerge() can be called again.
+func (filter *mergeFilter) BlockNextMerge() *mergeBlocker {
+	filter.mu.Lock()
+	defer filter.mu.Unlock()
+	if filter.mu.blocker != nil {
+		panic("next merge already blocked")
+	}
+	filter.mu.blocker = &mergeBlocker{
+		unblockCh: make(chan struct{}),
+	}
+	// This channel is buffered because we don't force the caller to read from it;
+	// the caller can call mergeBlocker.Unblock() instead.
+	filter.mu.blocker.mu.mergeCh = make(chan hlc.Timestamp, 1)
+	return filter.mu.blocker
+}
+
+// resetBlocker disarms the filter. If the filter had been armed, it returns the
+// blocker that had been installed by BlockNextMerge(), if any. If a blocker had
+// been installed, it is returned and the bool retval is true.
+func (filter *mergeFilter) resetBlocker() (*mergeBlocker, bool) {
+	filter.mu.Lock()
+	defer filter.mu.Unlock()
+	blocker := filter.mu.blocker
+	filter.mu.blocker = nil
+	return blocker, blocker != nil
+}
+
+// SuspendMergeTrigger is a request filter that can block merge transactions.
+// This is intended to get the RHS range suspended in its subsumed state.
+// Communication with actors interested in blocked merges is done through
+// BlockNextMerge().
+func (filter *mergeFilter) SuspendMergeTrigger(
 	ctx context.Context, ba roachpb.BatchRequest,
 ) *roachpb.Error {
-	val := state.active.Load()
-	if val == nil {
-		return nil
-	}
-	active := val.(bool)
-	if !active {
-		return nil
-	}
 	for _, req := range ba.Requests {
 		if et := req.GetEndTxn(); et != nil && et.Commit &&
 			et.InternalCommitTrigger.GetMergeTrigger() != nil {
+
+			// Disarm the mergeFilterState because we do _not_ want to block any other
+			// merges in the system, or the future retries of this merge txn.
+			blocker, ok := filter.resetBlocker()
+			if !ok {
+				continue
+			}
+
 			freezeStart := et.InternalCommitTrigger.MergeTrigger.FreezeStart
-			log.Infof(ctx, "suspending the merge txn with FreezeStart: %s",
-				freezeStart)
+			log.Infof(ctx, "suspending the merge txn with FreezeStart: %s", freezeStart)
+
 			// We block the LHS leaseholder from applying the merge trigger. Note
 			// that RHS followers will have already caught up to the leaseholder
 			// well before this point.
-			state.blockMergeTrigger <- freezeStart
-			// Disarm the mergeFilterState because we do _not_ want to block any other
-			// merges in the system, or the future retries of this merge txn.
-			state.active.Store(false)
-			// Let the merge try to commit.
-			<-state.finishMergeTxn
+			blocker.signal(freezeStart)
+			// Wait for the merge to be unblocked.
+			<-blocker.unblockCh
 		}
 	}
 	return nil
