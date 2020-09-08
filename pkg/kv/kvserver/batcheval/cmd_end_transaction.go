@@ -301,6 +301,7 @@ func EndTxn(
 				return result.Result{}, err
 			}
 
+			log.Eventf(ctx, "txn is now STAGING")
 			reply.Txn.Status = roachpb.STAGING
 			reply.StagingTimestamp = reply.Txn.WriteTimestamp
 			if err := updateStagingTxn(ctx, readWriter, ms, key, args, reply.Txn); err != nil {

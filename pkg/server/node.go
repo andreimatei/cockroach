@@ -869,7 +869,7 @@ func (n *Node) batchInternal(
 		// NB: wrapped to delay br evaluation to its value when returning.
 		defer func() { finishSpan(br) }()
 		if log.HasSpanOrEvent(ctx) {
-			log.Eventf(ctx, "node received request: %s", args.Summary())
+			log.Eventf(ctx, "node received request: %s (txn status: %s)", args.Summary(), args.Txn.Status)
 		}
 
 		tStart := timeutil.Now()

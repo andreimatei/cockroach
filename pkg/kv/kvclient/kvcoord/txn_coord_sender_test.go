@@ -2358,16 +2358,20 @@ func TestPutsInStagingTxn(t *testing.T) {
 		return nil
 	}
 
-	s, sqlDB, db := serverutils.StartServer(t, base.TestServerArgs{Knobs: base.TestingKnobs{Store: &storeKnobs}})
-	defer s.Stopper().Stop(ctx)
-
-	require.NoError(t, db.AdminSplit(ctx, keyB /* splitKey */, hlc.MaxTimestamp /* expirationTimestamp */))
-
 	// Disable the DistSender concurrency so that sub-batches split by the
 	// DistSender are send serially and the transaction is updated from one to
 	// another. See below.
-	_, err := sqlDB.Exec("set cluster setting kv.dist_sender.concurrency_limit = 0")
-	require.NoError(t, err)
+	settings := cluster.MakeTestingClusterSettings()
+	senderConcurrencyLimit.Override(&settings.SV, 0)
+
+	s, _, db := serverutils.StartServer(t,
+		base.TestServerArgs{
+			Settings: settings,
+			Knobs:    base.TestingKnobs{Store: &storeKnobs},
+		})
+	defer s.Stopper().Stop(ctx)
+
+	require.NoError(t, db.AdminSplit(ctx, keyB /* splitKey */, hlc.MaxTimestamp /* expirationTimestamp */))
 
 	txn := db.NewTxn(ctx, "test")
 
@@ -2380,10 +2384,16 @@ func TestPutsInStagingTxn(t *testing.T) {
 	// sent serially since we've inhibited the DistSender's concurrency. The first
 	// one will transition the txn to STAGING, and the DistSender will use that
 	// updated txn when sending the 2nd sub-batch.
+	log.Infof(ctx, "!!! test sending")
 	b := txn.NewBatch()
 	b.Put(keyA, "a")
 	b.Put(keyB, "b")
-	require.NoError(t, txn.CommitInBatch(ctx, b))
+	recCtx, collect, cancel := tracing.ContextWithRecordingSpan(ctx, "test txn")
+	require.NoError(t, txn.CommitInBatch(recCtx, b))
+	//if !putInStagingSeen {
+	log.Infof(ctx, "trace: %s", collect())
+	//}
+	cancel()
 	// Verify that the test isn't fooling itself by checking that we've indeed
 	// seen a batch with the STAGING status.
 	require.True(t, putInStagingSeen)

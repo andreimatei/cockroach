@@ -370,6 +370,7 @@ func NewDistSender(cfg DistSenderConfig) *DistSender {
 		uint64(senderConcurrencyLimit.Get(&cfg.Settings.SV)))
 	senderConcurrencyLimit.SetOnChange(&cfg.Settings.SV, func() {
 		ds.asyncSenderSem.UpdateCapacity(uint64(senderConcurrencyLimit.Get(&cfg.Settings.SV)))
+		log.Infof(context.TODO(), "!!! updated capacity")
 	})
 	ds.rpcContext.Stopper.AddCloser(ds.asyncSenderSem.Closer("stopper"))
 
@@ -1270,9 +1271,11 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 			ds.sendPartialBatchAsync(ctx, ba, rs, ri.Token(), withCommit, batchIdx, responseCh) {
 			// Sent the batch asynchronously.
 		} else {
+			log.Eventf(ctx, "!!! sending next batch serially. lastRange: %t", lastRange)
 			resp := ds.sendPartialBatch(
 				ctx, ba, rs, ri.Token(), withCommit, batchIdx, true, /* needsTruncate */
 			)
+			log.Eventf(ctx, "!!! got resp: pErr: %v, txn: %v", resp.pErr, resp.reply.Txn)
 			responseCh <- resp
 			if resp.pErr != nil {
 				return
@@ -1281,6 +1284,9 @@ func (ds *DistSender) divideAndSendBatchToRanges(
 			// on the asynchronous path, but if we have newer information it's good to
 			// use it.
 			if !lastRange {
+				if resp.reply.Txn != nil {
+					log.Eventf(ctx, "!!! updating txn to: %s", resp.reply.Txn.Status)
+				}
 				ba.UpdateTxn(resp.reply.Txn)
 			}
 
@@ -1539,6 +1545,9 @@ func (ds *DistSender) sendPartialBatch(
 				reply.RangeInfos = append(reply.RangeInfos, firstRes.Header().DeprecatedRangeInfos...)
 			}
 
+			if reply.Txn != nil {
+				log.Eventf(ctx, "!!! got reply with status: %s", reply.Txn.Status)
+			}
 			return response{reply: reply, positions: positions}
 		}
 

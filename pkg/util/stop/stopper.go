@@ -368,6 +368,7 @@ func (s *Stopper) RunLimitedAsyncTask(
 		alloc, err = sem.Acquire(ctx, 1)
 	} else {
 		alloc, err = sem.TryAcquire(ctx, 1)
+		log.Eventf(ctx, "!!! DistSender acquired quota err: %v", err)
 	}
 	if errors.Is(err, quotapool.ErrNotEnoughQuota) {
 		err = ErrThrottled
