@@ -55,6 +55,7 @@ const (
 var (
 	local            bool
 	cockroach        string
+	cockroach_201    string
 	libraryFilePaths []string
 	cloud                         = gce
 	encrypt          encryptValue = "false"

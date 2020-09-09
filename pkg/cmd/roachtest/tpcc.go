@@ -18,12 +18,10 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgcode"
-	"github.com/cockroachdb/cockroach/pkg/util/binfetcher"
 	"github.com/cockroachdb/cockroach/pkg/util/search"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/cockroachdb/cockroach/pkg/util/version"
@@ -116,17 +114,18 @@ func setupTPCC(
 			if v == "" {
 				regularNodes = append(regularNodes, c.Node(i+1))
 			} else {
-				// NB: binfetcher caches the downloaded files.
-				binary, err := binfetcher.Download(ctx, binfetcher.Options{
-					Binary:  "cockroach",
-					Version: v,
-					GOOS:    ifLocal(runtime.GOOS, "linux"),
-					GOARCH:  "amd64",
-				})
-				if err != nil {
-					t.Fatalf("while fetching %s: %s", v, err)
-				}
-				c.Put(ctx, binary, "./cockroach", c.Node(i+1))
+				// !!!
+				//// NB: binfetcher caches the downloaded files.
+				//binary, err := binfetcher.Download(ctx, binfetcher.Options{
+				//	Binary:  "cockroach",
+				//	Version: v,
+				//	GOOS:    ifLocal(runtime.GOOS, "linux"),
+				//	GOARCH:  "amd64",
+				//})
+				//if err != nil {
+				//	t.Fatalf("while fetching %s: %s", v, err)
+				//}
+				c.Put(ctx, "cockroach-201", "./cockroach", c.Node(i+1))
 			}
 		}
 		c.Put(ctx, cockroach, "./cockroach", regularNodes...)
@@ -234,6 +233,46 @@ func maxSupportedTPCCWarehouses(buildVersion version.Version, cloud string, node
 		panic(fmt.Sprintf(`could not find max tpcc warehouses for %s`, hardware))
 	}
 	return warehouses
+}
+
+func registerXXX(r *testRegistry) {
+	mixedHeadroomSpec := makeClusterSpec(5, cpu(16))
+	r.Add(testSpec{
+		Name:    "xxx",
+		Owner:   OwnerKV,
+		Tags:    []string{`default`},
+		Cluster: mixedHeadroomSpec,
+		Run: func(ctx context.Context, t *test, c *cluster) {
+			warehouses := 1000
+			crdbNodes := c.Range(1, c.spec.NodeCount-1)
+			workloadNode := c.Node(c.spec.NodeCount)
+
+			versions := []string{"20.1.4", "", "20.1.4", ""}
+
+			var regularNodes []option
+			for i, v := range versions {
+				if v == "" {
+					regularNodes = append(regularNodes, c.Node(i+1))
+				} else {
+					c.Put(ctx, "cockroach-201", "./cockroach", c.Node(i+1))
+				}
+			}
+			c.Put(ctx, cockroach, "./cockroach", regularNodes...)
+
+			// Fixture import needs ./cockroach workload on workloadNode.
+			c.Put(ctx, cockroach, "./cockroach", workloadNode)
+			c.Put(ctx, workload, "./workload", workloadNode)
+
+			func() {
+				db := c.Conn(ctx, 1)
+				defer db.Close()
+				c.Start(ctx, t, crdbNodes, startArgsDontEncrypt)
+				waitForFullReplication(t, c.Conn(ctx, crdbNodes[0]))
+				t.Status("loading fixture")
+				c.Run(ctx, workloadNode, tpccFixturesCmd(t, cloud, warehouses, "" /* extraArgs */))
+			}()
+		},
+	})
 }
 
 func registerTPCC(r *testRegistry) {

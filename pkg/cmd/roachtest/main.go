@@ -81,6 +81,8 @@ func main() {
 		"Username to use as a cluster name prefix. "+
 			"If blank, the current OS user is detected and specified.")
 	rootCmd.PersistentFlags().StringVar(
+		&cockroach_201, "cockroach-201", "", "path to cockroach 20.1 binary to use")
+	rootCmd.PersistentFlags().StringVar(
 		&cockroach, "cockroach", "", "path to cockroach binary to use")
 	rootCmd.PersistentFlags().StringVar(
 		&workload, "workload", "", "path to workload binary to use")
