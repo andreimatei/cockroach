@@ -12,7 +12,9 @@ package kvserver
 
 import (
 	"context"
+	"fmt"
 	"math/rand"
+	"runtime/debug"
 	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/abortspan"
@@ -313,7 +315,12 @@ func (r *Replica) setDescLockedRaftMuLocked(ctx context.Context, desc *roachpb.R
 	r.connectionClass.set(rpc.ConnectionClassForKey(desc.StartKey))
 	r.concMgr.OnRangeDescUpdated(desc)
 	if desc.IsInitialized() {
-		log.Infof(ctx, "!!! updating r.Desc to: %s", desc)
+		var msg string
+		if !desc.GetGenerationComparable() {
+			stack := string(debug.Stack())
+			msg = fmt.Sprintf("not comparable: (%p)\n%s", desc.GenerationComparable, stack)
+		}
+		log.Infof(ctx, "!!! updating r.Desc to: %s %s", desc, msg)
 	}
 	r.mu.state.Desc = desc
 }
