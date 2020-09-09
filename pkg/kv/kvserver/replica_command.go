@@ -2085,6 +2085,7 @@ func updateRangeDescriptor(
 		}
 		newValue = newBytes
 	}
+	log.Infof(ctx, "!!! will attempt to write desc: %s", newDesc)
 	b.CPut(descKey, newValue, oldValue)
 	return nil
 }
