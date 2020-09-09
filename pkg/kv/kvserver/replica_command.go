@@ -529,6 +529,7 @@ func (r *Replica) executeAdminCommandWithDescriptor(
 			return pErr
 		}
 
+		log.Infof(ctx, "!!! executeAdminCommandWithDescriptor: r.Desc: %s", r.Desc())
 		lastErr = updateDesc(r.Desc())
 		// On seeing a ConditionFailedError or an AmbiguousResultError, retry the
 		// command with the updated descriptor.
