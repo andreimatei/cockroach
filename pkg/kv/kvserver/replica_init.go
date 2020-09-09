@@ -65,6 +65,7 @@ func newUnloadedReplica(
 	if replicaID == 0 {
 		log.Fatalf(context.TODO(), "cannot construct a replica for range %d with a 0 replica ID", desc.RangeID)
 	}
+	log.Infof(ctx, "!!! newUnloadedReplica with desc: %s", desc)
 	r := &Replica{
 		AmbientContext: store.cfg.AmbientCtx,
 		RangeID:        desc.RangeID,
