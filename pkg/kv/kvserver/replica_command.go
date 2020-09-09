@@ -188,7 +188,7 @@ func splitTxnAttempt(
 ) error {
 	txn.SetDebugName(splitTxnName)
 
-	_, dbDescValue, err := conditionalGetDescValueFromDB(ctx, txn, oldDesc.StartKey, checkDescsEqual(oldDesc))
+	_, dbDescValue, err := conditionalGetDescValueFromDB(ctx, txn, oldDesc.StartKey, checkDescsEqualXXX(ctx, oldDesc))
 	if err != nil {
 		return err
 	}
@@ -1973,6 +1973,21 @@ func replicaSetsEqual(a, b []roachpb.ReplicaDescriptor) bool {
 	}
 
 	return true
+}
+
+// !!!
+func checkDescsEqualXXX(
+	ctx context.Context, desc *roachpb.RangeDescriptor,
+) func(*roachpb.RangeDescriptor) bool {
+	f := checkDescsEqual(desc)
+	return func(existing *roachpb.RangeDescriptor) bool {
+		ok := f(existing)
+		if !ok {
+			log.Infof(ctx, "!!! failed desc check. existing: %s (%+v)\ndesc: %s (%+v)",
+				existing, existing, desc, desc)
+		}
+		return ok
+	}
 }
 
 func checkDescsEqual(desc *roachpb.RangeDescriptor) func(*roachpb.RangeDescriptor) bool {
