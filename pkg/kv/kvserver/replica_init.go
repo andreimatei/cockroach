@@ -341,6 +341,8 @@ func (r *Replica) setDescLockedRaftMuLocked(ctx context.Context, desc *roachpb.R
 	r.rangeStr.store(r.mu.replicaID, desc)
 	r.connectionClass.set(rpc.ConnectionClassForKey(desc.StartKey))
 	r.concMgr.OnRangeDescUpdated(desc)
-	log.Infof(ctx, "!!! updating r.Desc to: %s", desc)
+	if desc.IsInitialized() {
+		log.Infof(ctx, "!!! updating r.Desc to: %s", desc)
+	}
 	r.mu.state.Desc = desc
 }
