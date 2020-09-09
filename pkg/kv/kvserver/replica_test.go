@@ -398,7 +398,7 @@ func (tc *testContext) addBogusReplicaToRangeDesc(
 		Header: roachpb.Header{Timestamp: tc.Clock().Now()},
 	}
 	descKey := keys.RangeDescriptorKey(oldDesc.StartKey)
-	if err := updateRangeDescriptor(&ba, descKey, dbDescKV.Value, &newDesc); err != nil {
+	if err := updateRangeDescriptor(ctx, &ba, descKey, dbDescKV.Value, &newDesc); err != nil {
 		return roachpb.ReplicaDescriptor{}, err
 	}
 	if err := tc.store.DB().Run(ctx, &ba); err != nil {
