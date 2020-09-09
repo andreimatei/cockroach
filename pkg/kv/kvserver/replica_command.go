@@ -214,6 +214,7 @@ func splitTxnAttempt(
 
 	// Write range descriptor for right hand side of the split.
 	rightDescKey := keys.RangeDescriptorKey(rightDesc.StartKey)
+	log.Infof(ctx, "!!! will write RHS desc: %s", rightDesc)
 	if err := updateRangeDescriptor(b, rightDescKey, nil, rightDesc); err != nil {
 		return err
 	}

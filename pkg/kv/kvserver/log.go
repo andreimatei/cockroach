@@ -100,7 +100,7 @@ func (s *Store) insertRangeLogEvent(
 func (s *Store) logSplit(
 	ctx context.Context, txn *kv.Txn, updatedDesc, newDesc roachpb.RangeDescriptor,
 ) error {
-	log.Infof(ctx, "!!! after split: updatedDesc: %s, newDesc: %s", updatedDesc, newDesc)
+	log.Infof(ctx, "!!! about to split: updatedDesc: %s, newDesc: %s", updatedDesc, newDesc)
 	if !s.cfg.LogRangeEvents {
 		return nil
 	}

@@ -160,6 +160,7 @@ func splitPreApply(
 func splitPostApply(
 	ctx context.Context, deltaMS enginepb.MVCCStats, split *roachpb.SplitTrigger, r *Replica,
 ) {
+	log.Infof(ctx, "!!! splitPostApply: LHS: %s RHS: %s", split.LeftDesc, split.RightDesc)
 	// rightReplOrNil will be nil if the RHS replica at the ID of the split is
 	// already known to be removed, generally because we know that this store has
 	// been re-added at a higher replica ID.
@@ -230,6 +231,7 @@ func prepareRightReplicaForSplit(
 	}
 
 	// Finish initialization of the RHS.
+	log.Infof(ctx, "!!! initializing RHS: %s", split.RightDesc)
 	err = rightRepl.loadRaftMuLockedReplicaMuLocked(&split.RightDesc)
 	rightRepl.mu.Unlock()
 	if err != nil {
