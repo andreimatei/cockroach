@@ -307,6 +307,7 @@ A file preventing this node from restarting was placed at:
 // forward sequence number jump (i.e. a skipped lease). This behavior can
 // be disabled by passing permitJump as true.
 func (r *Replica) leasePostApply(ctx context.Context, newLease roachpb.Lease, permitJump bool) {
+	log.Infof(ctx, "!!! applying lease: %s", newLease.String())
 	r.mu.RLock()
 	replicaID := r.mu.replicaID
 	// Pull out the last lease known to this Replica. It's possible that this is
