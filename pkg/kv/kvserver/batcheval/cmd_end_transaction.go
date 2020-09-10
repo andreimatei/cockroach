@@ -1042,6 +1042,7 @@ func splitTriggerHelper(
 		}
 	}
 
+	log.Infof(ctx, "!!! evaluating EndTxn resulting in proposing split trigger; RHS: %s", split.RightDesc)
 	var pd result.Result
 	pd.Replicated.Split = &storagepb.Split{
 		SplitTrigger: *split,
