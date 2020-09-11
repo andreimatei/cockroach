@@ -540,6 +540,9 @@ func (ds *DistSender) getRoutingInfo(
 	if err != nil {
 		return EvictionToken{}, err
 	}
+	if evictToken.Desc().Equal(returnToken.Desc()) {
+		log.VErrEventf(ctx, 2, "!!! getRoutingInfo got the same desc as before: %s", evictToken.Desc())
+	}
 
 	// Sanity check: the descriptor we're about to return must include the key
 	// we're interested in.
@@ -1459,6 +1462,7 @@ func (ds *DistSender) sendPartialBatch(
 			} else {
 				descKey = rs.Key
 			}
+			log.VEventf(ctx, 2, "looking up routing info for request: ", ba)
 			routing, err = ds.getRoutingInfo(ctx, descKey, prevTok, isReverse)
 			if err != nil {
 				log.VErrEventf(ctx, 1, "range descriptor re-lookup failed: %s", err)

@@ -476,6 +476,7 @@ func (et EvictionToken) Evict(ctx context.Context) {
 func (et EvictionToken) EvictAndReplace(ctx context.Context, newDescs ...roachpb.RangeInfo) {
 	et.rdc.rangeCache.Lock()
 	defer et.rdc.rangeCache.Unlock()
+	log.VEventf(ctx, 2, "EvictAndReplace %s. newDescs: %s. speculative desc: %s", et.entry, newDescs, et.speculativeDesc)
 	et.rdc.evictLocked(ctx, et.entry)
 	if len(newDescs) > 0 {
 		log.Eventf(ctx, "evicting cached range descriptor with %d replacements", len(newDescs))
