@@ -1856,14 +1856,17 @@ const (
 // This method generally does not react to ctx cancelation.
 func (c *cluster) Destroy(ctx context.Context, lo closeLoggerOpt, l *logger) {
 	if ctx.Err() != nil {
+		l.PrintfCtx(ctx, "!!! cluster.Destroy  short-circuit ctx")
 		return
 	}
 	if c.spec.NodeCount == 0 {
+		l.PrintfCtx(ctx, "!!! cluster.Destroy  short-circuit no nodes")
 		// No nodes can happen during unit tests and implies not much to do.
 		c.r.unregisterCluster(c)
 		return
 	}
 
+	l.PrintfCtx(ctx, "!!! cluster.Destroy 1")
 	ch := c.doDestroy(ctx, l)
 	<-ch
 	// NB: Closing the logger without waiting on c.destroyState.destroyed above
@@ -1878,6 +1881,7 @@ func (c *cluster) doDestroy(ctx context.Context, l *logger) <-chan struct{} {
 	var inFlight <-chan struct{}
 	c.destroyState.mu.Lock()
 	if c.destroyState.mu.saved {
+		l.PrintfCtx(ctx, "!!! cluster.doDestroy short-circuit saved")
 		// Nothing to do. Short-circuit.
 		c.destroyState.mu.Unlock()
 		ch := make(chan struct{})
@@ -1891,9 +1895,12 @@ func (c *cluster) doDestroy(ctx context.Context, l *logger) <-chan struct{} {
 	}
 	c.destroyState.mu.Unlock()
 	if inFlight != nil {
+		l.PrintfCtx(ctx, "!!! cluster.doDestroy short-circuit inFlight")
 		return inFlight
 	}
 
+	l.PrintfCtx(ctx, "!!! cluster.doDestroy about to do work. wipe: %t, owned: %t",
+		clusterWipe, c.destroyState.owned)
 	if clusterWipe {
 		if c.destroyState.owned {
 			l.PrintfCtx(ctx, "destroying cluster %s...", c)
