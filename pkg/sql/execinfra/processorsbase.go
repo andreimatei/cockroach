@@ -290,9 +290,10 @@ func (h *ProcOutputHelper) ProcessRow(
 			return nil, false, err
 		}
 		if !passes {
-			if log.V(4) {
-				log.Infof(ctx, "filtered out row %s", row.String(h.filter.Types))
-			}
+			// !!!
+			//if log.V(4) {
+			//	log.Infof(ctx, "filtered out row %s", row.String(h.filter.Types))
+			//}
 			return nil, true, nil
 		}
 	}
