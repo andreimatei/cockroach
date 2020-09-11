@@ -325,3 +325,19 @@ func verifyMetrics(ctx context.Context, c *cluster, m map[string]float64) error 
 
 // TODO(peter): silence unused warning.
 var _ = verifyMetrics
+
+func registerXXX(r *testRegistry) {
+	r.Add(testSpec{
+		Name:    fmt.Sprintf("xxx"),
+		Owner:   OwnerBulkIO,
+		Cluster: makeClusterSpec(1),
+		Timeout: 10 * time.Minute,
+		Run: func(ctx context.Context, t *test, c *cluster) {
+			//c.Put(ctx, cockroach, "./cockroach")
+			//c.Start(ctx, t)
+			t.l.PrintfCtx(ctx, "!!! test about to sleep...")
+			time.Sleep(10 * time.Second)
+			t.l.PrintfCtx(ctx, "!!! test sleep... done")
+		},
+	})
+}

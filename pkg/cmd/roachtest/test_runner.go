@@ -354,6 +354,10 @@ func (r *testRunner) runWorker(
 	allocateCluster clusterAllocatorFn,
 	l *logger,
 ) error {
+	// !!!
+	//if strings.Contains(name, "1") {
+	//	return errors.New("!!! fail worker")
+	//}
 	ctx = logtags.AddTag(ctx, name, nil /* value */)
 	wStatus := r.addWorker(ctx, name)
 	defer func() {
@@ -370,6 +374,7 @@ func (r *testRunner) runWorker(
 		wStatus.SetCluster(nil)
 
 		if c == nil {
+			l.PrintfCtx(ctx, "Worker %s exiting. No cluster to cleanup.", name)
 			return
 		}
 		doDestroy := ctx.Err() == nil
