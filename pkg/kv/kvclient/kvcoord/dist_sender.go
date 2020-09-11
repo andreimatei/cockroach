@@ -39,6 +39,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/tracing"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
 	"github.com/cockroachdb/errors"
+	"github.com/petermattis/goid"
 )
 
 var (
@@ -1849,7 +1850,20 @@ func (ds *DistSender) sendToReplicas(
 			// update.
 			LeaseSequence: routing.LeaseSeq(),
 		}
+
+		done := make(chan struct{})
+		gid := goid.Get()
+		go func() {
+			select {
+			case <-time.After(300 * time.Second):
+				log.Infof(ctx, "[while request running] have been waiting 5m for RPC %s to %s (gid: %d)",
+					ba, routing.entry, curReplica.String(), gid)
+			case <-done:
+			}
+		}()
+
 		br, err = transport.SendNext(ctx, ba)
+		close(done)
 		ds.maybeIncrementErrCounters(br, err)
 
 		if err != nil {

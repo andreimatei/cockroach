@@ -624,6 +624,7 @@ func (rdc *RangeDescriptorCache) tryLookup(
 ) (EvictionToken, error) {
 	rdc.rangeCache.RLock()
 	if entry, _ := rdc.getCachedRLocked(ctx, key, useReverseScan); entry != nil {
+		log.VEventf(ctx, 2, "!!! range cache hit for key: %s. entry: %s", key, entry)
 		rdc.rangeCache.RUnlock()
 		returnToken := rdc.makeEvictionToken(entry, nil /* nextDesc */)
 		return returnToken, nil

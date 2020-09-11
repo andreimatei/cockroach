@@ -12,6 +12,7 @@ package kv
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/keys"
@@ -162,6 +163,16 @@ func RangeLookup(
 	prefetchNum int64,
 	prefetchReverse bool,
 ) (rs, preRs []roachpb.RangeDescriptor, err error) {
+	log.VEventf(ctx, 2, "looking up descriptor for key: %s", key)
+	defer func() {
+		var msg string
+		if err != nil {
+			msg = fmt.Sprintf("err: %s", err)
+		} else {
+			msg = fmt.Sprintf("rs: %s, preRs: %s", rs, preRs)
+		}
+		log.VEventf(ctx, 2, "looking up descriptor for key: %s... returning %s", key, msg)
+	}()
 	// RangeLookup scans can span multiple ranges, as discussed above.
 	// Traditionally, in order to see a fully-consistent snapshot of multiple
 	// ranges, a scan needs to operate in a Txn with a fixed timestamp. Without

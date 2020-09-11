@@ -224,7 +224,8 @@ func registerRestore(r *testRegistry) {
 			Timeout: item.timeout,
 			Run: func(ctx context.Context, t *test, c *cluster) {
 				c.Put(ctx, cockroach, "./cockroach")
-				c.Start(ctx, t)
+				args := startArgs("--args=--vmodule=range_cache=2,dist_sender=2,range_lookup=2")
+				c.Start(ctx, t, args)
 				m := newMonitor(ctx, c)
 
 				// Run the disk usage logger in the monitor to guarantee its
