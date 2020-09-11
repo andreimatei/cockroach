@@ -352,6 +352,7 @@ func (et EvictionToken) updateLeaseInternal(
 	// Evict our entry and, in the process, see if the cache has a more recent
 	// entry.
 	evicted, curEntry := et.rdc.evictLocked(ctx, et.entry)
+	log.VEventf(ctx, 2, "!!! updating lease: evicted: %t, curEntry: %s", evicted, et.entry)
 	if !evicted && curEntry == nil {
 		// The cache doesn't know what range we're talking about. We must have very
 		// stale info.
@@ -363,11 +364,14 @@ func (et EvictionToken) updateLeaseInternal(
 	}
 
 	shouldUpdate, updatedEntry := et.entry.updateLease(lease)
+	log.VEventf(ctx, 2, "!!! updating lease: should update: %t; updatedEntry: %s", shouldUpdate, updatedEntry)
 	if !shouldUpdate {
+		log.VEventf(ctx, 2, "!!! updating lease: new lease is not newer; new: %s existing: %s", lease, et.entry.Lease())
 		return et, false
 	}
 	// Replace the entry.
 	if !evicted {
+		log.VEventf(ctx, 2, "!!! updating lease: evicted: %t, curEntry: %s", evicted, et.entry)
 		et.rdc.mustEvictLocked(ctx, et.entry)
 	}
 	// updatedEntry == nil means that lease is incompatible with the descriptor in
@@ -377,6 +381,7 @@ func (et EvictionToken) updateLeaseInternal(
 		return EvictionToken{}, false
 	}
 	et.entry = updatedEntry
+	log.VEventf(ctx, 2, "!!! updating lease: about to insert: %s", updatedEntry)
 	et.rdc.mustInsertLocked(ctx, updatedEntry)
 	return et, true
 }
@@ -845,8 +850,12 @@ func (rdc *RangeDescriptorCache) evictLocked(
 	cachedEntry, rawEntry := rdc.getCachedRLocked(ctx, entry.desc.StartKey, false /* inverted */)
 	if cachedEntry != entry {
 		if cachedEntry != nil && descsCompatible(cachedEntry.Desc(), entry.Desc()) {
+			log.VEventf(ctx, 2, "!!! evictLocked not evicting because cache has newer entry. entry: %s newer: %s",
+				entry, cachedEntry)
 			return false, cachedEntry
 		}
+		log.VEventf(ctx, 2, "!!! evictLocked not evicting because cache has nil or incompatible entry. entry: %s newer: %s",
+			entry, cachedEntry)
 		return false, nil
 	}
 

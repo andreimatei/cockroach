@@ -1462,7 +1462,7 @@ func (ds *DistSender) sendPartialBatch(
 			} else {
 				descKey = rs.Key
 			}
-			log.VEventf(ctx, 2, "looking up routing info for request: ", ba)
+			log.VEventf(ctx, 2, "looking up routing info for request: %s", ba)
 			routing, err = ds.getRoutingInfo(ctx, descKey, prevTok, isReverse)
 			if err != nil {
 				log.VErrEventf(ctx, 1, "range descriptor re-lookup failed: %s", err)
