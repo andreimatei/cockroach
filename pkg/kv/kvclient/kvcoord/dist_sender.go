@@ -541,7 +541,7 @@ func (ds *DistSender) getRoutingInfo(
 		return EvictionToken{}, err
 	}
 	if evictToken.Desc().Equal(returnToken.Desc()) {
-		log.VErrEventf(ctx, 2, "!!! getRoutingInfo got the same desc as before: %s", evictToken.Desc())
+		log.VErrEventf(ctx, 2, "!!! getRoutingInfo got the same desc as before: %s (%p)", evictToken, evictToken.entry)
 	}
 
 	// Sanity check: the descriptor we're about to return must include the key
@@ -1453,6 +1453,7 @@ func (ds *DistSender) sendPartialBatch(
 	var prevTok EvictionToken
 	for r := retry.StartWithCtx(ctx, ds.rpcRetryOptions); r.Next(); {
 		attempts++
+		log.VEventf(ctx, 2, "!!! starting attempt %d; routing: %s", attempts, routing)
 		pErr = nil
 		// If we've cleared the descriptor on a send failure, re-lookup.
 		if routing.Empty() {
@@ -1993,7 +1994,9 @@ func (ds *DistSender) sendToReplicas(
 						routing, ok = routing.UpdateLease(ctx, tErr.Lease)
 					} else if tErr.LeaseHolder != nil {
 						// tErr.LeaseHolder might be set when tErr.Lease isn't.
+						log.VEventf(ctx, 2, "!!! updating leaseholder to: %s", tErr.LeaseHolder)
 						routing = routing.UpdateLeaseholder(ctx, *tErr.LeaseHolder)
+						log.VEventf(ctx, 2, "!!! after updating leaseholder got back entry: %s (%p)", routing, routing.entry)
 						ok = true
 					}
 					// Move the new leaseholder to the head of the queue for the next

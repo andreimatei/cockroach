@@ -345,6 +345,7 @@ func (et EvictionToken) updateLeaseInternal(
 	// to point to the new entry. Note that the eviction token itself does not
 	// count as having been evicted (we don't use et.evictOnce), and so the caller
 	// can continue using it.
+	log.VEventf(ctx, 2, "!!! updating lease: entry: %s, lease: %s", et, lease)
 
 	et.rdc.rangeCache.Lock()
 	defer et.rdc.rangeCache.Unlock()
@@ -352,7 +353,7 @@ func (et EvictionToken) updateLeaseInternal(
 	// Evict our entry and, in the process, see if the cache has a more recent
 	// entry.
 	evicted, curEntry := et.rdc.evictLocked(ctx, et.entry)
-	log.VEventf(ctx, 2, "!!! updating lease: evicted: %t, curEntry: %s", evicted, et.entry)
+	log.VEventf(ctx, 2, "!!! updating lease: evicted: %t, curEntry: %s", evicted, curEntry)
 	if !evicted && curEntry == nil {
 		// The cache doesn't know what range we're talking about. We must have very
 		// stale info.
@@ -366,12 +367,12 @@ func (et EvictionToken) updateLeaseInternal(
 	shouldUpdate, updatedEntry := et.entry.updateLease(lease)
 	log.VEventf(ctx, 2, "!!! updating lease: should update: %t; updatedEntry: %s", shouldUpdate, updatedEntry)
 	if !shouldUpdate {
-		log.VEventf(ctx, 2, "!!! updating lease: new lease is not newer; new: %s existing: %s", lease, et.entry.Lease())
+		log.VEventf(ctx, 2, "!!! updating lease: new lease is not newer; new: %s existing: %s", lease, et.entry.lease)
 		return et, false
 	}
 	// Replace the entry.
 	if !evicted {
-		log.VEventf(ctx, 2, "!!! updating lease: evicted: %t, curEntry: %s", evicted, et.entry)
+		log.VEventf(ctx, 2, "!!! updating lease: evicted: %t, entry: %s", evicted, et.entry)
 		et.rdc.mustEvictLocked(ctx, et.entry)
 	}
 	// updatedEntry == nil means that lease is incompatible with the descriptor in
@@ -630,7 +631,7 @@ func (rdc *RangeDescriptorCache) tryLookup(
 ) (EvictionToken, error) {
 	rdc.rangeCache.RLock()
 	if entry, _ := rdc.getCachedRLocked(ctx, key, useReverseScan); entry != nil {
-		log.VEventf(ctx, 2, "!!! range cache hit for key: %s. entry: %s", key, entry)
+		log.VEventf(ctx, 2, "!!! range cache hit for key: %s. entry: %s (%p)", key, entry, entry)
 		rdc.rangeCache.RUnlock()
 		returnToken := rdc.makeEvictionToken(entry, nil /* nextDesc */)
 		return returnToken, nil
@@ -850,8 +851,8 @@ func (rdc *RangeDescriptorCache) evictLocked(
 	cachedEntry, rawEntry := rdc.getCachedRLocked(ctx, entry.desc.StartKey, false /* inverted */)
 	if cachedEntry != entry {
 		if cachedEntry != nil && descsCompatible(cachedEntry.Desc(), entry.Desc()) {
-			log.VEventf(ctx, 2, "!!! evictLocked not evicting because cache has newer entry. entry: %s newer: %s",
-				entry, cachedEntry)
+			log.VEventf(ctx, 2, "!!! evictLocked not evicting because cache has newer entry. entry: %s (%p) newer: %s (%p)",
+				entry, entry, cachedEntry, cachedEntry)
 			return false, cachedEntry
 		}
 		log.VEventf(ctx, 2, "!!! evictLocked not evicting because cache has nil or incompatible entry. entry: %s newer: %s",
@@ -1022,7 +1023,7 @@ func (rdc *RangeDescriptorCache) insertLockedInner(
 		}
 		rangeKey := ent.Desc().StartKey
 		if log.V(2) {
-			log.Infof(ctx, "adding cache entry: value=%s", ent)
+			log.Infof(ctx, "adding cache entry: value=%s (%p)", ent, ent) // !!! %p
 		}
 		rdc.rangeCache.cache.Add(rangeCacheKey(rangeKey), ent)
 		entries[i] = ent
