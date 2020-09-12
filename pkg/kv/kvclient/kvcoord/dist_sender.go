@@ -1996,7 +1996,7 @@ func (ds *DistSender) sendToReplicas(
 						// tErr.LeaseHolder might be set when tErr.Lease isn't.
 						log.VEventf(ctx, 2, "!!! updating leaseholder to: %s", tErr.LeaseHolder)
 						routing = routing.UpdateLeaseholder(ctx, *tErr.LeaseHolder)
-						log.VEventf(ctx, 2, "!!! after updating leaseholder got back entry: %s (%p)", routing, routing.entry)
+						log.VEventf(ctx, 2, "!!! after updating leaseholder got back entry: %s (%p)", routing.entry, routing.entry)
 						ok = true
 					}
 					// Move the new leaseholder to the head of the queue for the next

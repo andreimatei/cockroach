@@ -1421,6 +1421,49 @@ func TestRangeCacheGeneration(t *testing.T) {
 	}
 }
 
+func TestXXX(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	defer log.Scope(t).Close(t)
+	ctx := context.Background()
+
+	st := cluster.MakeTestingClusterSettings()
+	stopper := stop.NewStopper()
+	defer stopper.Stop(ctx)
+	cache := NewRangeDescriptorCache(st, nil, staticSize(2<<10), stopper)
+
+	rep1 := roachpb.ReplicaDescriptor{
+		NodeID:    1,
+		StoreID:   1,
+		ReplicaID: 1,
+	}
+	rep2 := roachpb.ReplicaDescriptor{
+		NodeID:    2,
+		StoreID:   2,
+		ReplicaID: 2,
+	}
+	desc1 := roachpb.RangeDescriptor{
+		StartKey: roachpb.RKeyMin,
+		EndKey:   roachpb.RKeyMax,
+		InternalReplicas: []roachpb.ReplicaDescriptor{
+			rep1, rep2,
+		},
+		Generation: 1,
+	}
+
+	cache.Insert(ctx, roachpb.RangeInfo{
+		Desc: desc1,
+	})
+	e := cache.GetCached(ctx, roachpb.RKeyMin, false)
+	ee := e.(*rangeCacheEntry)
+	log.Infof(ctx, "!!! lookup returned: %p", ee)
+	tok, err := cache.LookupWithEvictionToken(ctx, roachpb.RKeyMin, EvictionToken{}, false)
+	require.NoError(t, err)
+	log.Infof(ctx, "!!! lookup2 returned: %p", tok.entry)
+
+	tok = tok.UpdateLeaseholder(ctx, roachpb.ReplicaDescriptor{NodeID: 2, StoreID: 2, ReplicaID: 2})
+	log.Infof(ctx, "!!! update lh returned: %p", tok.entry)
+}
+
 func TestRangeCacheUpdateLease(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	ctx := context.Background()

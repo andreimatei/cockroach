@@ -345,7 +345,7 @@ func (et EvictionToken) updateLeaseInternal(
 	// to point to the new entry. Note that the eviction token itself does not
 	// count as having been evicted (we don't use et.evictOnce), and so the caller
 	// can continue using it.
-	log.VEventf(ctx, 2, "!!! updating lease: entry: %s, lease: %s", et, lease)
+	log.VEventf(ctx, 2, "!!! updating lease: entry: %s, lease: %s", et.entry, lease)
 
 	et.rdc.rangeCache.Lock()
 	defer et.rdc.rangeCache.Unlock()
@@ -382,7 +382,7 @@ func (et EvictionToken) updateLeaseInternal(
 		return EvictionToken{}, false
 	}
 	et.entry = updatedEntry
-	log.VEventf(ctx, 2, "!!! updating lease: about to insert: %s", updatedEntry)
+	log.VEventf(ctx, 2, "!!! updating lease: about to insert: %s (%p = %p)", updatedEntry, updatedEntry, et.entry)
 	et.rdc.mustInsertLocked(ctx, updatedEntry)
 	return et, true
 }
@@ -967,6 +967,7 @@ func (rdc *RangeDescriptorCache) mustInsertLocked(ctx context.Context, ent *rang
 	if entry == nil {
 		log.Fatalf(ctx, "unexpected failure to insert desc: %s", ent)
 	}
+	log.VEventf(ctx, 2, "!!! mustInsertLocked returning entry: %s (%p)", entry, entry)
 }
 
 // insertLocked is like Insert, but it assumes that the caller holds a write
