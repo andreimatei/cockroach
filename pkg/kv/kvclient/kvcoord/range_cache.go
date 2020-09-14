@@ -830,7 +830,8 @@ func (rdc *RangeDescriptorCache) EvictByKey(ctx context.Context, descKey roachpb
 	if cachedDesc == nil {
 		return false
 	}
-	log.VEventf(ctx, 2, "evict cached descriptor: %s", cachedDesc)
+	// !!! log.VEventf(ctx, 2, "evict cached descriptor: %s", cachedDesc)
+	log.VEventf(ctx, 2, "evict cached descriptor: %s (%p)", cachedDesc, rdc.getValue(entry))
 	rdc.rangeCache.cache.DelEntry(entry)
 	return true
 }
@@ -860,7 +861,8 @@ func (rdc *RangeDescriptorCache) evictLocked(
 		return false, nil
 	}
 
-	log.VEventf(ctx, 2, "evict cached descriptor: desc=%s", cachedEntry)
+	// !!! log.VEventf(ctx, 2, "evict cached descriptor: desc=%s", cachedEntry)
+	log.VEventf(ctx, 2, "evict cached descriptor: desc=%s (%p)", cachedEntry, cachedEntry)
 	rdc.rangeCache.cache.DelEntry(rawEntry)
 	return true, nil
 }
@@ -945,6 +947,7 @@ func (rdc *RangeDescriptorCache) getCachedRLocked(
 	if !containsFn(entry.Desc(), key) {
 		return nil, nil
 	}
+	log.Infof(ctx, "!!! getCachedRLocked returning entry: %s (%p)", entry, entry)
 	return entry, rawEntry
 }
 
@@ -1065,7 +1068,8 @@ func (rdc *RangeDescriptorCache) clearOlderOverlappingLocked(
 		entry := rdc.getValue(e)
 		if newEntry.overrides(entry) {
 			if log.V(2) {
-				log.Infof(ctx, "clearing overlapping descriptor: key=%s entry=%s", e.Key, rdc.getValue(e))
+				// !!! log.Infof(ctx, "clearing overlapping descriptor: key=%s entry=%s", e.Key, rdc.getValue(e))
+				log.Infof(ctx, "clearing overlapping descriptor: key=%s entry=%s (%p)", e.Key, rdc.getValue(e), rdc.getValue(e))
 			}
 			rdc.rangeCache.cache.DelEntry(e)
 		} else {
