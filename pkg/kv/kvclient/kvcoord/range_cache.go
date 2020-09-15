@@ -255,6 +255,13 @@ func (rdc *RangeDescriptorCache) makeEvictionToken(
 	}
 }
 
+func (et EvictionToken) String() string {
+	if et.Empty() {
+		return "<empty>"
+	}
+	return fmt.Sprintf("entry:%s spec desc: %s", et.entry, et.speculativeDesc.String())
+}
+
 // Empty returns true if the token is not populated.
 func (et EvictionToken) Empty() bool {
 	return et == (EvictionToken{})
