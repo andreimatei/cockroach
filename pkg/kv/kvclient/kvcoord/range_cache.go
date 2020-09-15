@@ -1116,7 +1116,7 @@ type rangeCacheEntry struct {
 }
 
 func (e rangeCacheEntry) String() string {
-	return fmt.Sprintf("desc:%s, lease:%s", e.Desc(), e.Lease())
+	return fmt.Sprintf("desc:%s, lease:%s", e.Desc(), e.lease)
 }
 
 func (e *rangeCacheEntry) Desc() *roachpb.RangeDescriptor {
