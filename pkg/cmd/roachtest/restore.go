@@ -227,7 +227,8 @@ func registerRestore(r *testRegistry) {
 				args := startArgs(
 					"--args=--vmodule=range_cache=2,dist_sender=2,range_lookup=2",
 					"--args=--log-file-max-size=500000000",
-					"--args=--log-group-max-size=5000000000")
+					"--args=--log-group-max-size=5000000000",
+					"--args=--redactable-logs=false")
 				c.Start(ctx, t, args)
 				m := newMonitor(ctx, c)
 

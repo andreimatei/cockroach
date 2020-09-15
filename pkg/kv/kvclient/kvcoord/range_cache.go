@@ -383,6 +383,9 @@ func (et EvictionToken) updateLeaseInternal(
 	}
 	et.entry = updatedEntry
 	log.VEventf(ctx, 2, "!!! updating lease: about to insert: %s (%p = %p)", updatedEntry, updatedEntry, et.entry)
+	if et.entry != updatedEntry {
+		panic("!!!")
+	}
 	et.rdc.mustInsertLocked(ctx, updatedEntry)
 	return et, true
 }
