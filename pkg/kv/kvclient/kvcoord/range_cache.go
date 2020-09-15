@@ -259,7 +259,13 @@ func (et EvictionToken) String() string {
 	if et.Empty() {
 		return "<empty>"
 	}
-	return fmt.Sprintf("entry:%s spec desc: %s", et.entry, et.speculativeDesc.String())
+	var entryS string
+	if et.entry != nil {
+		entryS = et.entry.String()
+	} else {
+		entryS = "<nil>"
+	}
+	return fmt.Sprintf("entry:%s spec desc: %v", entryS, et.speculativeDesc)
 }
 
 // Empty returns true if the token is not populated.
