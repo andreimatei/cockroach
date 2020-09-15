@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"strings"
 	"time"
@@ -646,8 +647,8 @@ func (rdc *RangeDescriptorCache) tryLookup(
 	ctx context.Context, key roachpb.RKey, evictToken EvictionToken, useReverseScan bool,
 ) (EvictionToken, error) {
 	rdc.rangeCache.RLock()
-	if entry, _ := rdc.getCachedRLocked(ctx, key, useReverseScan); entry != nil {
-		log.VEventf(ctx, 2, "!!! range cache hit for key: %s. entry: %s (%p)", key, entry, entry)
+	if entry, _, rnd := rdc.getCachedRLockedHack(ctx, key, useReverseScan); entry != nil {
+		log.VEventf(ctx, 2, "!!! range cache hit for key: %s. entry: %s (%p rnd:%d)", key, entry, entry, rnd)
 		rdc.rangeCache.RUnlock()
 		returnToken := rdc.makeEvictionToken(entry, nil /* nextDesc */)
 		return returnToken, nil
@@ -912,14 +913,9 @@ func (rdc *RangeDescriptorCache) GetCached(
 	return kvbase.RangeCacheEntry(entry)
 }
 
-// getCachedRLocked is like GetCached, but it assumes that the caller holds a
-// read lock on rdc.rangeCache.
-//
-// In addition to GetCached, it also returns an internal cache Entry that can be
-// used for descriptor eviction.
-func (rdc *RangeDescriptorCache) getCachedRLocked(
+func (rdc *RangeDescriptorCache) getCachedRLockedHack(
 	ctx context.Context, key roachpb.RKey, inverted bool,
-) (*rangeCacheEntry, *cache.Entry) {
+) (*rangeCacheEntry, *cache.Entry, int) {
 	// rawEntry will be the range containing key, or the first cached entry around
 	// key, in the direction indicated by inverted.
 	var rawEntry *cache.Entry
@@ -927,7 +923,7 @@ func (rdc *RangeDescriptorCache) getCachedRLocked(
 		var ok bool
 		rawEntry, ok = rdc.rangeCache.cache.FloorEntry(rangeCacheKey(key))
 		if !ok {
-			return nil, nil
+			return nil, nil, 0
 		}
 	} else {
 		rdc.rangeCache.cache.DoRangeReverseEntry(func(e *cache.Entry) bool {
@@ -950,7 +946,7 @@ func (rdc *RangeDescriptorCache) getCachedRLocked(
 	}
 
 	if rawEntry == nil {
-		return nil, nil
+		return nil, nil, 0
 	}
 	entry := rdc.getValue(rawEntry)
 
@@ -961,10 +957,23 @@ func (rdc *RangeDescriptorCache) getCachedRLocked(
 
 	// Return nil if the key does not belong to the range.
 	if !containsFn(entry.Desc(), key) {
-		return nil, nil
+		return nil, nil, 0
 	}
-	log.Infof(ctx, "!!! getCachedRLocked returning entry: %s (%p)", entry, entry)
-	return entry, rawEntry
+	rnd := rand.Int()
+	log.Infof(ctx, "!!! getCachedRLocked returning entry: %s (%p rnd:%d)", entry, entry, rnd)
+	return entry, rawEntry, rnd
+}
+
+// getCachedRLocked is like GetCached, but it assumes that the caller holds a
+// read lock on rdc.rangeCache.
+//
+// In addition to GetCached, it also returns an internal cache Entry that can be
+// used for descriptor eviction.
+func (rdc *RangeDescriptorCache) getCachedRLocked(
+	ctx context.Context, key roachpb.RKey, inverted bool,
+) (*rangeCacheEntry, *cache.Entry) {
+	e1, e2, _ := rdc.getCachedRLockedHack(ctx, key, inverted)
+	return e1, e2
 }
 
 // Insert inserts range info into the cache.
