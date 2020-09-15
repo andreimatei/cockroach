@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math/rand"
 	"reflect"
 	"sync"
 	"sync/atomic"
@@ -1462,6 +1463,57 @@ func TestXXX(t *testing.T) {
 
 	tok = tok.UpdateLeaseholder(ctx, roachpb.ReplicaDescriptor{NodeID: 2, StoreID: 2, ReplicaID: 2})
 	log.Infof(ctx, "!!! update lh returned: %p", tok.entry)
+}
+
+func TestRandomXXX(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	defer log.Scope(t).Close(t)
+	ctx := context.Background()
+
+	st := cluster.MakeTestingClusterSettings()
+	stopper := stop.NewStopper()
+	defer stopper.Stop(ctx)
+	cache := NewRangeDescriptorCache(st, nil, staticSize(2<<10), stopper)
+
+	rep1 := roachpb.ReplicaDescriptor{
+		NodeID:    1,
+		StoreID:   1,
+		ReplicaID: 1,
+	}
+	rep2 := roachpb.ReplicaDescriptor{
+		NodeID:    2,
+		StoreID:   2,
+		ReplicaID: 2,
+	}
+	desc1 := roachpb.RangeDescriptor{
+		StartKey: roachpb.RKeyMin,
+		EndKey:   roachpb.RKeyMax,
+		InternalReplicas: []roachpb.ReplicaDescriptor{
+			rep1, rep2,
+		},
+		Generation: 1,
+	}
+
+	for i := 1; i < 10000000; i++ {
+		desc := desc1
+		desc.Generation = roachpb.RangeGeneration(i)
+
+		rs := make([]*rangeCacheEntry, 1)
+		start := rand.Int31()
+		desc.StartKey = roachpb.RKey(fmt.Sprintf("xx%d", start))
+		desc.EndKey = roachpb.RKey(fmt.Sprintf("xxx%d", start+rand.Int31()))
+		x := &rangeCacheEntry{desc: desc}
+		rs[0] = x
+		cache.insertLockedInner(ctx, rs)
+		tok, err := cache.tryLookup(ctx, desc.StartKey, EvictionToken{}, false)
+		require.NoError(t, err)
+		if tok.entry != x {
+			t.Fatal("!!!")
+		}
+		//	cache.rangeCache.RLock()
+		//	cache.getCachedRLocked(ctx, desc1.StartKey, false)
+		//	cache.rangeCache.RUnlock()
+	}
 }
 
 func TestRangeCacheUpdateLease(t *testing.T) {
