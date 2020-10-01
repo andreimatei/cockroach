@@ -120,13 +120,12 @@ func (pr *Clients) getOrCreateClient(nodeID roachpb.NodeID) *client {
 
 		c, err := pr.cfg.Dialer.Dial(ctx, nodeID)
 		if err != nil {
-			if log.V(1) {
-				log.Warningf(ctx, "error opening closed timestamp stream to n%d: %+v", nodeID, err)
-			}
+			log.Warningf(ctx, "error opening closed timestamp stream to n%d: %+v", nodeID, err)
 			return
 		}
 		defer func() {
 			_ = c.CloseSend()
+			log.Infof(ctx, "!!! returning from stream from n%d: %+v", nodeID, err)
 		}()
 
 		ctx = c.Context()
@@ -137,18 +136,22 @@ func (pr *Clients) getOrCreateClient(nodeID roachpb.NodeID) *client {
 		reaction := &ctpb.Reaction{}
 		for {
 			if err := c.Send(reaction); err != nil {
+				log.Infof(ctx, "!!! err1 from stream from n%d: %+v", nodeID, err)
 				return
 			}
 			entry, err := c.Recv()
 			if err != nil {
+				log.Infof(ctx, "!!! err2 from stream from n%d: %+v", nodeID, err)
 				return
 			}
 
 			select {
 			case ch <- *entry:
 			case <-ctx.Done():
+				log.Infof(ctx, "!!! ctx done from stream from n%d: %+v", nodeID, err)
 				return
 			case <-pr.cfg.Stopper.ShouldQuiesce():
+				log.Infof(ctx, "!!! stopper from stream from n%d: %+v", nodeID, err)
 				return
 			}
 
