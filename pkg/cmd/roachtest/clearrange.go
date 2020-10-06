@@ -135,44 +135,46 @@ func runClearRange(ctx context.Context, t *test, c *cluster, aggressiveChecks bo
 		}
 
 		t.WorkerStatus("computing number of ranges")
-		initialBankRanges := numBankRanges()
+		// !!! initialBankRanges := numBankRanges()
+		_ = numBankRanges()
 
 		t.WorkerStatus("dropping bank table")
 		if _, err := conn.ExecContext(ctx, `DROP TABLE bigbank.bank`); err != nil {
 			return err
 		}
 
-		// Spend some time reading data with a timeout to make sure the
-		// DROP above didn't brick the cluster. At the time of writing,
-		// clearing all of the table data takes ~6min, so we want to run
-		// for at least a multiple of that duration.
-		const minDuration = 45 * time.Minute
-		deadline := timeutil.Now().Add(minDuration)
-		curBankRanges := numBankRanges()
-		t.WorkerStatus("waiting for ~", curBankRanges, " merges to complete (and for at least ", minDuration, " to pass)")
-		for timeutil.Now().Before(deadline) || curBankRanges > 1 {
-			after := time.After(5 * time.Minute)
-			curBankRanges = numBankRanges() // this call takes minutes, unfortunately
-			t.WorkerProgress(1 - float64(curBankRanges)/float64(initialBankRanges))
-
-			var count int
-			// NB: context cancellation in QueryRowContext does not work as expected.
-			// See #25435.
-			if _, err := conn.ExecContext(ctx, `SET statement_timeout = '5s'`); err != nil {
-				return err
-			}
-			// If we can't aggregate over 80kb in 5s, the database is far from usable.
-			if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM tinybank.bank`).Scan(&count); err != nil {
-				return err
-			}
-
-			t.WorkerStatus("waiting for ~", curBankRanges, " merges to complete (and for at least ", timeutil.Now().Sub(deadline), " to pass)")
-			select {
-			case <-after:
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		}
+		// !!!
+		//// Spend some time reading data with a timeout to make sure the
+		//// DROP above didn't brick the cluster. At the time of writing,
+		//// clearing all of the table data takes ~6min, so we want to run
+		//// for at least a multiple of that duration.
+		//const minDuration = 45 * time.Minute
+		//deadline := timeutil.Now().Add(minDuration)
+		//curBankRanges := numBankRanges()
+		//t.WorkerStatus("waiting for ~", curBankRanges, " merges to complete (and for at least ", minDuration, " to pass)")
+		//for timeutil.Now().Before(deadline) || curBankRanges > 1 {
+		//	after := time.After(5 * time.Minute)
+		//	curBankRanges = numBankRanges() // this call takes minutes, unfortunately
+		//	t.WorkerProgress(1 - float64(curBankRanges)/float64(initialBankRanges))
+		//
+		//	var count int
+		//	// NB: context cancellation in QueryRowContext does not work as expected.
+		//	// See #25435.
+		//	if _, err := conn.ExecContext(ctx, `SET statement_timeout = '5s'`); err != nil {
+		//		return err
+		//	}
+		//	// If we can't aggregate over 80kb in 5s, the database is far from usable.
+		//	if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM tinybank.bank`).Scan(&count); err != nil {
+		//		return err
+		//	}
+		//
+		//	t.WorkerStatus("waiting for ~", curBankRanges, " merges to complete (and for at least ", timeutil.Now().Sub(deadline), " to pass)")
+		//	select {
+		//	case <-after:
+		//	case <-ctx.Done():
+		//		return ctx.Err()
+		//	}
+		//}
 		// TODO(tschottdorf): verify that disk space usage drops below to <some small amount>, but that
 		// may not actually happen (see https://github.com/cockroachdb/cockroach/issues/29290).
 		return nil
