@@ -245,7 +245,7 @@ func (r *Replica) propose(ctx context.Context, p *ProposalData) (index int64, pE
 		// ProposeConfChange. For that reason, we also don't need a Raft command
 		// prefix because the command ID is stored in a field in
 		// raft.ConfChange.
-		log.Infof(p.ctx, "proposing %s", crt)
+		log.Infof(p.ctx, "proposing %s", crt.String())
 		prefix = false
 
 		// Ensure that we aren't trying to remove ourselves from the range without

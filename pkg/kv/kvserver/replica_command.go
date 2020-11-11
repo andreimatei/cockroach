@@ -1258,6 +1258,7 @@ func addRaftLearners(
 	targets []roachpb.ReplicationTarget,
 	typ internalChangeType,
 ) (*roachpb.RangeDescriptor, error) {
+	log.Infof(ctx, "!!! addRaftLearners: %s", targets)
 	// TODO(tbg): we could add all learners in one go, but then we'd need to
 	// do it as an atomic replication change (raft doesn't know which config
 	// to apply the delta to, so we might be demoting more than one voter).
@@ -1911,6 +1912,7 @@ func (r *Replica) sendSnapshot(
 		// finish sending the snapshot.
 		r.reportSnapshotStatus(ctx, recipient.ReplicaID, retErr)
 	}()
+	log.Infof(ctx, "!!! sendSnapshot. recepient: %s", recipient)
 
 	snap, err := r.GetSnapshot(ctx, snapType, recipient.StoreID)
 	if err != nil {
@@ -1918,6 +1920,14 @@ func (r *Replica) sendSnapshot(
 	}
 	defer snap.Close()
 	log.Event(ctx, "generated snapshot")
+	log.Infof(ctx, "!!! snapshot desc: %s", snap.State.Desc)
+
+	if _, ok := snap.State.Desc.GetReplicaDescriptor(recipient.StoreID); !ok {
+		return errors.AssertionFailedf(
+			"attempting to send snapshot that does not contain the recipient as a replica; "+
+				"snapshot type: %s, recipient: s%d, desc: %s",
+			snapType, recipient, snap.State.Desc)
+	}
 
 	sender, err := r.GetReplicaDescriptor()
 	if err != nil {
@@ -1957,6 +1967,7 @@ func (r *Replica) sendSnapshot(
 		}
 	}
 
+	log.Infof(ctx, "!!! snapshot desc: %s", snap.State.Desc)
 	req := SnapshotRequest_Header{
 		State: snap.State,
 		// Tell the recipient whether it needs to synthesize the new

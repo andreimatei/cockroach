@@ -1410,6 +1410,7 @@ func TestReplicateAfterRemoveAndSplit(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
 
+	ctx := context.Background()
 	sc := kvserver.TestStoreConfig(nil)
 	sc.TestingKnobs.DisableMergeQueue = true
 	sc.TestingKnobs.DisableReplicateQueue = true
@@ -1464,18 +1465,26 @@ func TestReplicateAfterRemoveAndSplit(t *testing.T) {
 		if err := mtc.dbs[0].GetProto(context.Background(), keys.RangeDescriptorKey(startKey), &desc); err != nil {
 			t.Fatal(err)
 		}
+		log.Infof(ctx, "!!! replicateRHS: desc: %s", desc)
 
-		rep2, err := mtc.findMemberStoreLocked(desc).GetReplica(desc.RangeID)
-		if err != nil {
-			t.Fatal(err)
-		}
+		// !!!
+		//rep2, err := mtc.findMemberStoreLocked(desc).GetReplica(desc.RangeID)
+		//if err != nil {
+		//	t.Fatal(err)
+		//}
 
 		chgs := roachpb.MakeReplicationChanges(roachpb.ADD_VOTER, roachpb.ReplicationTarget{
 			NodeID:  mtc.stores[2].Ident.NodeID,
 			StoreID: mtc.stores[2].Ident.StoreID,
 		})
-		_, err = rep2.ChangeReplicas(context.Background(), &desc, kvserver.SnapshotRequest_REBALANCE, kvserverpb.ReasonRangeUnderReplicated, "", chgs)
+
+		_, err = mtc.dbs[0].AdminChangeReplicas(ctx, startKey, desc, chgs)
 		return err
+
+		// !!!
+		//log.Infof(ctx, "!!! replicateRHS: sending ChangeReplicas: %s through replica: %s (%s)", chgs, rep2, rep2.RaftStatus().RaftState)
+		//_, err = rep2.ChangeReplicas(context.Background(), &desc, kvserver.SnapshotRequest_REBALANCE, kvserverpb.ReasonRangeUnderReplicated, "", chgs)
+		//return err
 	}
 
 	if err := replicateRHS(); !testutils.IsError(err, kvserver.IntersectingSnapshotMsg) {

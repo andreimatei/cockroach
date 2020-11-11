@@ -734,6 +734,7 @@ func (s *Store) shouldAcceptSnapshotData(
 func (s *Store) receiveSnapshot(
 	ctx context.Context, header *SnapshotRequest_Header, stream incomingSnapshotStream,
 ) error {
+	log.Infof(ctx, "!!! receiveSnapshot: %s (preemptive: %t)", header.State.Desc, header.IsPreemptive())
 	if fn := s.cfg.TestingKnobs.ReceiveSnapshot; fn != nil {
 		if err := fn(header); err != nil {
 			return sendSnapshotError(stream, err)
