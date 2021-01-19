@@ -68,7 +68,7 @@ func makeIDKey() kvserverbase.CmdIDKey {
 // - any error obtained during the creation or proposal of the command, in
 //   which case the other returned values are zero.
 func (r *Replica) evalAndPropose(
-	ctx context.Context, ba *roachpb.BatchRequest, g *concurrency.Guard, lease *roachpb.Lease,
+	ctx context.Context, ba *roachpb.BatchRequest, g *concurrency.Guard, st kvserverpb.LeaseStatus,
 ) (chan proposalResult, func(), int64, *roachpb.Error) {
 	idKey := makeIDKey()
 	proposal, pErr := r.requestToProposal(ctx, idKey, ba, g.LatchSpans())
@@ -77,13 +77,13 @@ func (r *Replica) evalAndPropose(
 	// If the request hit a server-side concurrency retry error, immediately
 	// proagate the error. Don't assume ownership of the concurrency guard.
 	if isConcurrencyRetryError(pErr) {
-		pErr = maybeAttachLease(pErr, lease)
+		pErr = maybeAttachLease(pErr, &st.Lease)
 		return nil, nil, 0, pErr
 	}
 
 	// Attach the endCmds to the proposal and assume responsibility for
 	// releasing the concurrency guard if the proposal makes it to Raft.
-	proposal.ec = endCmds{repl: r, g: g}
+	proposal.ec = endCmds{repl: r, g: g, st: st}
 
 	// Pull out proposal channel to return. proposal.doneCh may be set to
 	// nil if it is signaled in this function.
@@ -139,7 +139,7 @@ func (r *Replica) evalAndPropose(
 	}
 
 	// Attach information about the proposer to the command.
-	proposal.command.ProposerLeaseSequence = lease.Sequence
+	proposal.command.ProposerLeaseSequence = st.Lease.Sequence
 
 	// Once a command is written to the raft log, it must be loaded into memory
 	// and replayed on all replicas. If a command is too big, stop it here. If
