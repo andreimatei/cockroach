@@ -205,8 +205,17 @@ func (r *Replica) tryReproposeWithNewLeaseIndex(
 
 	minTS, untrack := r.store.cfg.ClosedTimestamp.Tracker.Track(ctx)
 	defer untrack(ctx, 0, 0, 0) // covers all error paths below
+
+	// We need to track the request again in order to protect its timestamp until
+	// it gets reproposed.
+	// TODO(andrei): Only track if the request consults the ts cache. Some
+	// requests (e.g. EndTxn) don't care about closed timestamps.
+	minTS2, tok := r.mu.proposalBuf.TrackEvaluatingRequest(ctx, p.Request.WriteTimestamp())
+	defer tok.DoneIfNotMoved(ctx)
+	minTS.Forward(minTS2)
+
 	// NB: p.Request.Timestamp reflects the action of ba.SetActiveTimestamp.
-	if p.Request.Timestamp.Less(minTS) {
+	if p.Request.WriteTimestamp().Less(minTS) {
 		// The tracker wants us to forward the request timestamp, but we can't
 		// do that without re-evaluating, so give up. The error returned here
 		// will go to back to DistSender, so send something it can digest.
@@ -221,7 +230,7 @@ func (r *Replica) tryReproposeWithNewLeaseIndex(
 	// Some tests check for this log message in the trace.
 	log.VEventf(ctx, 2, "retry: proposalIllegalLeaseIndex")
 
-	maxLeaseIndex, pErr := r.propose(ctx, p)
+	maxLeaseIndex, pErr := r.propose(ctx, p, tok.Move(ctx))
 	if pErr != nil {
 		return pErr
 	}

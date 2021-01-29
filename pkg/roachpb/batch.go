@@ -56,7 +56,7 @@ func (ba *BatchRequest) SetActiveTimestamp(nowFn func() hlc.Timestamp) error {
 		// provisional commit timestamp evolves.
 		//
 		// Note that writes will be performed at the provisional commit timestamp,
-		// txn.Timestamp, regardless of the batch timestamp.
+		// txn.WriteTimestamp, regardless of the batch timestamp.
 		ba.Timestamp = txn.ReadTimestamp
 	} else {
 		// When not transactional, allow empty timestamp and use nowFn instead
@@ -87,6 +87,18 @@ func (ba BatchRequest) EarliestActiveTimestamp() hlc.Timestamp {
 	return ts
 }
 
+// WriteTimestamp returns the timestamps at which this request is writing. For
+// non-transactional requests, this is the same as the read timestamp. For
+// transactional requests, the write timestamp can be temporarily higher until
+// commit time.
+func (ba *BatchRequest) WriteTimestamp() hlc.Timestamp {
+	ts := ba.Timestamp
+	if ba.Txn != nil {
+		ts.Forward(ba.Txn.WriteTimestamp)
+	}
+	return ts
+}
+
 // UpdateTxn updates the batch transaction from the supplied one in
 // a copy-on-write fashion, i.e. without mutating an existing
 // Transaction struct.
@@ -113,6 +125,16 @@ func (ba *BatchRequest) IsLeaseRequest() bool {
 		return false
 	}
 	_, ok := ba.GetArg(RequestLease)
+	return ok
+}
+
+// IsLeaseTransferRequest returns whether the batch consists of a single
+// TransferLease request.
+func (ba *BatchRequest) IsLeaseTransferRequest() bool {
+	if !ba.IsSingleRequest() {
+		return false
+	}
+	_, ok := ba.GetArg(TransferLease)
 	return ok
 }
 

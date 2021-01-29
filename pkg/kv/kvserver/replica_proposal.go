@@ -114,6 +114,17 @@ type ProposalData struct {
 	// here; this could be replaced with isLease and isChangeReplicas
 	// booleans.
 	Request *roachpb.BatchRequest
+
+	// tok identifies the request to the propBuf. Once the proposal is made, the
+	// token will be used to stop tracking this request.
+	tok TrackedRequestToken
+
+	// The size of the encodedCommand before the closed timestamp footer was
+	// appended to it. In other words, the index at which said footer should be
+	// written. Keeping track of this index is necessary because, in case of
+	// reproposals, this footer will be (over-)written multiple times: each
+	// reproposal carries a new (and higher) timestamps than before.
+	encodedLenWithoutClosedTSFooter int
 }
 
 // finishApplication is called when a command application has finished. The
@@ -302,6 +313,10 @@ A file preventing this node from restarting was placed at:
 func (r *Replica) leasePostApplyLocked(
 	ctx context.Context, newLease roachpb.Lease, permitJump bool,
 ) {
+	// Note that we actually install the lease further down in this method.
+	// Everything we do before then doesn't need to worry about requests being
+	// evaluated under the new lease.
+
 	// Pull out the last lease known to this Replica. It's possible that this is
 	// not actually the last lease in the Range's lease sequence because the
 	// Replica may have missed the application of a lease between prevLease and
@@ -394,6 +409,14 @@ func (r *Replica) leasePostApplyLocked(
 	// enabled. (In practice, since both happen under `r.mu`, it is likely
 	// to not matter).
 	r.concMgr.OnRangeLeaseUpdated(newLease.Sequence, iAmTheLeaseHolder)
+
+	if leaseChangingHands {
+		// Reset the closed timestamp to the lease start time. Note that this
+		// assumes that no writes are accepted below the lease start time and will
+		// have to change if we start shipping the timestamp cache on lease
+		// transfers in order to allow writes at older timestamps.
+		r.mu.proposalBuf.OnRangeLeaseChangedHands(iAmTheLeaseHolder, newLease.Start.ToTimestamp())
+	}
 
 	// Ordering is critical here. We only install the new lease after we've
 	// checked for an in-progress merge and updated the timestamp cache. If the
