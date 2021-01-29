@@ -416,7 +416,8 @@ func (r *Replica) leasePostApplyLocked(
 		// assumes that no writes are accepted below the lease start time and will
 		// have to change if we start shipping the timestamp cache on lease
 		// transfers in order to allow writes at older timestamps.
-		r.mu.proposalBuf.OnRangeLeaseChangedHands(iAmTheLeaseHolder, newLease.Start)
+		closedTS := r.mu.state.ClosedTimestampNanos
+		r.mu.proposalBuf.OnRangeLeaseChangedHands(iAmTheLeaseHolder, hlc.Timestamp{WallTime: closedTS})
 	}
 
 	// Ordering is critical here. We only install the new lease after we've

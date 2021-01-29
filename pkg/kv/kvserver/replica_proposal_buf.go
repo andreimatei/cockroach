@@ -154,7 +154,8 @@ type propBuf struct {
 	// but a write at 10,1 will be allowed.
 	//
 	// Note that this field is not used by the local replica (or by anybody)
-	// directly to decide whether follower reads can be served.
+	// directly to decide whether follower reads can be served. See
+	// ReplicaState.closed_timestamp.
 	//
 	// This field can be read under the proposer's read lock, and written to under
 	// the write lock.
@@ -685,7 +686,7 @@ func (b *propBuf) maybeAssignClosedTimestampToProposal(
 	// Note that lease requests can be proposed by any replica, including while
 	// another replica has a valid lease. Updating b.closedTSNanos when proposing
 	// such a request would probably be a bad idea.
-	if p.Request.IsLeaseRequest() || p.Request.IsLeaseTransferRequest() {
+	if p.Request.IsLeaseRequest() {
 		return nil
 	}
 	lb := b.evalTracker.LowerBound(ctx)

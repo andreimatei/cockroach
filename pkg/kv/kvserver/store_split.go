@@ -28,7 +28,11 @@ import (
 // changes to the given ReadWriter will be written atomically with the
 // split commit.
 func splitPreApply(
-	ctx context.Context, readWriter storage.ReadWriter, split roachpb.SplitTrigger, r *Replica,
+	ctx context.Context,
+	readWriter storage.ReadWriter,
+	split roachpb.SplitTrigger,
+	r *Replica,
+	closedTSNanos int64,
 ) {
 	// Sanity check that the store is in the split.
 	//
@@ -115,6 +119,8 @@ func splitPreApply(
 	if err := rsl.SynthesizeRaftState(ctx, readWriter); err != nil {
 		log.Fatalf(ctx, "%v", err)
 	}
+
+	rsl.SetClosedTimestamp(ctx, readWriter, closedTSNanos)
 
 	// The initialMaxClosed is assigned to the RHS replica to ensure that
 	// follower reads do not regress following the split. After the split occurs

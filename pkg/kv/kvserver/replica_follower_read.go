@@ -65,7 +65,7 @@ func (r *Replica) canServeFollowerRead(
 	}
 
 	maxObservableTS := ba.Txn.MaxObservableTimestamp()
-	maxClosed, _ := r.maxClosed(ctx)
+	maxClosed, _ := r.MaxClosedTimestamp(ctx)
 	canServeFollowerRead := maxObservableTS.LessEq(maxClosed)
 	tsDiff := maxObservableTS.GoTime().Sub(maxClosed.GoTime())
 	if !canServeFollowerRead {
@@ -112,18 +112,25 @@ func (r *Replica) canServeFollowerRead(
 // uses an expiration-based lease. Expiration-based leases do not support the
 // closed timestamp subsystem. A zero-value timestamp will be returned if ok
 // is false.
-func (r *Replica) maxClosed(ctx context.Context) (_ hlc.Timestamp, ok bool) {
+func (r *Replica) MaxClosedTimestamp(ctx context.Context) (_ hlc.Timestamp, ok bool) {
 	r.mu.RLock()
 	lai := r.mu.state.LeaseAppliedIndex
 	lease := *r.mu.state.Lease
 	initialMaxClosed := r.mu.initialMaxClosed
+	replicaStateClosedNanos := r.mu.state.ClosedTimestampNanos
 	r.mu.RUnlock()
 	if lease.Expiration != nil {
 		return hlc.Timestamp{}, false
 	}
+	// Look at the legacy closed timestamp propagation mechanism.
 	maxClosed := r.store.cfg.ClosedTimestamp.Provider.MaxClosed(
 		lease.Replica.NodeID, r.RangeID, ctpb.Epoch(lease.Epoch), ctpb.LAI(lai))
 	maxClosed.Forward(lease.Start.ToTimestamp())
 	maxClosed.Forward(initialMaxClosed)
+
+	// Look at the "new" closed timestamp propagation mechanism.
+	// !!! this is incorrect if closedNanos is in the future
+	maxClosed.Forward(hlc.Timestamp{WallTime: replicaStateClosedNanos})
+
 	return maxClosed, true
 }
