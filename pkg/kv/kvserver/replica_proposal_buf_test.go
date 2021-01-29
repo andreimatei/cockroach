@@ -57,6 +57,8 @@ type testProposer struct {
 	leaderReplicaType roachpb.ReplicaType
 }
 
+var _ proposer = &testProposer{}
+
 type testProposerRaft struct {
 	status raft.BasicStatus
 }
@@ -99,6 +101,10 @@ func (t *testProposer) leaseAppliedIndex() uint64 {
 
 func (t *testProposer) enqueueUpdateCheck() {
 	t.enqueued++
+}
+
+func (t *testProposer) closeTimestampPolicy() roachpb.RangeClosedTimestampPolicy {
+	return roachpb.LAG_BY_CLUSTER_SETTING
 }
 
 func (t *testProposer) withGroupLocked(fn func(proposerRaft) error) error {

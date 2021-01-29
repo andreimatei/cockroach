@@ -83,6 +83,7 @@ func (rsl StateLoader) Load(
 
 		ms := as.RangeStats.ToStats()
 		s.Stats = &ms
+		s.ClosedTimestampNanos = as.ClosedTimestampNanos
 	} else {
 		if s.RaftAppliedIndex, s.LeaseAppliedIndex, err = rsl.LoadAppliedIndex(ctx, reader); err != nil {
 			return kvserverpb.ReplicaState{}, err
@@ -168,7 +169,7 @@ func (rsl StateLoader) Save(
 	}
 	if state.UsingAppliedStateKey {
 		rai, lai := state.RaftAppliedIndex, state.LeaseAppliedIndex
-		if err := rsl.SetRangeAppliedState(ctx, readWriter, rai, lai, ms); err != nil {
+		if err := rsl.SetRangeAppliedState(ctx, readWriter, rai, lai, state.ClosedTimestampNanos, ms); err != nil {
 			return enginepb.MVCCStats{}, err
 		}
 	} else {
@@ -298,12 +299,14 @@ func (rsl StateLoader) SetRangeAppliedState(
 	ctx context.Context,
 	readWriter storage.ReadWriter,
 	appliedIndex, leaseAppliedIndex uint64,
+	closedTimestampNanos int64,
 	newMS *enginepb.MVCCStats,
 ) error {
 	as := enginepb.RangeAppliedState{
-		RaftAppliedIndex:  appliedIndex,
-		LeaseAppliedIndex: leaseAppliedIndex,
-		RangeStats:        newMS.ToPersistentStats(),
+		RaftAppliedIndex:     appliedIndex,
+		LeaseAppliedIndex:    leaseAppliedIndex,
+		RangeStats:           newMS.ToPersistentStats(),
+		ClosedTimestampNanos: closedTimestampNanos,
 	}
 	// The RangeAppliedStateKey is not included in stats. This is also reflected
 	// in C.MVCCComputeStats and ComputeStatsForRange.
@@ -477,10 +480,24 @@ func (rsl StateLoader) SetMVCCStats(
 	if as, err := rsl.LoadRangeAppliedState(ctx, readWriter); err != nil {
 		return err
 	} else if as != nil {
-		return rsl.SetRangeAppliedState(ctx, readWriter, as.RaftAppliedIndex, as.LeaseAppliedIndex, newMS)
+		return rsl.SetRangeAppliedState(ctx, readWriter, as.RaftAppliedIndex, as.LeaseAppliedIndex, as.ClosedTimestampNanos, newMS)
 	}
 
 	return rsl.writeLegacyMVCCStatsInternal(ctx, readWriter, newMS)
+}
+
+func (rsl StateLoader) SetClosedTimestamp(
+	ctx context.Context, readWriter storage.ReadWriter, closedTSNanos int64,
+) error {
+	as, err := rsl.LoadRangeAppliedState(ctx, readWriter)
+	if err != nil {
+		return err
+	}
+	if as == nil {
+		panic("!!! this should exist")
+	}
+	return rsl.SetRangeAppliedState(ctx, readWriter, as.RaftAppliedIndex, as.LeaseAppliedIndex,
+		closedTSNanos, as.RangeStats.ToStatsPtr())
 }
 
 // SetLegacyRaftTruncatedState overwrites the truncated state.

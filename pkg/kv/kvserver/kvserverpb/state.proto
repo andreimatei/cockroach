@@ -100,6 +100,17 @@ message ReplicaState {
   // [2]: PurgeOutdatedReplicas
   roachpb.Version version = 12;
 
+  // closed_timestamp is the largest timestamp that is known to have been
+  // closed. This means that the current leaseholder (if any) and any future
+  // leaseholder will not evaluate writes at or below this timestamp, and also
+  // that any in-flight commands that can still apply are writing at higher
+  // timestamps. Non-leaseholder replicas are free to serve "follower reads" at
+  // or below this timestamp.
+  //
+  // Note that this is a physical timestamp If closed_timestamp_nanos = 10, then
+  // a future write at 10,0 won't happen, but one at 10,1 might.
+  int64 closed_timestamp_nanos = 13;
+
   reserved 8, 9, 10;
 }
 

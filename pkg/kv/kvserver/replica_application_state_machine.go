@@ -427,6 +427,13 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 		// trying to update anything or running the command. Simply return.
 		return nil, makeNonDeterministicFailure("applied index jumped from %d to %d", applied, idx)
 	}
+	// !!! Find a way to assert that this command is not writing below the replica's closed ts.
+	// Check that the closed timestamp doesn't regress.
+	cts := cmd.replicatedResult().ClosedTimestampNanos
+	if cts != 0 && cts < b.state.ClosedTimestampNanos {
+		return nil, makeNonDeterministicFailure("closed timestamp regressing from %d to %d",
+			b.state.ClosedTimestampNanos, cts)
+	}
 	if log.V(4) {
 		log.Infof(ctx, "processing command %x: maxLeaseIndex=%d", cmd.idKey, cmd.raftCmd.MaxLeaseIndex)
 	}
@@ -623,7 +630,7 @@ func (b *replicaAppBatch) runPreApplyTriggersAfterStagingWriteBatch(
 		//
 		// Alternatively if we discover that the RHS has already been removed
 		// from this store, clean up its data.
-		splitPreApply(ctx, b.batch, res.Split.SplitTrigger, b.r)
+		splitPreApply(ctx, b.batch, res.Split.SplitTrigger, b.r, res.ClosedTimestampNanos)
 
 		// The rangefeed processor will no longer be provided logical ops for
 		// its entire range, so it needs to be shut down and all registrations
@@ -809,6 +816,10 @@ func (b *replicaAppBatch) stageTrivialReplicatedEvalResult(
 	}
 	res := cmd.replicatedResult()
 
+	if cts := res.ClosedTimestampNanos; cts != 0 {
+		b.state.ClosedTimestampNanos = cts
+	}
+
 	// Special-cased MVCC stats handling to exploit commutativity of stats delta
 	// upgrades. Thanks to commutativity, the spanlatch manager does not have to
 	// serialize on the stats key.
@@ -860,10 +871,11 @@ func (b *replicaAppBatch) ApplyToStateMachine(ctx context.Context) error {
 	b.batch.Close()
 	b.batch = nil
 
-	// Update the replica's applied indexes and mvcc stats.
+	// Update the replica's applied indexes, mvcc stats and closed timestamp.
 	r.mu.Lock()
 	r.mu.state.RaftAppliedIndex = b.state.RaftAppliedIndex
 	r.mu.state.LeaseAppliedIndex = b.state.LeaseAppliedIndex
+	r.mu.state.ClosedTimestampNanos = b.state.ClosedTimestampNanos
 	prevStats := *r.mu.state.Stats
 	*r.mu.state.Stats = *b.state.Stats
 
@@ -926,7 +938,9 @@ func (b *replicaAppBatch) addAppliedStateKeyToBatch(ctx context.Context) error {
 		// Set the range applied state, which includes the last applied raft and
 		// lease index along with the mvcc stats, all in one key.
 		if err := loader.SetRangeAppliedState(
-			ctx, b.batch, b.state.RaftAppliedIndex, b.state.LeaseAppliedIndex, b.state.Stats,
+			ctx, b.batch,
+			b.state.RaftAppliedIndex, b.state.LeaseAppliedIndex,
+			b.state.ClosedTimestampNanos, b.state.Stats,
 		); err != nil {
 			return wrapWithNonDeterministicFailure(err, "unable to set range applied state")
 		}
