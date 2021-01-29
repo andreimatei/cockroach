@@ -65,14 +65,10 @@ func (r *Replica) canServeFollowerReadRLocked(
 		return false
 	}
 
-	ts := ba.Timestamp
-	if ba.Txn != nil {
-		ts.Forward(ba.Txn.MaxTimestamp)
-	}
-
-	maxClosed, _ := r.MaxClosedTimestamp(ctx)
-	canServeFollowerRead := ts.LessEq(maxClosed)
-	tsDiff := ts.GoTime().Sub(maxClosed.GoTime())
+	maxObservableTS := ba.Txn.MaxObservableTimestamp()
+	maxClosed, _ := r.maxClosed(ctx)
+	canServeFollowerRead := maxObservableTS.LessEq(maxClosed)
+	tsDiff := maxObservableTS.GoTime().Sub(maxClosed.GoTime())
 	if !canServeFollowerRead {
 		maxTsStr := "n/a"
 		if ba.Txn != nil {
@@ -82,7 +78,7 @@ func (r *Replica) canServeFollowerReadRLocked(
 		// We can't actually serve the read based on the closed timestamp.
 		// Signal the clients that we want an update so that future requests can succeed.
 		r.store.cfg.ClosedTimestamp.Clients.Request(lErr.LeaseHolder.NodeID, r.RangeID)
-		log.Eventf(ctx, "can't serve follower read; closed timestamp too low by: %s; MaxClosedTimestamp: %s ts: %s maxTS: %s",
+		log.Eventf(ctx, "can't serve follower read; closed timestamp too low by: %s; maxClosed: %s ts: %s maxTS: %s",
 			tsDiff, maxClosed, ba.Timestamp, maxTsStr)
 
 		if false {
@@ -106,7 +102,7 @@ func (r *Replica) canServeFollowerReadRLocked(
 	return true
 }
 
-// MaxClosedTimestamp returns the maximum closed timestamp for this range.
+// maxClosed returns the maximum closed timestamp for this range.
 // It is computed as the most recent of the known closed timestamp for the
 // current lease holder for this range as tracked by the closed timestamp
 // subsystem and the start time of the current lease. It is safe to use the
@@ -117,7 +113,7 @@ func (r *Replica) canServeFollowerReadRLocked(
 // uses an expiration-based lease. Expiration-based leases do not support the
 // closed timestamp subsystem. A zero-value timestamp will be returned if ok
 // is false.
-func (r *Replica) MaxClosedTimestamp(ctx context.Context) (_ hlc.Timestamp, ok bool) {
+func (r *Replica) maxClosed(ctx context.Context) (_ hlc.Timestamp, ok bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.maxClosedRLocked(ctx)
