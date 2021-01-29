@@ -106,10 +106,7 @@ message ReplicaState {
   // that any in-flight commands that can still apply are writing at higher
   // timestamps. Non-leaseholder replicas are free to serve "follower reads" at
   // or below this timestamp.
-  //
-  // Note that this is a physical timestamp If closed_timestamp_nanos = 10, then
-  // a future write at 10,0 won't happen, but one at 10,1 might.
-  int64 closed_timestamp_nanos = 13;
+  util.hlc.Timestamp closed_timestamp = 13 [(gogoproto.nullable) = false];
 
   reserved 8, 9, 10;
 }

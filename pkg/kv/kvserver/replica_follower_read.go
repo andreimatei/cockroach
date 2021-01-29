@@ -123,7 +123,7 @@ func (r *Replica) maxClosedRLocked(ctx context.Context) (_ hlc.Timestamp, ok boo
 	lai := r.mu.state.LeaseAppliedIndex
 	lease := *r.mu.state.Lease
 	initialMaxClosed := r.mu.initialMaxClosed
-	replicaStateClosedNanos := r.mu.state.ClosedTimestampNanos
+	replicaStateClosed := r.mu.state.ClosedTimestamp
 
 	if lease.Expiration != nil {
 		return hlc.Timestamp{}, false
@@ -136,7 +136,7 @@ func (r *Replica) maxClosedRLocked(ctx context.Context) (_ hlc.Timestamp, ok boo
 
 	// Look at the "new" closed timestamp propagation mechanism.
 	// !!! this is incorrect if closedNanos is in the future
-	maxClosed.Forward(hlc.Timestamp{WallTime: replicaStateClosedNanos})
+	maxClosed.Forward(replicaStateClosed)
 
 	return maxClosed, true
 }

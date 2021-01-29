@@ -18,6 +18,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/storage"
 	"github.com/cockroachdb/cockroach/pkg/storage/enginepb"
+	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/errors"
 	"go.etcd.io/etcd/raft/v3"
@@ -32,7 +33,7 @@ func splitPreApply(
 	readWriter storage.ReadWriter,
 	split roachpb.SplitTrigger,
 	r *Replica,
-	closedTSNanos int64,
+	closedTS hlc.Timestamp,
 ) {
 	// Sanity check that the store is in the split.
 	//
@@ -120,7 +121,7 @@ func splitPreApply(
 		log.Fatalf(ctx, "%v", err)
 	}
 
-	rsl.SetClosedTimestamp(ctx, readWriter, closedTSNanos)
+	rsl.SetClosedTimestamp(ctx, readWriter, closedTS)
 
 	// The initialMaxClosed is assigned to the RHS replica to ensure that
 	// follower reads do not regress following the split. After the split occurs

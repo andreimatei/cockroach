@@ -159,7 +159,7 @@ type propBuf struct {
 	//
 	// This field can be read under the proposer's read lock, and written to under
 	// the write lock.
-	closedTSNanos int64
+	closedTS hlc.Timestamp
 
 	// A buffer used to avoid allocations.
 	tmpClosedTimestampFooter kvserverpb.ClosedTimestampFooter
@@ -210,6 +210,7 @@ type proposer interface {
 	destroyed() destroyStatus
 	leaseAppliedIndex() uint64
 	enqueueUpdateCheck()
+	closeTimestampPolicy() roachpb.RangeClosedTimestampPolicy
 	// The following require the proposer to hold an exclusive lock.
 	withGroupLocked(func(proposerRaft) error) error
 	registerProposalLocked(*ProposalData)
@@ -507,8 +508,18 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 	}
 
 	now := b.clock.PhysicalNow()
-	targetDuration := closedts.TargetDuration.Get(&b.settings.SV)
-	closedTSTargetNanos := now - targetDuration.Nanoseconds()
+	closedTSPolicy := b.p.closeTimestampPolicy()
+	var closedTSTarget hlc.Timestamp
+	switch closedTSPolicy {
+	case roachpb.LAG_BY_CLUSTER_SETTING:
+		targetDuration := closedts.TargetDuration.Get(&b.settings.SV)
+		closedTSTarget = hlc.Timestamp{WallTime: now - targetDuration.Nanoseconds()}
+	case roachpb.LEAD_FOR_GLOBAL_READS:
+		closedTSTarget = hlc.Timestamp{
+			WallTime:  now + 2*b.clock.MaxOffset().Nanoseconds(),
+			Synthetic: true,
+		}
+	}
 
 	// Remember the first error that we see when proposing the batch. We don't
 	// immediately return this error because we want to finish clearing out the
@@ -592,7 +603,7 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 			continue
 		}
 
-		err := b.maybeAssignClosedTimestampToProposal(ctx, p, closedTSTargetNanos)
+		err := b.maybeAssignClosedTimestampToProposal(ctx, p, closedTSTarget)
 		if err != nil {
 			firstErr = err
 			continue
@@ -661,15 +672,15 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 // timestamp tracked by the propBuf is updated accordingly, such that the leases
 // start time is considered closed. Note that this assumes that no writes are
 // accepted below the lease start time.
-func (b *propBuf) OnRangeLeaseChangedHands(leaseOwned bool, leaseStart hlc.Timestamp) {
+func (b *propBuf) OnRangeLeaseChangedHands(leaseOwned bool, closedTS hlc.Timestamp) {
 	b.p.locker().Lock()
 	defer b.p.locker().Unlock()
 
 	if leaseOwned {
-		b.closedTSNanos = leaseStart.WallTime
+		b.closedTS = closedTS
 	} else {
 		// Zero out to avoid any confusion.
-		b.closedTSNanos = 0
+		b.closedTS = hlc.Timestamp{}
 	}
 }
 
@@ -681,7 +692,7 @@ func (b *propBuf) OnRangeLeaseChangedHands(leaseOwned bool, leaseStart hlc.Times
 // If the proposal had been assigned a closed timestamp before (i.e. if this is
 // a reproposal) the old closed timestamp will be overwritten.
 func (b *propBuf) maybeAssignClosedTimestampToProposal(
-	ctx context.Context, p *ProposalData, closedTSTargetNanos int64,
+	ctx context.Context, p *ProposalData, closedTSTarget hlc.Timestamp,
 ) error {
 	// Note that lease requests can be proposed by any replica, including while
 	// another replica has a valid lease. Updating b.closedTSNanos when proposing
@@ -690,21 +701,14 @@ func (b *propBuf) maybeAssignClosedTimestampToProposal(
 		return nil
 	}
 	lb := b.evalTracker.LowerBound(ctx)
-	canCloseNanos := int64(0)
 	if !lb.IsEmpty() {
-		canCloseNanos = lb.Prev().WallTime
+		closedTSTarget.Backward(lb.FloorPrev())
 	}
-	// We don't want to close timestamps that are too recent, even if it'd be
-	// technically correct to do so.
-	if canCloseNanos > closedTSTargetNanos {
-		canCloseNanos = closedTSTargetNanos
-	}
-	if b.closedTSNanos < canCloseNanos {
-		b.closedTSNanos = canCloseNanos
-	}
+	b.closedTS.Forward(closedTSTarget)
+	log.VInfof(ctx, 2, "!!! closing: %s; closed: %s", closedTSTarget, b.closedTS)
 	// Fill in the closed ts in the proposal.
 	f := &b.tmpClosedTimestampFooter
-	f.ClosedTimestampNanos = b.closedTSNanos
+	f.ClosedTimestamp = b.closedTS
 	footerLen := f.Size()
 
 	preLen := p.encodedLenWithoutClosedTSFooter
@@ -845,7 +849,7 @@ func (b *propBuf) TrackEvaluatingRequest(
 	b.p.rlocker().Lock()
 	defer b.p.rlocker().Unlock()
 
-	minTS = hlc.Timestamp{WallTime: b.closedTSNanos}.Next()
+	minTS = b.closedTS.Next()
 	wts.Forward(minTS)
 	tok := b.evalTracker.Track(ctx, wts)
 	return minTS, TrackedRequestToken{tok: tok, b: b}
@@ -926,6 +930,8 @@ func (a *propBufArray) adjustSize(used int) {
 // replicaProposer implements the proposer interface.
 type replicaProposer Replica
 
+var _ proposer = &replicaProposer{}
+
 func (rp *replicaProposer) locker() sync.Locker {
 	return &rp.mu.RWMutex
 }
@@ -948,6 +954,10 @@ func (rp *replicaProposer) leaseAppliedIndex() uint64 {
 
 func (rp *replicaProposer) enqueueUpdateCheck() {
 	rp.store.enqueueRaftUpdateCheck(rp.RangeID)
+}
+
+func (rp *replicaProposer) closeTimestampPolicy() roachpb.RangeClosedTimestampPolicy {
+	return (*Replica)(rp).closedTimestampPolicyRLocked()
 }
 
 func (rp *replicaProposer) withGroupLocked(fn func(raftGroup proposerRaft) error) error {

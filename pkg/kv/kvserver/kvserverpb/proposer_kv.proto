@@ -158,24 +158,6 @@ message ReplicatedEvalResult {
   // but before we tried to apply it.
   util.hlc.Timestamp prev_lease_proposal = 20 [(gogoproto.casttype) = "github.com/cockroachdb/cockroach/pkg/util/hlc.ClockTimestamp"];
 
-  // The closed timestamp carried by this command. Once a follower is told to
-  // apply this command, it knows that there will be no further writes at
-  // timestamps <= closed_timestamp_nanos. Note that the command itself might
-  // represent a write at a lower timestamp, so the closed timestamp can only be
-  // used after this command is applied.
-  //
-  // Note that this represents only the physical part of a timestamp; the
-  // logical part is ignored. If closed_timestamp_nanos = 10, then a future
-  // write at 10,0 won't happen, but one at 10,1 might.
-  //
-  // The field can be zero, which is to be interpreted as no closed timestamp
-  // update. Some commands (lease requests) implicitly carry a closed timestamp
-  // in a command-specific way. If the value is not zero, the value is greater
-  // or equal to that of the previous commands (and all before it).
-  //
-  // This field is set through ClosedTimestampFooter hackery.
-  int64 closed_timestamp_nanos = 22;
-
   reserved 1, 5, 7, 9, 14, 15, 16, 19, 10001 to 10013;
 }
 
@@ -285,6 +267,24 @@ message RaftCommand {
   // from" the proposer.
   map<string, string> trace_data = 16;
 
+  // The closed timestamp carried by this command. Once a follower is told to
+  // apply this command, it knows that there will be no further writes at
+  // timestamps <= closed_timestamp_nanos. Note that the command itself might
+  // represent a write at a lower timestamp, so the closed timestamp can only be
+  // used after this command is applied.
+  //
+  // Note that this represents only the physical part of a timestamp; the
+  // logical part is ignored. If closed_timestamp_nanos = 10, then a future
+  // write at 10,0 won't happen, but one at 10,1 might.
+  //
+  // The field can be zero, which is to be interpreted as no closed timestamp
+  // update. Some commands (lease requests) implicitly carry a closed timestamp
+  // in a command-specific way. If the value is not zero, the value is greater
+  // or equal to that of the previous commands (and all before it).
+  //
+  // This field is set through ClosedTimestampFooter hackery.
+  util.hlc.Timestamp closed_timestamp = 17 [(gogoproto.nullable) = false];
+
   reserved 1, 2, 10001 to 10014;
 }
 
@@ -302,7 +302,7 @@ message RaftCommandFooter {
 // buffer to fill in the max_lease_index field after most of the proto has been
 // marshaled already.
 message ClosedTimestampFooter {
-  int64 closed_timestamp_nanos = 17;
+  util.hlc.Timestamp closed_timestamp = 17 [(gogoproto.nullable) = false];
 }
 
 
