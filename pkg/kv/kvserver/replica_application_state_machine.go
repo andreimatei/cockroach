@@ -429,11 +429,12 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 	}
 	// !!! Find a way to assert that this command is not writing below the replica's closed ts.
 	// Check that the closed timestamp doesn't regress.
-	cts := cmd.replicatedResult().ClosedTimestampNanos
-	if cts != 0 && cts < b.state.ClosedTimestampNanos {
-		return nil, makeNonDeterministicFailure("closed timestamp regressing from %d to %d",
-			b.state.ClosedTimestampNanos, cts)
-	}
+	// !!! debug
+	//cts := cmd.raftCmd.ClosedTimestamp
+	//if !cts.IsEmpty() && cts.Less(b.state.ClosedTimestamp) {
+	//	return nil, makeNonDeterministicFailure("closed timestamp regressing from %s to %s",
+	//		b.state.ClosedTimestamp, cts)
+	//}
 	if log.V(4) {
 		log.Infof(ctx, "processing command %x: maxLeaseIndex=%d", cmd.idKey, cmd.raftCmd.MaxLeaseIndex)
 	}
@@ -630,7 +631,7 @@ func (b *replicaAppBatch) runPreApplyTriggersAfterStagingWriteBatch(
 		//
 		// Alternatively if we discover that the RHS has already been removed
 		// from this store, clean up its data.
-		splitPreApply(ctx, b.batch, res.Split.SplitTrigger, b.r, res.ClosedTimestampNanos)
+		splitPreApply(ctx, b.batch, res.Split.SplitTrigger, b.r, cmd.raftCmd.ClosedTimestamp)
 
 		// The rangefeed processor will no longer be provided logical ops for
 		// its entire range, so it needs to be shut down and all registrations
@@ -814,11 +815,11 @@ func (b *replicaAppBatch) stageTrivialReplicatedEvalResult(
 	if leaseAppliedIndex := cmd.leaseIndex; leaseAppliedIndex != 0 {
 		b.state.LeaseAppliedIndex = leaseAppliedIndex
 	}
-	res := cmd.replicatedResult()
-
-	if cts := res.ClosedTimestampNanos; cts != 0 {
-		b.state.ClosedTimestampNanos = cts
+	if cts := cmd.raftCmd.ClosedTimestamp; !cts.IsEmpty() {
+		b.state.ClosedTimestamp = cts
 	}
+
+	res := cmd.replicatedResult()
 
 	// Special-cased MVCC stats handling to exploit commutativity of stats delta
 	// upgrades. Thanks to commutativity, the spanlatch manager does not have to
@@ -875,7 +876,8 @@ func (b *replicaAppBatch) ApplyToStateMachine(ctx context.Context) error {
 	r.mu.Lock()
 	r.mu.state.RaftAppliedIndex = b.state.RaftAppliedIndex
 	r.mu.state.LeaseAppliedIndex = b.state.LeaseAppliedIndex
-	r.mu.state.ClosedTimestampNanos = b.state.ClosedTimestampNanos
+	r.mu.state.ClosedTimestamp = b.state.ClosedTimestamp
+	log.VInfof(ctx, 2, "!!! received closed: %s", b.state.ClosedTimestamp)
 	prevStats := *r.mu.state.Stats
 	*r.mu.state.Stats = *b.state.Stats
 
@@ -940,7 +942,7 @@ func (b *replicaAppBatch) addAppliedStateKeyToBatch(ctx context.Context) error {
 		if err := loader.SetRangeAppliedState(
 			ctx, b.batch,
 			b.state.RaftAppliedIndex, b.state.LeaseAppliedIndex,
-			b.state.ClosedTimestampNanos, b.state.Stats,
+			b.state.ClosedTimestamp, b.state.Stats,
 		); err != nil {
 			return wrapWithNonDeterministicFailure(err, "unable to set range applied state")
 		}

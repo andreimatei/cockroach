@@ -114,11 +114,15 @@ func (r *Replica) canServeFollowerRead(
 // is false.
 func (r *Replica) MaxClosedTimestamp(ctx context.Context) (_ hlc.Timestamp, ok bool) {
 	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.maxClosedTimestampRLocked(ctx)
+}
+
+func (r *Replica) maxClosedTimestampRLocked(ctx context.Context) (_ hlc.Timestamp, ok bool) {
 	lai := r.mu.state.LeaseAppliedIndex
 	lease := *r.mu.state.Lease
 	initialMaxClosed := r.mu.initialMaxClosed
-	replicaStateClosedNanos := r.mu.state.ClosedTimestampNanos
-	r.mu.RUnlock()
+	replicaStateClosed := r.mu.state.ClosedTimestamp
 	if lease.Expiration != nil {
 		return hlc.Timestamp{}, false
 	}
@@ -130,7 +134,7 @@ func (r *Replica) MaxClosedTimestamp(ctx context.Context) (_ hlc.Timestamp, ok b
 
 	// Look at the "new" closed timestamp propagation mechanism.
 	// !!! this is incorrect if closedNanos is in the future
-	maxClosed.Forward(hlc.Timestamp{WallTime: replicaStateClosedNanos})
+	maxClosed.Forward(replicaStateClosed)
 
 	return maxClosed, true
 }

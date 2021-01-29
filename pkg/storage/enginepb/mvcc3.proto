@@ -203,7 +203,7 @@ message RangeAppliedState {
   MVCCPersistentStats range_stats = 3 [(gogoproto.nullable) = false];
 
   // !!! comment
-  int64 closed_timestamp_nanos = 4;
+  util.hlc.Timestamp closed_timestamp = 4 [(gogoproto.nullable) = false];
 }
 
 // MVCCWriteValueOp corresponds to a value being written outside of a
