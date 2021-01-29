@@ -245,6 +245,9 @@ const (
 	// via their IDs instead of their names, which leads to allowing such
 	// sequences to be renamed.
 	SequencesRegclass
+	// ClosedTimestampsRaftTransport enables the Raft transport for closed
+	// timestamps and disables the previous per-node transport.
+	ClosedTimestampsRaftTransport
 
 	// Step (1): Add new versions here.
 )
@@ -410,6 +413,10 @@ var versionsSingleton = keyedVersions([]keyedVersion{
 	{
 		Key:     SequencesRegclass,
 		Version: roachpb.Version{Major: 20, Minor: 2, Internal: 30},
+	},
+	{
+		Key:     ClosedTimestampsRaftTransport,
+		Version: roachpb.Version{Major: 20, Minor: 2, Internal: 32},
 	},
 	// Step (2): Add new versions here.
 })
