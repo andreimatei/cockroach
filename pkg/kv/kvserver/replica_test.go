@@ -614,7 +614,8 @@ func sendLeaseRequest(r *Replica, l *roachpb.Lease) error {
 	ba.Timestamp = r.store.Clock().Now()
 	ba.Add(&roachpb.RequestLeaseRequest{Lease: *l})
 	exLease, _ := r.GetLease()
-	ch, _, _, pErr := r.evalAndPropose(context.Background(), &ba, allSpansGuard(), &exLease)
+	_, tok := r.mu.proposalBuf.TrackEvaluatingRequest(context.Background(), hlc.MinTimestamp)
+	ch, _, _, pErr := r.evalAndPropose(context.Background(), &ba, allSpansGuard(), &exLease, tok)
 	if pErr == nil {
 		// Next if the command was committed, wait for the range to apply it.
 		// TODO(bdarnell): refactor this to a more conventional error-handling pattern.
@@ -1402,7 +1403,8 @@ func TestReplicaLeaseRejectUnknownRaftNodeID(t *testing.T) {
 	ba := roachpb.BatchRequest{}
 	ba.Timestamp = tc.repl.store.Clock().Now()
 	ba.Add(&roachpb.RequestLeaseRequest{Lease: *lease})
-	ch, _, _, pErr := tc.repl.evalAndPropose(context.Background(), &ba, allSpansGuard(), &exLease)
+	_, tok := tc.repl.mu.proposalBuf.TrackEvaluatingRequest(context.Background(), hlc.MinTimestamp)
+	ch, _, _, pErr := tc.repl.evalAndPropose(context.Background(), &ba, allSpansGuard(), &exLease, tok)
 	if pErr == nil {
 		// Next if the command was committed, wait for the range to apply it.
 		// TODO(bdarnell): refactor to a more conventional error-handling pattern.
@@ -7858,7 +7860,8 @@ func TestReplicaCancelRaftCommandProgress(t *testing.T) {
 				Key: roachpb.Key(fmt.Sprintf("k%d", i)),
 			},
 		})
-		ch, _, idx, err := repl.evalAndPropose(ctx, &ba, allSpansGuard(), &lease)
+		_, tok := repl.mu.proposalBuf.TrackEvaluatingRequest(context.Background(), hlc.MinTimestamp)
+		ch, _, idx, err := repl.evalAndPropose(ctx, &ba, allSpansGuard(), &lease, tok)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -7928,7 +7931,8 @@ func TestReplicaBurstPendingCommandsAndRepropose(t *testing.T) {
 				Key: roachpb.Key(fmt.Sprintf("k%d", i)),
 			},
 		})
-		ch, _, idx, err := tc.repl.evalAndPropose(ctx, &ba, allSpansGuard(), &lease)
+		_, tok := tc.repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
+		ch, _, idx, err := tc.repl.evalAndPropose(ctx, &ba, allSpansGuard(), &lease, tok)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -8057,7 +8061,8 @@ func TestReplicaRefreshPendingCommandsTicks(t *testing.T) {
 		dropProposals.Unlock()
 
 		cmd.command.ProposerLeaseSequence = lease.Sequence
-		if _, pErr := r.propose(ctx, cmd); pErr != nil {
+		_, tok := r.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
+		if _, pErr := r.propose(ctx, cmd, tok); pErr != nil {
 			t.Error(pErr)
 		}
 		r.mu.Lock()
@@ -8198,7 +8203,8 @@ func TestReplicaRefreshMultiple(t *testing.T) {
 	// that it will generate a retry when it fails. Then call refreshProposals
 	// twice to repropose it and put it in the logs twice more.
 	proposal.command.ProposerLeaseSequence = repl.mu.state.Lease.Sequence
-	if _, pErr := repl.propose(ctx, proposal); pErr != nil {
+	_, tok := repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
+	if _, pErr := repl.propose(ctx, proposal, tok); pErr != nil {
 		t.Fatal(pErr)
 	}
 	repl.mu.Lock()
@@ -8208,6 +8214,7 @@ func TestReplicaRefreshMultiple(t *testing.T) {
 	repl.refreshProposalsLocked(ctx, 0 /* refreshAtDelta */, reasonNewLeader)
 	repl.refreshProposalsLocked(ctx, 0 /* refreshAtDelta */, reasonNewLeader)
 	repl.mu.Unlock()
+	require.Zero(t, tc.repl.mu.proposalBuf.EvaluatingRequestsCount())
 
 	// Wait for our proposal to apply. The two refreshed proposals above
 	// will fail due to their illegal lease index. Then they'll generate
@@ -9200,6 +9207,7 @@ func TestCommandTooLarge(t *testing.T) {
 func TestErrorInRaftApplicationClearsIntents(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
+	ctx := context.Background()
 
 	var storeKnobs StoreTestingKnobs
 	var filterActive int32
@@ -9219,7 +9227,7 @@ func TestErrorInRaftApplicationClearsIntents(t *testing.T) {
 	defer s.Stopper().Stop(context.Background())
 
 	splitKey := roachpb.Key("b")
-	if err := kvDB.AdminSplit(context.Background(), splitKey, hlc.MaxTimestamp /* expirationTime */); err != nil {
+	if err := kvDB.AdminSplit(ctx, splitKey, hlc.MaxTimestamp /* expirationTime */); err != nil {
 		t.Fatal(err)
 	}
 
@@ -9257,7 +9265,8 @@ func TestErrorInRaftApplicationClearsIntents(t *testing.T) {
 	}
 
 	exLease, _ := repl.GetLease()
-	ch, _, _, pErr := repl.evalAndPropose(context.Background(), &ba, allSpansGuard(), &exLease)
+	_, tok := repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
+	ch, _, _, pErr := repl.evalAndPropose(ctx, &ba, allSpansGuard(), &exLease, tok)
 	if pErr != nil {
 		t.Fatal(pErr)
 	}
@@ -9278,6 +9287,7 @@ func TestProposeWithAsyncConsensus(t *testing.T) {
 	defer log.Scope(t).Close(t)
 	tc := testContext{}
 	tsc := TestStoreConfig(nil)
+	ctx := context.Background()
 
 	var filterActive int32
 	blockRaftApplication := make(chan struct{})
@@ -9290,7 +9300,7 @@ func TestProposeWithAsyncConsensus(t *testing.T) {
 		}
 
 	stopper := stop.NewStopper()
-	defer stopper.Stop(context.Background())
+	defer stopper.Stop(ctx)
 	tc.StartWithStoreConfig(t, stopper, tsc)
 	repl := tc.repl
 
@@ -9303,7 +9313,8 @@ func TestProposeWithAsyncConsensus(t *testing.T) {
 
 	atomic.StoreInt32(&filterActive, 1)
 	exLease, _ := repl.GetLease()
-	ch, _, _, pErr := repl.evalAndPropose(context.Background(), &ba, allSpansGuard(), &exLease)
+	_, tok := repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
+	ch, _, _, pErr := repl.evalAndPropose(ctx, &ba, allSpansGuard(), &exLease, tok)
 	if pErr != nil {
 		t.Fatal(pErr)
 	}
@@ -9367,7 +9378,8 @@ func TestApplyPaginatedCommittedEntries(t *testing.T) {
 
 	atomic.StoreInt32(&filterActive, 1)
 	exLease, _ := repl.GetLease()
-	_, _, _, pErr := repl.evalAndPropose(ctx, &ba, allSpansGuard(), &exLease)
+	_, tok := repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
+	_, _, _, pErr := repl.evalAndPropose(ctx, &ba, allSpansGuard(), &exLease, tok)
 	if pErr != nil {
 		t.Fatal(pErr)
 	}
@@ -9385,7 +9397,8 @@ func TestApplyPaginatedCommittedEntries(t *testing.T) {
 		ba2.Timestamp = tc.Clock().Now()
 
 		var pErr *roachpb.Error
-		ch, _, _, pErr = repl.evalAndPropose(ctx, &ba2, allSpansGuard(), &exLease)
+		_, tok := repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
+		ch, _, _, pErr = repl.evalAndPropose(ctx, &ba2, allSpansGuard(), &exLease, tok)
 		if pErr != nil {
 			t.Fatal(pErr)
 		}
@@ -12497,9 +12510,10 @@ func TestProposalNotAcknowledgedOrReproposedAfterApplication(t *testing.T) {
 	// Hold the RaftLock to ensure that after evalAndPropose our proposal is in
 	// the proposal map. Entries are only removed from that map underneath raft.
 	tc.repl.RaftLock()
+	_, tok := tc.repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
 	sp := cfg.AmbientCtx.Tracer.StartSpan("replica send", tracing.WithForceRealSpan())
 	tracedCtx := tracing.ContextWithSpan(ctx, sp)
-	ch, _, _, pErr := tc.repl.evalAndPropose(tracedCtx, &ba, allSpansGuard(), &lease)
+	ch, _, _, pErr := tc.repl.evalAndPropose(tracedCtx, &ba, allSpansGuard(), &lease, tok)
 	if pErr != nil {
 		t.Fatal(pErr)
 	}
@@ -12585,13 +12599,14 @@ func TestLaterReproposalsDoNotReuseContext(t *testing.T) {
 		Value: roachpb.MakeValueFromBytes([]byte("val")),
 	})
 
+	_, tok := tc.repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
 	// Hold the RaftLock to encourage the reproposals to occur in the same batch.
 	tc.repl.RaftLock()
 	tracedCtx, sp := tracer.StartSpanCtx(ctx, "replica send", tracing.WithForceRealSpan())
 	// Go out of our way to enable recording so that expensive logging is enabled
 	// for this context.
 	sp.SetVerbose(true)
-	ch, _, _, pErr := tc.repl.evalAndPropose(tracedCtx, &ba, allSpansGuard(), &lease)
+	ch, _, _, pErr := tc.repl.evalAndPropose(tracedCtx, &ba, allSpansGuard(), &lease, tok)
 	if pErr != nil {
 		t.Fatal(pErr)
 	}

@@ -16,10 +16,20 @@ var maxRaftCommandFooterSize = (&RaftCommandFooter{
 	MaxLeaseIndex: math.MaxUint64,
 }).Size()
 
+var maxClosedTimestampFooterSize = (&ClosedTimestampFooter{
+	ClosedTimestampNanos: math.MaxInt64,
+}).Size()
+
 // MaxRaftCommandFooterSize returns the maximum possible size of an
 // encoded RaftCommandFooter proto.
 func MaxRaftCommandFooterSize() int {
 	return maxRaftCommandFooterSize
+}
+
+// MaxClosedTimestampFooterSize returns the maximmum possible size of an encoded
+// ClosedTimestampFooter.
+func MaxClosedTimestampFooterSize() int {
+	return maxClosedTimestampFooterSize
 }
 
 // IsZero returns whether all fields are set to their zero value.
