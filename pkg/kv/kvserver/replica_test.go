@@ -198,6 +198,9 @@ func (tc *testContext) Clock() *hlc.Clock {
 func (tc *testContext) Start(t testing.TB, stopper *stop.Stopper) {
 	tc.manualClock = hlc.NewManualClock(123)
 	cfg := TestStoreConfig(hlc.NewClock(tc.manualClock.UnixNano, time.Nanosecond))
+	// testContext tests like to move the manual clock around and assume that they can write at past
+	// timestamps.
+	cfg.TestingKnobs.DontCloseTimestamps = true
 	tc.StartWithStoreConfig(t, stopper, cfg)
 }
 

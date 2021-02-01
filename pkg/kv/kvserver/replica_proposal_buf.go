@@ -183,6 +183,8 @@ type propBuf struct {
 		// heartbeats and then expect other replicas to take the lease without
 		// worrying about Raft).
 		allowLeaseProposalWhenNotLeader bool
+		// dontCloseTimestamps inhibits the closing of timestamps.
+		dontCloseTimestamps bool
 	}
 }
 
@@ -694,6 +696,9 @@ func (b *propBuf) OnRangeLeaseChangedHands(leaseOwned bool, closedTS hlc.Timesta
 func (b *propBuf) maybeAssignClosedTimestampToProposal(
 	ctx context.Context, p *ProposalData, closedTSTarget hlc.Timestamp,
 ) error {
+	if b.testing.dontCloseTimestamps {
+		return nil
+	}
 	// Note that lease requests can be proposed by any replica, including while
 	// another replica has a valid lease. Updating b.closedTSNanos when proposing
 	// such a request would probably be a bad idea.
@@ -705,7 +710,6 @@ func (b *propBuf) maybeAssignClosedTimestampToProposal(
 		closedTSTarget.Backward(lb.FloorPrev())
 	}
 	b.closedTS.Forward(closedTSTarget)
-	log.VInfof(ctx, 2, "!!! closing: %s; closed: %s", closedTSTarget, b.closedTS)
 	// Fill in the closed ts in the proposal.
 	f := &b.tmpClosedTimestampFooter
 	f.ClosedTimestamp = b.closedTS
