@@ -430,11 +430,11 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 	// !!! Find a way to assert that this command is not writing below the replica's closed ts.
 	// Check that the closed timestamp doesn't regress.
 	// !!! debug
-	//cts := cmd.raftCmd.ClosedTimestamp
-	//if !cts.IsEmpty() && cts.Less(b.state.ClosedTimestamp) {
-	//	return nil, makeNonDeterministicFailure("closed timestamp regressing from %s to %s",
-	//		b.state.ClosedTimestamp, cts)
-	//}
+	cts := cmd.raftCmd.ClosedTimestamp
+	if !cts.IsEmpty() && cts.Less(b.state.ClosedTimestamp) {
+		return nil, makeNonDeterministicFailure("closed timestamp regressing from %s to %s",
+			b.state.ClosedTimestamp, cts)
+	}
 	if log.V(4) {
 		log.Infof(ctx, "processing command %x: maxLeaseIndex=%d", cmd.idKey, cmd.raftCmd.MaxLeaseIndex)
 	}
@@ -500,7 +500,9 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 	// non-trivial commands will be in their own batch, so delaying their
 	// non-trivial ReplicatedState updates until later (without ever staging
 	// them in the batch) is sufficient.
-	b.stageTrivialReplicatedEvalResult(ctx, cmd)
+	if err := b.stageTrivialReplicatedEvalResult(ctx, cmd); err != nil {
+		return nil, err
+	}
 	b.entries++
 	if len(cmd.ent.Data) == 0 {
 		b.emptyEntries++
@@ -808,7 +810,7 @@ func (b *replicaAppBatch) runPreApplyTriggersAfterStagingWriteBatch(
 // inspect the command's ReplicatedEvalResult.
 func (b *replicaAppBatch) stageTrivialReplicatedEvalResult(
 	ctx context.Context, cmd *replicatedCmd,
-) {
+) error {
 	if raftAppliedIndex := cmd.ent.Index; raftAppliedIndex != 0 {
 		b.state.RaftAppliedIndex = raftAppliedIndex
 	}
@@ -816,6 +818,11 @@ func (b *replicaAppBatch) stageTrivialReplicatedEvalResult(
 		b.state.LeaseAppliedIndex = leaseAppliedIndex
 	}
 	if cts := cmd.raftCmd.ClosedTimestamp; !cts.IsEmpty() {
+		if cts.Less(b.state.ClosedTimestamp) {
+			return wrapWithNonDeterministicFailure(errors.Errorf(
+				"regressing timestamp from %s to %s", b.state.ClosedTimestamp, cts),
+				"failed to stage trivial eval result")
+		}
 		b.state.ClosedTimestamp = cts
 	}
 
@@ -830,6 +837,7 @@ func (b *replicaAppBatch) stageTrivialReplicatedEvalResult(
 	if res.State != nil && res.State.UsingAppliedStateKey && !b.state.UsingAppliedStateKey {
 		b.migrateToAppliedStateKey = true
 	}
+	return nil
 }
 
 // ApplyToStateMachine implements the apply.Batch interface. The method handles
@@ -876,8 +884,11 @@ func (b *replicaAppBatch) ApplyToStateMachine(ctx context.Context) error {
 	r.mu.Lock()
 	r.mu.state.RaftAppliedIndex = b.state.RaftAppliedIndex
 	r.mu.state.LeaseAppliedIndex = b.state.LeaseAppliedIndex
-	r.mu.state.ClosedTimestamp = b.state.ClosedTimestamp
-	log.VInfof(ctx, 2, "!!! received closed: %s", b.state.ClosedTimestamp)
+	closedTimestampUpdated := !r.mu.state.ClosedTimestamp.Equal(b.state.ClosedTimestamp)
+	if closedTimestampUpdated {
+		log.VInfof(ctx, 2, "!!! received closed: %s", b.state.ClosedTimestamp)
+		r.mu.state.ClosedTimestamp = b.state.ClosedTimestamp
+	}
 	prevStats := *r.mu.state.Stats
 	*r.mu.state.Stats = *b.state.Stats
 
@@ -893,6 +904,12 @@ func (b *replicaAppBatch) ApplyToStateMachine(ctx context.Context) error {
 	needsTruncationByLogSize := r.needsRaftLogTruncationLocked()
 	tenantID := r.mu.tenantID
 	r.mu.Unlock()
+	if closedTimestampUpdated {
+		// TODO(andrei): Pass in the new closed timestamp to r.handleClosedTimestampUpdateRaftMuLocked
+		// directly after the old closed ts tracked goes away. Until then we can't do it; we have to let
+		// the method consult r.maxClosed().
+		r.handleClosedTimestampUpdateRaftMuLocked(ctx)
+	}
 
 	// Record the stats delta in the StoreMetrics.
 	deltaStats := *b.state.Stats
