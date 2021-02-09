@@ -495,7 +495,7 @@ func (rsl StateLoader) SetClosedTimestamp(
 		return err
 	}
 	if as == nil {
-		panic("!!! this should exist")
+		panic("!!! this should not exist")
 	}
 	return rsl.SetRangeAppliedState(ctx, readWriter, as.RaftAppliedIndex, as.LeaseAppliedIndex,
 		closedTS, as.RangeStats.ToStatsPtr())

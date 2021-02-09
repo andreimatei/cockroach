@@ -33,8 +33,10 @@ func splitPreApply(
 	readWriter storage.ReadWriter,
 	split roachpb.SplitTrigger,
 	r *Replica,
+	// !!! comment
 	closedTS hlc.Timestamp,
 ) {
+	log.Infof(ctx, "!!! splitPreApply got closedts: %s", closedTS)
 	// Sanity check that the store is in the split.
 	//
 	// The exception to that is if the DisableEagerReplicaRemoval testing flag is
@@ -121,6 +123,7 @@ func splitPreApply(
 		log.Fatalf(ctx, "%v", err)
 	}
 
+	log.Infof(ctx, "!!! creating right side: r%d with closedts: %s", split.RightDesc.RangeID, closedTS)
 	rsl.SetClosedTimestamp(ctx, readWriter, closedTS)
 
 	// The initialMaxClosed is assigned to the RHS replica to ensure that
@@ -159,6 +162,7 @@ func splitPreApply(
 	initialMaxClosed, _ := r.MaxClosedTimestamp(ctx)
 	rightRepl.mu.Lock()
 	rightRepl.mu.initialMaxClosed = initialMaxClosed
+	// !!! initialize propBuf.closedTS
 	rightRepl.mu.Unlock()
 }
 

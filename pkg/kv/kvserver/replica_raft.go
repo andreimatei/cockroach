@@ -991,6 +991,7 @@ const (
 func (r *Replica) refreshProposalsLocked(
 	ctx context.Context, refreshAtDelta int, reason refreshRaftReason,
 ) {
+	log.Infof(ctx, "!!! refreshPendingProposals reason: %s", reason)
 	if refreshAtDelta != 0 && reason != reasonTicks {
 		log.Fatalf(ctx, "refreshAtDelta specified for reason %s != reasonTicks", reason)
 	}

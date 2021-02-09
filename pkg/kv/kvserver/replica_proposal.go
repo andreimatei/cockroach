@@ -313,6 +313,7 @@ A file preventing this node from restarting was placed at:
 func (r *Replica) leasePostApplyLocked(
 	ctx context.Context, newLease roachpb.Lease, permitJump bool,
 ) {
+	ctx = r.AnnotateCtx(ctx)
 	// Note that we actually install the lease further down in this method.
 	// Everything we do before then doesn't need to worry about requests being
 	// evaluated under the new lease.
@@ -356,6 +357,8 @@ func (r *Replica) leasePostApplyLocked(
 	// causing the right half of the disjunction to fire so that we update the
 	// timestamp cache.
 	leaseChangingHands := prevLease.Replica.StoreID != newLease.Replica.StoreID || prevLease.Sequence != newLease.Sequence
+	log.Infof(ctx, "!!! leasePostApply changing hands: %t. leaseholder: %t. new: %s. prev: %s",
+		leaseChangingHands, iAmTheLeaseHolder, newLease, prevLease)
 
 	if iAmTheLeaseHolder {
 		// Log lease acquisition whenever an Epoch-based lease changes hands (or verbose
@@ -410,14 +413,16 @@ func (r *Replica) leasePostApplyLocked(
 	// to not matter).
 	r.concMgr.OnRangeLeaseUpdated(newLease.Sequence, iAmTheLeaseHolder)
 
-	if leaseChangingHands {
-		// Reset the closed timestamp to the lease start time. Note that this
-		// assumes that no writes are accepted below the lease start time and will
-		// have to change if we start shipping the timestamp cache on lease
-		// transfers in order to allow writes at older timestamps.
-		closedTS, _ /* ok */ := r.maxClosedRLocked(ctx)
-		r.mu.proposalBuf.OnRangeLeaseChangedHands(iAmTheLeaseHolder, closedTS)
-	}
+	// Reset the closed timestamp to the lease start time. Note that this
+	// assumes that no writes are accepted below the lease start time and will
+	// have to change if we start shipping the timestamp cache on lease
+	// transfers in order to allow writes at older timestamps.
+	// Note that we have to always do this, not just on leaseChangingHands; we have to do it
+	// on spli
+	leaseStart := newLease.Start.ToTimestamp()
+	log.Infof(ctx, "!!! announcing new closedTS of %s on new lease", leaseStart)
+	// !!! should this be lease start or the replica's closed ts?
+	r.mu.proposalBuf.OnLeaseChangeLocked(iAmTheLeaseHolder, leaseStart)
 
 	// Ordering is critical here. We only install the new lease after we've
 	// checked for an in-progress merge and updated the timestamp cache. If the

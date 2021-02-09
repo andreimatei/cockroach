@@ -589,6 +589,7 @@ func (r *Replica) handleClosedTimestampUpdate(ctx context.Context) {
 // handleClosedTimestampUpdateRaftMuLocked is like handleClosedTimestampUpdate,
 // but it requires raftMu to be locked.
 func (r *Replica) handleClosedTimestampUpdateRaftMuLocked(ctx context.Context) {
+	log.Infof(ctx, "!!! handleClosedTimestampUpdateRaftMuLocked")
 	p := r.getRangefeedProcessor()
 	if p == nil {
 		return
