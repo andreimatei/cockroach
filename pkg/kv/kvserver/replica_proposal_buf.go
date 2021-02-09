@@ -298,6 +298,7 @@ func (b *propBuf) Insert(
 
 	// Assign the command's maximum lease index.
 	p.command.MaxLeaseIndex = b.liBase + res.leaseIndexOffset()
+	log.Infof(ctx, "!!! queuing command %x with MaxLeaseIndex %d: %s", p.idKey, p.command.MaxLeaseIndex, p.Request)
 	if filter := b.testing.leaseIndexFilter; filter != nil {
 		if override, err := filter(p); err != nil {
 			return 0, err
@@ -610,6 +611,9 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 			firstErr = err
 			continue
 		}
+		log.Infof(ctx, "!!! propBuf flushing command %x MLAI: %d:%d (%s txn: %s)",
+			p.idKey,
+			p.command.ProposerLeaseSequence, p.command.MaxLeaseIndex, p.Request, p.Request.Txn)
 
 		// Coordinate proposing the command to etcd/raft.
 		if crt := p.command.ReplicatedEvalResult.ChangeReplicas; crt != nil {
@@ -669,17 +673,13 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 	return used, proposeBatch(raftGroup, b.p.replicaID(), ents)
 }
 
-// OnRangeLeaseChangedHands is called when a new lease is applied to this range,
-// but the lease is not simply a continuation of a previous lease. The closed
+// OnLeaseChange is called when a new lease is applied to this range. The closed
 // timestamp tracked by the propBuf is updated accordingly, such that the leases
 // start time is considered closed. Note that this assumes that no writes are
 // accepted below the lease start time.
-func (b *propBuf) OnRangeLeaseChangedHands(leaseOwned bool, closedTS hlc.Timestamp) {
-	b.p.locker().Lock()
-	defer b.p.locker().Unlock()
-
+func (b *propBuf) OnLeaseChangeLocked(leaseOwned bool, leaseStart hlc.Timestamp) {
 	if leaseOwned {
-		b.closedTS = closedTS
+		b.closedTS.Forward(leaseStart)
 	} else {
 		// Zero out to avoid any confusion.
 		b.closedTS = hlc.Timestamp{}
@@ -720,6 +720,9 @@ func (b *propBuf) maybeAssignClosedTimestampToProposal(
 	// capacity for this footer.
 	p.encodedCommand = p.encodedCommand[:preLen+footerLen]
 	_, err := protoutil.MarshalTo(f, p.encodedCommand[preLen:])
+	log.Infof(ctx, "!!! propBuf attached closedts: %s to %x MLAI: %d:%d (%s)", f.ClosedTimestamp,
+		p.idKey,
+		p.command.ProposerLeaseSequence, p.command.MaxLeaseIndex, p.Request)
 	return err
 }
 

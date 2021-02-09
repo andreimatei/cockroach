@@ -427,16 +427,9 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 		// trying to update anything or running the command. Simply return.
 		return nil, makeNonDeterministicFailure("applied index jumped from %d to %d", applied, idx)
 	}
-	// !!! Find a way to assert that this command is not writing below the replica's closed ts.
-	// Check that the closed timestamp doesn't regress.
-	// !!! debug
-	cts := cmd.raftCmd.ClosedTimestamp
-	if !cts.IsEmpty() && cts.Less(b.state.ClosedTimestamp) {
-		return nil, makeNonDeterministicFailure("closed timestamp regressing from %s to %s",
-			b.state.ClosedTimestamp, cts)
-	}
 	if log.V(4) {
-		log.Infof(ctx, "processing command %x: maxLeaseIndex=%d", cmd.idKey, cmd.raftCmd.MaxLeaseIndex)
+		log.Infof(ctx, "processing command %x: maxLeaseIndex=%d closedts: %s",
+			cmd.idKey, cmd.raftCmd.MaxLeaseIndex, cmd.raftCmd.ClosedTimestamp)
 	}
 
 	// Determine whether the command should be applied to the replicated state
@@ -450,7 +443,21 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 		cmd.raftCmd.ReplicatedEvalResult = kvserverpb.ReplicatedEvalResult{}
 		cmd.raftCmd.WriteBatch = nil
 		cmd.raftCmd.LogicalOpLog = nil
+		cmd.raftCmd.ClosedTimestamp.Reset()
 	} else {
+		// !!! Find a way to assert that this command is not writing below the replica's closed ts.
+		// Check that the closed timestamp doesn't regress.
+		cts := cmd.raftCmd.ClosedTimestamp
+		if !cts.IsEmpty() && cts.Less(b.state.ClosedTimestamp) {
+			log.Fatalf(ctx,
+				"!!! closed timestamp regressing from %s to %s when applying command %x with MLAI %d:%d on top of current %d:%d",
+				b.state.ClosedTimestamp, cts, cmd.idKey, cmd.raftCmd.ProposerLeaseSequence, cmd.raftCmd.MaxLeaseIndex,
+				b.state.Lease.Sequence, b.state.LeaseAppliedIndex)
+			return nil, makeNonDeterministicFailure(
+				"closed timestamp regressing from %s to %s when applying command %x with MLAI %d:%d",
+				b.state.ClosedTimestamp, cts, cmd.idKey, cmd.raftCmd.ProposerLeaseSequence, cmd.raftCmd.MaxLeaseIndex)
+		}
+
 		log.Event(ctx, "applying command")
 	}
 
@@ -817,6 +824,8 @@ func (b *replicaAppBatch) stageTrivialReplicatedEvalResult(
 	if leaseAppliedIndex := cmd.leaseIndex; leaseAppliedIndex != 0 {
 		b.state.LeaseAppliedIndex = leaseAppliedIndex
 	}
+	// !!! here I think I need to deal with leases (lease transfers too?) that don't
+	// carry a closed timestamp explicitly.
 	if cts := cmd.raftCmd.ClosedTimestamp; !cts.IsEmpty() {
 		if cts.Less(b.state.ClosedTimestamp) {
 			return wrapWithNonDeterministicFailure(errors.Errorf(

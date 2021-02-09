@@ -43,8 +43,7 @@ func (r *Replica) canServeFollowerRead(
 	lErr, ok := pErr.GetDetail().(*roachpb.NotLeaseHolderError)
 	eligible := ok &&
 		lErr.LeaseHolder != nil && lErr.Lease.Type() == roachpb.LeaseEpoch &&
-		(!ba.IsLocking() && ba.IsAllTransactional()) && // followerreadsccl.batchCanBeEvaluatedOnFollower
-		(ba.Txn == nil || !ba.Txn.IsLocking()) && // followerreadsccl.txnCanPerformFollowerRead
+		(ba.Txn != nil && !ba.IsLocking() && ba.IsAllTransactional()) && // followerreadsccl.batchCanBeEvaluatedOnFollower
 		FollowerReadsEnabled.Get(&r.store.cfg.Settings.SV)
 
 	if !eligible {
@@ -114,15 +113,12 @@ func (r *Replica) canServeFollowerRead(
 // is false.
 func (r *Replica) MaxClosedTimestamp(ctx context.Context) (_ hlc.Timestamp, ok bool) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.maxClosedTimestampRLocked(ctx)
-}
-
-func (r *Replica) maxClosedTimestampRLocked(ctx context.Context) (_ hlc.Timestamp, ok bool) {
 	lai := r.mu.state.LeaseAppliedIndex
 	lease := *r.mu.state.Lease
 	initialMaxClosed := r.mu.initialMaxClosed
 	replicaStateClosed := r.mu.state.ClosedTimestamp
+	r.mu.RUnlock()
+
 	if lease.Expiration != nil {
 		return hlc.Timestamp{}, false
 	}

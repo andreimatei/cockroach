@@ -12,6 +12,7 @@ package batcheval
 
 import (
 	"context"
+	"log"
 
 	"github.com/cockroachdb/cockroach/pkg/keys"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/batcheval/result"
@@ -123,6 +124,9 @@ func RequestLease(
 			return newFailedLeaseTrigger(false /* isTransfer */), rErr
 		}
 		if newLease.Type() == roachpb.LeaseExpiration {
+			if newLease.Expiration == nil {
+				log.Fatalf("!!! lease: %s", newLease)
+			}
 			// NB: Avoid mutating pointers in the argument which might be shared with
 			// the caller.
 			t := *newLease.Expiration
