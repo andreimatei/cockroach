@@ -703,12 +703,25 @@ func (b *propBuf) maybeAssignClosedTimestampToProposal(
 	// another replica has a valid lease. Updating b.closedTSNanos when proposing
 	// such a request would probably be a bad idea.
 	if p.Request.IsLeaseRequest() {
+		// !!!
 		return nil
 	}
 	lb := b.evalTracker.LowerBound(ctx)
 	if !lb.IsEmpty() {
 		closedTSTarget.Backward(lb.FloorPrev())
 	}
+	// We can't close timestamps above the current lease's expiration(*). This is
+	// in order to keep the monotonic property of closed timestamps carried by
+	// commands, which makes for straight-forward closed timestamp management on
+	// the command application side: if we allowed requests to close timestamps
+	// above the lease's expiration, then a future LeaseRequest proposed by
+	// another node might carry a lower closed timestamp (i.e. the lease start
+	// time).
+	// (*) If we've previously closed a higher timestamp under a previous lease
+	// with a higher expiration, then requests will keep carrying that closed
+	// timestamp; we won't regress the closed timestamp.
+	closedTSTarget.Backward(p.leaseStatus.Expiration())
+
 	b.closedTS.Forward(closedTSTarget)
 	// Fill in the closed ts in the proposal.
 	f := &b.tmpClosedTimestampFooter

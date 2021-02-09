@@ -114,6 +114,9 @@ type ProposalData struct {
 	// here; this could be replaced with isLease and isChangeReplicas
 	// booleans.
 	Request *roachpb.BatchRequest
+	// leaseStatus represents the lease under which the Request was evaluated and
+	// under which this proposal is being made.
+	leaseStatus kvserverpb.LeaseStatus
 
 	// tok identifies the request to the propBuf. Once the proposal is made, the
 	// token will be used to stop tracking this request.
@@ -844,17 +847,19 @@ func (r *Replica) requestToProposal(
 	ctx context.Context,
 	idKey kvserverbase.CmdIDKey,
 	ba *roachpb.BatchRequest,
+	st kvserverpb.LeaseStatus,
 	latchSpans *spanset.SpanSet,
 ) (*ProposalData, *roachpb.Error) {
 	res, needConsensus, pErr := r.evaluateProposal(ctx, idKey, ba, latchSpans)
 
 	// Fill out the results even if pErr != nil; we'll return the error below.
 	proposal := &ProposalData{
-		ctx:     ctx,
-		idKey:   idKey,
-		doneCh:  make(chan proposalResult, 1),
-		Local:   &res.Local,
-		Request: ba,
+		ctx:         ctx,
+		idKey:       idKey,
+		doneCh:      make(chan proposalResult, 1),
+		Local:       &res.Local,
+		Request:     ba,
+		leaseStatus: st,
 	}
 
 	if needConsensus {
