@@ -1183,6 +1183,7 @@ func (r *Replica) checkExecutionCanProceed(
 	}()
 
 	now := r.Clock().NowAsClockTimestamp()
+	log.Infof(ctx, "!!! executionCanProceed for ba wts: %s. now: %s", ba.WriteTimestamp(), now)
 	rSpan, err := keys.Range(ba.Requests)
 	if err != nil {
 		return kvserverpb.LeaseStatus{}, err

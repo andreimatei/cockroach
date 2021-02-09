@@ -19,6 +19,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/storage"
 	"github.com/cockroachdb/cockroach/pkg/storage/enginepb"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 )
 
 func newFailedLeaseTrigger(isTransfer bool) result.Result {
@@ -94,6 +95,7 @@ func evalNewLease(
 			}
 	}
 	if prevLease.Equivalent(lease) {
+		log.Infof(ctx, "!!! lease equivalent. setting sequence to: %d", prevLease.Sequence)
 		// If the proposed lease is equivalent to the previous lease, it is
 		// given the same sequence number. This is subtle, but is important
 		// to ensure that leases which are meant to be considered the same
@@ -103,6 +105,7 @@ func evalNewLease(
 		// with the same sequence number.
 		lease.Sequence = prevLease.Sequence
 	} else {
+		log.Info(ctx, "!!! lease not equivalent")
 		// We set the new lease sequence to one more than the previous lease
 		// sequence. This is safe and will never result in repeated lease
 		// sequences because the sequence check beneath Raft acts as an atomic

@@ -160,15 +160,20 @@ func (t *testProposer) rejectProposalWithRedirectLocked(
 
 func newPropData(leaseReq bool) (*ProposalData, []byte) {
 	var ba roachpb.BatchRequest
+	pd := &ProposalData{
+		command: &kvserverpb.RaftCommand{
+			ReplicatedEvalResult: kvserverpb.ReplicatedEvalResult{
+				State: &kvserverpb.ReplicaState{Lease: &roachpb.Lease{}},
+			},
+		},
+		Request: &ba,
+	}
 	if leaseReq {
 		ba.Add(&roachpb.RequestLeaseRequest{})
 	} else {
 		ba.Add(&roachpb.PutRequest{})
 	}
-	return &ProposalData{
-		command: &kvserverpb.RaftCommand{},
-		Request: &ba,
-	}, make([]byte, 0, kvserverpb.MaxRaftCommandFooterSize())
+	return pd, make([]byte, 0, kvserverpb.MaxRaftCommandFooterSize())
 }
 
 // TestProposalBuffer tests the basic behavior of the Raft proposal buffer.

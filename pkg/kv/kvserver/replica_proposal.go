@@ -329,6 +329,8 @@ func (r *Replica) leasePostApplyLocked(
 	// without jumps (see permitJump).
 	prevLease := *r.mu.state.Lease
 
+	log.Infof(ctx, "!!! applying lease with sequence: %d", newLease.Sequence)
+
 	// Sanity check to make sure that the lease sequence is moving in the right
 	// direction.
 	if s1, s2 := prevLease.Sequence, newLease.Sequence; s1 != 0 {
@@ -416,16 +418,7 @@ func (r *Replica) leasePostApplyLocked(
 	// to not matter).
 	r.concMgr.OnRangeLeaseUpdated(newLease.Sequence, iAmTheLeaseHolder)
 
-	// Reset the closed timestamp to the lease start time. Note that this
-	// assumes that no writes are accepted below the lease start time and will
-	// have to change if we start shipping the timestamp cache on lease
-	// transfers in order to allow writes at older timestamps.
-	// Note that we have to always do this, not just on leaseChangingHands; we have to do it
-	// on spli
-	leaseStart := newLease.Start.ToTimestamp()
-	log.Infof(ctx, "!!! announcing new closedTS of %s on new lease", leaseStart)
-	// !!! should this be lease start or the replica's closed ts?
-	r.mu.proposalBuf.OnLeaseChangeLocked(iAmTheLeaseHolder, leaseStart)
+	r.mu.proposalBuf.OnLeaseChangeLocked(iAmTheLeaseHolder, r.mu.state.ClosedTimestamp)
 
 	// Ordering is critical here. We only install the new lease after we've
 	// checked for an in-progress merge and updated the timestamp cache. If the

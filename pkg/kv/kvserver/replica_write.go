@@ -77,6 +77,7 @@ func (r *Replica) executeWriteBatch(
 
 	// Verify that the batch can be executed.
 	st, err := r.checkExecutionCanProceed(ctx, ba, g)
+	log.Infof(ctx, "!!! executionCanProceed says: %s", st)
 	if err != nil {
 		return nil, g, roachpb.NewError(err)
 	}
@@ -90,11 +91,7 @@ func (r *Replica) executeWriteBatch(
 	minTS, untrack := r.store.cfg.ClosedTimestamp.Tracker.Track(ctx)
 	defer untrack(ctx, 0, 0, 0) // covers all error returns below
 
-	// !!! use the dedicated function for this
-	writeTS := ba.Timestamp
-	if ba.Txn != nil {
-		writeTS = ba.Txn.WriteTimestamp
-	}
+	writeTS := ba.WriteTimestamp()
 
 	// Start tracking this request. The act of tracking also gives us a closed
 	// timestamp, which we must ensure to evaluate above of. We're going to pass
@@ -107,8 +104,11 @@ func (r *Replica) executeWriteBatch(
 	// will be tracked at an unnecessarily low timestamp. We could invent an
 	// interface through which to communicate the updated timestamp to the
 	// proposalBuf.
+	// !!! can this return a timestamp above the current lease expiration? If so, do I need checkExecutionCanProceed
+	// again?
 	minTS2, tok := r.mu.proposalBuf.TrackEvaluatingRequest(ctx, writeTS)
 	defer tok.DoneIfNotMoved(ctx)
+	log.Infof(ctx, "!!! minTS: %s minTS2: %s", minTS, minTS2)
 	minTS.Forward(minTS2)
 
 	// Examine the timestamp cache for preceding commands which require this

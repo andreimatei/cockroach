@@ -181,6 +181,7 @@ func (p *pendingLeaseRequest) InitOrJoinRequest(
 	startKey roachpb.Key,
 	transfer bool,
 ) *leaseRequestHandle {
+	log.Infof(ctx, "!!! InitOrJoinRequest")
 	if nextLease, ok := p.RequestPending(); ok {
 		if nextLease.Replica.ReplicaID == nextLeaseHolder.ReplicaID {
 			// Join a pending request asking for the same replica to become lease
@@ -241,6 +242,7 @@ func (p *pendingLeaseRequest) InitOrJoinRequest(
 	if p.repl.requiresExpiringLeaseRLocked() {
 		reqLease.Expiration = &hlc.Timestamp{}
 		*reqLease.Expiration = status.Now.ToTimestamp().Add(int64(p.repl.store.cfg.RangeLeaseActiveDuration()), 0)
+		log.Infof(ctx, "!!! next lease expiration: %s", reqLease.Expiration)
 	} else {
 		// Get the liveness for the next lease holder and set the epoch in the lease request.
 		l, ok := p.repl.store.cfg.NodeLiveness.GetLiveness(nextLeaseHolder.NodeID)
@@ -1270,6 +1272,7 @@ func (r *Replica) shouldExtendLeaseRLocked(st kvserverpb.LeaseStatus) bool {
 // asynchronously, if doing so is deemed beneficial by an earlier call
 // to shouldExtendLeaseRLocked.
 func (r *Replica) maybeExtendLeaseAsync(ctx context.Context, st kvserverpb.LeaseStatus) {
+	log.Infof(ctx, "!!! extending lease")
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	// Check shouldExtendLeaseRLocked again, because others may have raced to

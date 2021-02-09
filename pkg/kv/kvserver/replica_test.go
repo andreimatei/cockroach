@@ -2992,6 +2992,7 @@ func TestConditionalPutUpdatesTSCacheOnError(t *testing.T) {
 	// CPut args which expect value "1" to write "0".
 	key := []byte("a")
 	cpArgs1 := cPutArgs(key, []byte("1"), []byte("0"))
+	log.Infof(context.TODO(), "!!! test sending CPut")
 	_, pErr := tc.SendWrappedWith(roachpb.Header{Timestamp: t2}, &cpArgs1)
 	if cfErr, ok := pErr.GetDetail().(*roachpb.ConditionFailedError); !ok {
 		t.Errorf("expected ConditionFailedError; got %v", pErr)
@@ -3001,6 +3002,7 @@ func TestConditionalPutUpdatesTSCacheOnError(t *testing.T) {
 
 	// Try a transactional conditional put at a lower timestamp and
 	// ensure it is pushed.
+	log.Infof(context.TODO(), "!!! test sending transactional CPut")
 	txnEarly := newTransaction("test", key, 1, tc.Clock())
 	txnEarly.ReadTimestamp, txnEarly.WriteTimestamp = t1, t1
 	cpArgs2 := cPutArgs(key, []byte("value"), nil)
@@ -3016,6 +3018,7 @@ func TestConditionalPutUpdatesTSCacheOnError(t *testing.T) {
 	// not update the timestamp cache.
 	t3 := makeTS(3*time.Second.Nanoseconds(), 0)
 	tc.manualClock.Set(t3.WallTime)
+	log.Infof(context.TODO(), "!!! test sending CPut 3")
 	_, pErr = tc.SendWrapped(&cpArgs1)
 	if _, ok := pErr.GetDetail().(*roachpb.WriteIntentError); !ok {
 		t.Errorf("expected WriteIntentError; got %v", pErr)
@@ -3033,9 +3036,11 @@ func TestConditionalPutUpdatesTSCacheOnError(t *testing.T) {
 			t.Fatal(pErr)
 		}
 	}
+	log.Infof(context.TODO(), "!!! test aborting intent")
 	abortIntent(cpArgs2.Span(), txnEarly)
 	txnLater := *txnEarly
 	txnLater.ReadTimestamp, txnLater.WriteTimestamp = t3, t3
+	log.Infof(context.TODO(), "!!! test sending CPut 4")
 	resp, pErr = tc.SendWrappedWith(roachpb.Header{Txn: &txnLater}, &cpArgs2)
 	if pErr != nil {
 		t.Fatal(pErr)
@@ -3047,7 +3052,9 @@ func TestConditionalPutUpdatesTSCacheOnError(t *testing.T) {
 	// cache wasn't updated by the second (successful), third (unsuccessful),
 	// or fourth (successful) conditional put. Only the conditional put that
 	// hit a ConditionFailedError should update the timestamp cache.
+	log.Infof(context.TODO(), "!!! test aborting intent 2")
 	abortIntent(cpArgs2.Span(), &txnLater)
+	log.Infof(context.TODO(), "!!! test sending CPut 5")
 	resp, pErr = tc.SendWrappedWith(roachpb.Header{Txn: txnEarly}, &cpArgs2)
 	if pErr != nil {
 		t.Fatal(pErr)

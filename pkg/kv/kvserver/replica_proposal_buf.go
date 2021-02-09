@@ -517,6 +517,7 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 	case roachpb.LAG_BY_CLUSTER_SETTING:
 		targetDuration := closedts.TargetDuration.Get(&b.settings.SV)
 		closedTSTarget = hlc.Timestamp{WallTime: now - targetDuration.Nanoseconds()}
+		log.Infof(ctx, "!!! target: %s %s", targetDuration, closedTSTarget)
 	case roachpb.LEAD_FOR_GLOBAL_READS:
 		closedTSTarget = hlc.Timestamp{
 			WallTime:  now + 2*b.clock.MaxOffset().Nanoseconds(),
@@ -697,6 +698,7 @@ func (b *propBuf) assignClosedTimestampToProposal(
 	if b.testing.dontCloseTimestamps {
 		return nil
 	}
+	log.Infof(ctx, "!!! assignClosedTimestampToProposal starting with target: %s", closedTSTarget)
 
 	// For lease requests, we make a distinction between lease extensions and
 	// brand new leases. Brand new leases carry a closed timestamp equal to the lease start time.
@@ -711,12 +713,15 @@ func (b *propBuf) assignClosedTimestampToProposal(
 	if p.Request.IsLeaseRequest() {
 		req, _ /* ok */ := p.Request.GetArg(roachpb.RequestLease)
 		leaseReq := req.(*roachpb.RequestLeaseRequest)
-		if leaseReq.Lease.Sequence != leaseReq.PrevLease.Sequence {
+		log.Infof(ctx, "!!! new seq: %d", p.command.ReplicatedEvalResult.State.Lease.Sequence)
+		if p.command.ReplicatedEvalResult.State.Lease.Sequence != leaseReq.PrevLease.Sequence {
 			isBrandNewLeaseRequest = true
 			closedTSTarget = leaseReq.Lease.Start.ToTimestamp()
+			log.Infof(ctx, "!!! new lease start time: %s", closedTSTarget)
 		}
 	}
 	if !isBrandNewLeaseRequest {
+		log.Infof(ctx, "!!! assign1. target: %s", closedTSTarget)
 		lb := b.evalTracker.LowerBound(ctx)
 		if !lb.IsEmpty() {
 			closedTSTarget.Backward(lb.FloorPrev())
@@ -734,6 +739,7 @@ func (b *propBuf) assignClosedTimestampToProposal(
 		closedTSTarget.Backward(p.leaseStatus.Expiration())
 	}
 
+	log.Infof(ctx, "!!! assign2. target: %s, b.closedTS: %s", closedTSTarget, b.closedTS)
 	b.closedTS.Forward(closedTSTarget)
 	// Fill in the closed ts in the proposal.
 	f := &b.tmpClosedTimestampFooter
