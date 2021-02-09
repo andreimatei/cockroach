@@ -373,6 +373,7 @@ func (r *Replica) leasePostApplyLocked(
 		}
 	}
 
+	log.Infof(ctx, "!!! leaseChangingHands: %t", leaseChangingHands)
 	if leaseChangingHands && iAmTheLeaseHolder {
 		// When taking over the lease, we need to check whether a merge is in
 		// progress, as only the old leaseholder would have been explicitly notified

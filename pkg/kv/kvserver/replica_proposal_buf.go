@@ -717,6 +717,16 @@ func (b *propBuf) assignClosedTimestampToProposal(
 		if p.command.ReplicatedEvalResult.State.Lease.Sequence != leaseReq.PrevLease.Sequence {
 			isBrandNewLeaseRequest = true
 			closedTSTarget = leaseReq.Lease.Start.ToTimestamp()
+			// We handle the special case of the first lease on a range (i.e. for the
+			// initial ranges after cluster bootstrap time). In this case, the closed
+			// timestamp can be arbitrarily small, since there's been no writes. We
+			// don't want to close a higher timestamp in order to not force the first
+			// request to one of these ranges to bump its write timestamp. This helps
+			// tests with ManualClocks.
+			if leaseReq.PrevLease.Empty() {
+				log.Infof(ctx, "!!! proposing lease with empty prev")
+				closedTSTarget = hlc.MinTimestamp
+			}
 			log.Infof(ctx, "!!! new lease start time: %s", closedTSTarget)
 		}
 	}
