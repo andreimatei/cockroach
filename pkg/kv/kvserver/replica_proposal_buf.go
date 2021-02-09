@@ -606,7 +606,7 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 			continue
 		}
 
-		err := b.maybeAssignClosedTimestampToProposal(ctx, p, closedTSTarget)
+		err := b.assignClosedTimestampToProposal(ctx, p, closedTSTarget)
 		if err != nil {
 			firstErr = err
 			continue
@@ -686,41 +686,53 @@ func (b *propBuf) OnLeaseChangeLocked(leaseOwned bool, leaseStart hlc.Timestamp)
 	}
 }
 
-// maybeAssignClosedTimestampToProposal assigns a closed timestamp to be carried by an
-// outgoing proposal. Lease requests (including lease transfers) are a special
-// case: the start time of the new lease acts as the command's closed timestamp,
-// so this method doesn't attach an explicit closed timestamp to the proposal.
+// assignClosedTimestampToProposal assigns a closed timestamp to be carried by
+// an outgoing proposal.
 //
 // If the proposal had been assigned a closed timestamp before (i.e. if this is
 // a reproposal) the old closed timestamp will be overwritten.
-func (b *propBuf) maybeAssignClosedTimestampToProposal(
+func (b *propBuf) assignClosedTimestampToProposal(
 	ctx context.Context, p *ProposalData, closedTSTarget hlc.Timestamp,
 ) error {
 	if b.testing.dontCloseTimestamps {
 		return nil
 	}
-	// Note that lease requests can be proposed by any replica, including while
-	// another replica has a valid lease. Updating b.closedTSNanos when proposing
-	// such a request would probably be a bad idea.
+
+	// For lease requests, we make a distinction between lease extensions and
+	// brand new leases. Brand new leases carry a closed timestamp equal to the lease start time.
+	// Lease extensions, however, behave like any other proposal and get a closed timestamp
+	// that can be in advance of the lease start time. This is because we might have already
+	// closed timestamps above this lease start time, as the lease extension can start before
+	// the expiration of the existing lease.
+	// Lease transfers also behave like regular proposals. Note that transfers
+	// carry a summary of the timestamp cache, so the new leaseholder will be
+	// aware of all the reads performed by the transferer.
+	isBrandNewLeaseRequest := false
 	if p.Request.IsLeaseRequest() {
-		// !!!
-		return nil
+		req, _ /* ok */ := p.Request.GetArg(roachpb.RequestLease)
+		leaseReq := req.(*roachpb.RequestLeaseRequest)
+		if leaseReq.Lease.Sequence != leaseReq.PrevLease.Sequence {
+			isBrandNewLeaseRequest = true
+			closedTSTarget = leaseReq.Lease.Start.ToTimestamp()
+		}
 	}
-	lb := b.evalTracker.LowerBound(ctx)
-	if !lb.IsEmpty() {
-		closedTSTarget.Backward(lb.FloorPrev())
+	if !isBrandNewLeaseRequest {
+		lb := b.evalTracker.LowerBound(ctx)
+		if !lb.IsEmpty() {
+			closedTSTarget.Backward(lb.FloorPrev())
+		}
+		// We can't close timestamps above the current lease's expiration(*). This is
+		// in order to keep the monotonic property of closed timestamps carried by
+		// commands, which makes for straight-forward closed timestamp management on
+		// the command application side: if we allowed requests to close timestamps
+		// above the lease's expiration, then a future LeaseRequest proposed by
+		// another node might carry a lower closed timestamp (i.e. the lease start
+		// time).
+		// (*) If we've previously closed a higher timestamp under a previous lease
+		// with a higher expiration, then requests will keep carrying that closed
+		// timestamp; we won't regress the closed timestamp.
+		closedTSTarget.Backward(p.leaseStatus.Expiration())
 	}
-	// We can't close timestamps above the current lease's expiration(*). This is
-	// in order to keep the monotonic property of closed timestamps carried by
-	// commands, which makes for straight-forward closed timestamp management on
-	// the command application side: if we allowed requests to close timestamps
-	// above the lease's expiration, then a future LeaseRequest proposed by
-	// another node might carry a lower closed timestamp (i.e. the lease start
-	// time).
-	// (*) If we've previously closed a higher timestamp under a previous lease
-	// with a higher expiration, then requests will keep carrying that closed
-	// timestamp; we won't regress the closed timestamp.
-	closedTSTarget.Backward(p.leaseStatus.Expiration())
 
 	b.closedTS.Forward(closedTSTarget)
 	// Fill in the closed ts in the proposal.

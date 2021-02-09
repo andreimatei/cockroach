@@ -447,6 +447,7 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 	} else {
 		// !!! Find a way to assert that this command is not writing below the replica's closed ts.
 		// Check that the closed timestamp doesn't regress.
+		// !!! I also assert the same in stateTrivialEvalResult. De-dup?
 		cts := cmd.raftCmd.ClosedTimestamp
 		if !cts.IsEmpty() && cts.Less(b.state.ClosedTimestamp) {
 			log.Fatalf(ctx,
@@ -824,8 +825,6 @@ func (b *replicaAppBatch) stageTrivialReplicatedEvalResult(
 	if leaseAppliedIndex := cmd.leaseIndex; leaseAppliedIndex != 0 {
 		b.state.LeaseAppliedIndex = leaseAppliedIndex
 	}
-	// !!! here I think I need to deal with leases (lease transfers too?) that don't
-	// carry a closed timestamp explicitly.
 	if cts := cmd.raftCmd.ClosedTimestamp; !cts.IsEmpty() {
 		if cts.Less(b.state.ClosedTimestamp) {
 			return wrapWithNonDeterministicFailure(errors.Errorf(
@@ -896,6 +895,8 @@ func (b *replicaAppBatch) ApplyToStateMachine(ctx context.Context) error {
 	closedTimestampUpdated := !r.mu.state.ClosedTimestamp.Equal(b.state.ClosedTimestamp)
 	if closedTimestampUpdated {
 		log.VInfof(ctx, 2, "!!! received closed: %s", b.state.ClosedTimestamp)
+		// Overwrite the replica's closed timestamp. We've already asserted that the
+		// batch contains a higher timestamp than the existing one.
 		r.mu.state.ClosedTimestamp = b.state.ClosedTimestamp
 	}
 	prevStats := *r.mu.state.Stats
