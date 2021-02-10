@@ -173,6 +173,7 @@ func PushTxn(
 	} else {
 		// Start with the persisted transaction record.
 		reply.PusheeTxn = existTxn
+		log.Infof(ctx, "!!! found existing pushee: %s", existTxn)
 	}
 
 	// If already committed or aborted, return success.
@@ -191,10 +192,12 @@ func PushTxn(
 	// The pusher might be aware of a newer version of the pushee.
 	increasedEpochOrTimestamp := false
 	if reply.PusheeTxn.WriteTimestamp.Less(args.PusheeTxn.WriteTimestamp) {
+		log.Infof(ctx, "!!! pusher aware 1: %s", args.PusheeTxn)
 		reply.PusheeTxn.WriteTimestamp = args.PusheeTxn.WriteTimestamp
 		increasedEpochOrTimestamp = true
 	}
 	if reply.PusheeTxn.Epoch < args.PusheeTxn.Epoch {
+		log.Infof(ctx, "!!! pusher aware 2")
 		reply.PusheeTxn.Epoch = args.PusheeTxn.Epoch
 		increasedEpochOrTimestamp = true
 	}
@@ -207,6 +210,7 @@ func PushTxn(
 	// the pushee to be performing a parallel commit. Its commit status is not
 	// indeterminate.
 	if increasedEpochOrTimestamp && reply.PusheeTxn.Status == roachpb.STAGING {
+		log.Infof(ctx, "!!! pusher found pushee to have failed to commit")
 		reply.PusheeTxn.Status = roachpb.PENDING
 		reply.PusheeTxn.InFlightWrites = nil
 	}
@@ -214,6 +218,7 @@ func PushTxn(
 	pushType := args.PushType
 	var pusherWins bool
 	var reason string
+	log.Infof(ctx, "!!! Push reply: %s", reply)
 
 	switch {
 	case txnwait.IsExpired(cArgs.EvalCtx.Clock().Now(), &reply.PusheeTxn):
@@ -250,6 +255,7 @@ func PushTxn(
 	// If the pushed transaction is in the staging state, we can't change its
 	// record without first going through the transaction recovery process and
 	// attempting to finalize it.
+	log.Infof(ctx, "!!! pushee status: %s", reply.PusheeTxn.Status)
 	recoverOnFailedPush := cArgs.EvalCtx.EvalKnobs().RecoverIndeterminateCommitsOnFailedPushes
 	if reply.PusheeTxn.Status == roachpb.STAGING && (pusherWins || recoverOnFailedPush) {
 		err := roachpb.NewIndeterminateCommitError(reply.PusheeTxn)

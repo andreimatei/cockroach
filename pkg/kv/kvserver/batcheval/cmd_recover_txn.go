@@ -20,6 +20,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/storage"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/errors"
 )
 
@@ -48,6 +49,7 @@ func declareKeysRecoverTransaction(
 func RecoverTxn(
 	ctx context.Context, readWriter storage.ReadWriter, cArgs CommandArgs, resp roachpb.Response,
 ) (result.Result, error) {
+	log.Infof(ctx, "!!! evaluating RecoverTxn: %s", cArgs)
 	args := cArgs.Args.(*roachpb.RecoverTxnRequest)
 	h := cArgs.Header
 	reply := resp.(*roachpb.RecoverTxnResponse)

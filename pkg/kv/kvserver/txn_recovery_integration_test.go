@@ -102,8 +102,22 @@ func TestTxnRecoveryFromStaging(t *testing.T) {
 				txn.ReadTimestamp = txn.WriteTimestamp // simulate refresh
 			}
 
+			// !!!
+			//{
+			//	keyxAVal := []byte("valuexxx")
+			//	pxArgs := putArgs(keyA, keyxAVal)
+			//	_, pErr := kv.SendWrapped(ctx, store.TestSender(), &pxArgs)
+			//	require.Nil(t, pErr)
+			//
+			//	gArgs := getArgs(keyA)
+			//	gReply, pErr := kv.SendWrapped(ctx, store.TestSender(), &gArgs)
+			//	require.Nil(t, pErr)
+			//	log.Infof(ctx, "!!! reply: %s", gReply)
+			//}
+
 			// Issue two writes, which will be considered in-flight at the time of
 			// the transaction's EndTxn request.
+			log.Infof(ctx, "!!! test sending write 1")
 			keyAVal := []byte("value")
 			pArgs := putArgs(keyA, keyAVal)
 			pArgs.Sequence = 1
@@ -117,6 +131,16 @@ func TestTxnRecoveryFromStaging(t *testing.T) {
 			// keyB from writing at its desired timestamp. This prevents an implicit
 			// commit state.
 			conflictH := roachpb.Header{Timestamp: txn.WriteTimestamp.Next()}
+			log.Infof(ctx, "!!! test: using conflicting ts: %s", conflictH.Timestamp)
+			// !!!
+			//{
+			//	log.Infof(ctx, "!!! test sending dummy get 2")
+			//	gArgs := getArgs(keyA)
+			//	//gReply, pErr := kv.SendWrappedWith(ctx, store.TestSender(), conflictH, &gArgs)
+			//	gReply, pErr := kv.SendWrapped(ctx, store.TestSender(), &gArgs)
+			//	require.Nil(t, pErr)
+			//	log.Infof(ctx, "!!! reply: %s", gReply)
+			//}
 			if !tc.implicitCommit {
 				if !tc.writeTooOld {
 					gArgs := getArgs(keyB)
@@ -131,6 +155,7 @@ func TestTxnRecoveryFromStaging(t *testing.T) {
 				}
 			}
 
+			log.Infof(ctx, "!!! test sending write 2")
 			pArgs = putArgs(keyB, []byte("value2"))
 			pArgs.Sequence = 2
 			if _, pErr := kv.SendWrappedWith(ctx, store.TestSender(), h, &pArgs); pErr != nil {
@@ -139,6 +164,7 @@ func TestTxnRecoveryFromStaging(t *testing.T) {
 
 			// Issue a parallel commit, which will put the transaction into a
 			// STAGING state. Include both writes as the EndTxn's in-flight writes.
+			log.Infof(ctx, "!!! test sending staging commit")
 			et, etH := endTxnArgs(txn, true)
 			et.InFlightWrites = []roachpb.SequencedWrite{
 				{Key: keyA, Sequence: 1},
@@ -159,11 +185,13 @@ func TestTxnRecoveryFromStaging(t *testing.T) {
 			// will result in a transaction push and eventually a full transaction
 			// recovery in order to resolve the indeterminate commit.
 
+			log.Infof(ctx, "!!! test sending resolving get")
 			gArgs := getArgs(keyA)
 			gReply, pErr := kv.SendWrappedWith(ctx, store.TestSender(), conflictH, &gArgs)
 			if pErr != nil {
 				t.Fatal(pErr)
 			}
+			log.Infof(ctx, "!!! test got reply: %s", gReply)
 			if tc.implicitCommit {
 				if val := gReply.(*roachpb.GetResponse).Value; val == nil {
 					t.Fatalf("expected non-nil value when reading key %v", keyA)

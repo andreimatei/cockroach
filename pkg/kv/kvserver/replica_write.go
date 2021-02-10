@@ -133,6 +133,7 @@ func (r *Replica) executeWriteBatch(
 		}()
 	}
 	log.Event(ctx, "applied timestamp cache")
+	log.Infof(ctx, "!!! request final timestamp: %s", ba.Txn)
 
 	// Checking the context just before proposing can help avoid ambiguous errors.
 	if err := ctx.Err(); err != nil {

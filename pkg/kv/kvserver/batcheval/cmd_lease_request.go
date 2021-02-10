@@ -12,13 +12,13 @@ package batcheval
 
 import (
 	"context"
-	"log"
 
 	"github.com/cockroachdb/cockroach/pkg/keys"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/batcheval/result"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/spanset"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/storage"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 )
 
 func init() {
@@ -56,6 +56,7 @@ func RequestLease(
 	// inevitably fail early and reject them with a detailed
 	// LeaseRejectedError before going through Raft.
 	prevLease, _ := cArgs.EvalCtx.GetLease()
+	log.Infof(ctx, "!!! evaluating RequestLease: %s prev: %s", args.Lease, args.PrevLease)
 	rErr := &roachpb.LeaseRejectedError{
 		Existing:  prevLease,
 		Requested: args.Lease,
@@ -95,6 +96,7 @@ func RequestLease(
 	// the absence of replay protection.
 	if prevLease.Replica.StoreID == 0 || isExtension {
 		effectiveStart.Backward(prevLease.Start)
+		log.Infof(ctx, "!!! backdating lease to: %s", effectiveStart)
 		// If the lease holder promised to not propose any commands below
 		// MinProposedTS, it must also not be allowed to extend a lease before that
 		// timestamp. We make sure that when a node restarts, its earlier in-flight
@@ -125,7 +127,7 @@ func RequestLease(
 		}
 		if newLease.Type() == roachpb.LeaseExpiration {
 			if newLease.Expiration == nil {
-				log.Fatalf("!!! lease: %s", newLease)
+				log.Fatalf(ctx, "!!! lease: %s", newLease)
 			}
 			// NB: Avoid mutating pointers in the argument which might be shared with
 			// the caller.

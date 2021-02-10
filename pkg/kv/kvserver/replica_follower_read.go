@@ -65,7 +65,8 @@ func (r *Replica) canServeFollowerReadRLocked(
 	}
 
 	maxObservableTS := ba.Txn.MaxObservableTimestamp()
-	maxClosed, _ := r.MaxClosedTimestamp(ctx)
+	// !!! maxClosed, _ := r.MaxClosedTimestamp(ctx)
+	maxClosed, _ := r.maxClosedRLocked(ctx)
 	canServeFollowerRead := maxObservableTS.LessEq(maxClosed)
 	tsDiff := maxObservableTS.GoTime().Sub(maxClosed.GoTime())
 	if !canServeFollowerRead {

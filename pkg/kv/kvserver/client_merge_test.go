@@ -3940,7 +3940,9 @@ func TestMergeQueueSeesNonVoters(t *testing.T) {
 			}
 
 			store.SetMergeQueueActive(true)
+			log.Infof(ctx, "!!! test: calling MustForceMerge")
 			store.MustForceMergeScanAndProcess()
+			log.Infof(ctx, "!!! test: calling MustForceMerge... done")
 			verifyMerged(t, store, leftDesc.StartKey, rightDesc.StartKey)
 		})
 	}

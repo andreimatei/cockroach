@@ -191,6 +191,7 @@ func (mq *mergeQueue) requestRangeStats(
 func (mq *mergeQueue) process(
 	ctx context.Context, lhsRepl *Replica, sysCfg *config.SystemConfig,
 ) (processed bool, err error) {
+	log.Infof(ctx, "!!! mergeQueue.process")
 	if !mq.enabled() {
 		log.VEventf(ctx, 2, "skipping merge: queue has been disabled")
 		return false, nil

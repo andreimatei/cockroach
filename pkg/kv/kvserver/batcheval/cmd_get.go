@@ -29,6 +29,7 @@ func Get(
 	ctx context.Context, reader storage.Reader, cArgs CommandArgs, resp roachpb.Response,
 ) (result.Result, error) {
 	args := cArgs.Args.(*roachpb.GetRequest)
+	log.Infof(ctx, "!!! evaluating get: %s", args)
 	h := cArgs.Header
 	reply := resp.(*roachpb.GetResponse)
 
@@ -37,6 +38,7 @@ func Get(
 		Txn:              h.Txn,
 		FailOnMoreRecent: args.KeyLocking != lock.None,
 	})
+	log.Infof(ctx, "!!! intent: %v, val: %v", intent, val)
 	if err != nil {
 		return result.Result{}, err
 	}

@@ -1732,7 +1732,9 @@ func execChangeReplicasTxn(
 		return checkDescsEqual(referenceDesc)(kvDesc)
 	}
 
+	log.Infof(ctx, "!!! execChangeReplicasTxn about to run txn")
 	if err := args.db.Txn(ctx, func(ctx context.Context, txn *kv.Txn) error {
+		log.Infof(ctx, "!!! execChangeReplicasTxn txn attempt")
 		log.Event(ctx, "attempting txn")
 		txn.SetDebugName(replicaChangeTxnName)
 		desc, dbDescValue, err := conditionalGetDescValueFromDB(
@@ -2304,7 +2306,9 @@ func conditionalGetDescValueFromDB(
 		get = txn.GetForUpdate
 	}
 	descKey := keys.RangeDescriptorKey(startKey)
+	log.Infof(ctx, "!!! conditionalGetDescValueFromDB sending get key: %s (update: %t)", descKey, forUpdate)
 	existingDescKV, err := get(ctx, descKey)
+	log.Infof(ctx, "!!! conditionalGetDescValueFromDB sending get... done")
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "fetching current range descriptor value")
 	}
@@ -2371,6 +2375,7 @@ func (s *Store) AdminRelocateRange(
 	rangeDesc roachpb.RangeDescriptor,
 	voterTargets, nonVoterTargets []roachpb.ReplicationTarget,
 ) error {
+	log.Infof(ctx, "!!! AdminRelocateRange")
 	// Remove learners so we don't have to think about relocating them, and leave
 	// the joint config if we're in one.
 	newDesc, err := maybeLeaveAtomicChangeReplicasAndRemoveLearners(ctx, s, &rangeDesc)
@@ -2413,6 +2418,7 @@ func (s *Store) relocateReplicas(
 	rangeDesc roachpb.RangeDescriptor,
 	voterTargets, nonVoterTargets []roachpb.ReplicationTarget,
 ) (roachpb.RangeDescriptor, error) {
+	log.Infof(ctx, "!!! relocateReplicas. desc: %s. voters: %s, nonv: %s", rangeDesc, voterTargets, nonVoterTargets)
 	startKey := rangeDesc.StartKey.AsRawKey()
 	canRetry := func(err error) bool {
 		allowlist := []string{
@@ -2442,7 +2448,10 @@ func (s *Store) relocateReplicas(
 
 	every := log.Every(time.Minute)
 	for {
+		i := 0 // !!!
 		for re := retry.StartWithCtx(ctx, retry.Options{MaxBackoff: 5 * time.Second}); re.Next(); {
+			i++
+			log.Infof(ctx, "!!! relocateReplicas attempt %d", i)
 			if err := ctx.Err(); err != nil {
 				return rangeDesc, err
 			}
@@ -2471,9 +2480,12 @@ func (s *Store) relocateReplicas(
 				log.Fatalf(ctx, "received more than 2 ops: %+v", ops)
 			}
 			opss := [][]roachpb.ReplicationChange{ops}
+			log.Infof(ctx, "!!! opss: %s", ops)
 			success := true
 			for _, ops := range opss {
+				log.Infof(ctx, "!!! sending AdminChangeReplicas")
 				newDesc, err := s.DB().AdminChangeReplicas(ctx, startKey, rangeDesc, ops)
+				log.Infof(ctx, "!!! sending AdminChangeReplicas... got desc: %s, err: %v", newDesc, err)
 				if err != nil {
 					returnErr := errors.Wrapf(err, "while carrying out changes %v", ops)
 					if !canRetry(err) {

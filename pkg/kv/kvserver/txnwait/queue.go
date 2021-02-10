@@ -861,6 +861,7 @@ func (q *Queue) queryTxnStatus(
 	dependents []uuid.UUID,
 	now hlc.Timestamp,
 ) (*roachpb.Transaction, []uuid.UUID, *roachpb.Error) {
+	log.Infof(ctx, "!!! queryTxnStatus")
 	b := &kv.Batch{}
 	b.Header.Timestamp = q.cfg.Clock.Now()
 	b.AddRawRequest(&roachpb.QueryTxnRequest{

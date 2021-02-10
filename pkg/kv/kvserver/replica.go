@@ -1183,7 +1183,7 @@ func (r *Replica) checkExecutionCanProceed(
 	}()
 
 	now := r.Clock().NowAsClockTimestamp()
-	log.Infof(ctx, "!!! executionCanProceed for ba wts: %s. now: %s", ba.WriteTimestamp(), now)
+	log.Infof(ctx, "!!! executionCanProceed for ba wts: %s. now: %s, ba: %s (txn: %s)", ba.WriteTimestamp(), now, ba, ba.Txn)
 	rSpan, err := keys.Range(ba.Requests)
 	if err != nil {
 		return kvserverpb.LeaseStatus{}, err
@@ -1221,6 +1221,7 @@ func (r *Replica) checkExecutionCanProceed(
 	} else {
 		// If the request is a write or a consistent read, it requires the
 		// replica serving it to hold the range lease.
+		log.Infof(ctx, "!!! checking leaseGoodToGo for wts: %s", ba.WriteTimestamp())
 		st, shouldExtend, err = r.leaseGoodToGoRLocked(ctx, now, ba.WriteTimestamp())
 		if err != nil {
 			// If not, can we serve this request on a follower?

@@ -329,8 +329,6 @@ func (r *Replica) leasePostApplyLocked(
 	// without jumps (see permitJump).
 	prevLease := *r.mu.state.Lease
 
-	log.Infof(ctx, "!!! applying lease with sequence: %d", newLease.Sequence)
-
 	// Sanity check to make sure that the lease sequence is moving in the right
 	// direction.
 	if s1, s2 := prevLease.Sequence, newLease.Sequence; s1 != 0 {

@@ -1954,6 +1954,7 @@ func (l Lease) Equivalent(newL Lease) bool {
 			l.Expiration, newL.Expiration = nil, nil
 		}
 	}
+	log.Infof(context.TODO(), "!!! lease equivalent: %t (%s vs %s)", l == newL, l, newL)
 	return l == newL
 }
 

@@ -698,7 +698,6 @@ func (b *propBuf) assignClosedTimestampToProposal(
 	if b.testing.dontCloseTimestamps {
 		return nil
 	}
-	log.Infof(ctx, "!!! assignClosedTimestampToProposal starting with target: %s", closedTSTarget)
 
 	// For lease requests, we make a distinction between lease extensions and
 	// brand new leases. Brand new leases carry a closed timestamp equal to the lease start time.
@@ -713,25 +712,27 @@ func (b *propBuf) assignClosedTimestampToProposal(
 	if p.Request.IsLeaseRequest() {
 		req, _ /* ok */ := p.Request.GetArg(roachpb.RequestLease)
 		leaseReq := req.(*roachpb.RequestLeaseRequest)
-		log.Infof(ctx, "!!! new seq: %d", p.command.ReplicatedEvalResult.State.Lease.Sequence)
-		if p.command.ReplicatedEvalResult.State.Lease.Sequence != leaseReq.PrevLease.Sequence {
+		// We read the lease from the ReplicatedEvalResult, not from leaseReq, because the
+		// former is more up to date, having been modified by the evaluation.
+		newLease := p.command.ReplicatedEvalResult.State.Lease
+		if newLease.Sequence != leaseReq.PrevLease.Sequence {
 			isBrandNewLeaseRequest = true
-			closedTSTarget = leaseReq.Lease.Start.ToTimestamp()
+			closedTSTarget = newLease.Start.ToTimestamp()
 			// We handle the special case of the first lease on a range (i.e. for the
 			// initial ranges after cluster bootstrap time). In this case, the closed
 			// timestamp can be arbitrarily small, since there's been no writes. We
 			// don't want to close a higher timestamp in order to not force the first
 			// request to one of these ranges to bump its write timestamp. This helps
-			// tests with ManualClocks.
-			if leaseReq.PrevLease.Empty() {
-				log.Infof(ctx, "!!! proposing lease with empty prev")
-				closedTSTarget = hlc.MinTimestamp
-			}
+			// tests with ManualClocks. This also matches
+			// !!!
+			//if leaseReq.PrevLease.Empty() {
+			//	log.Infof(ctx, "!!! proposing lease with empty prev")
+			//	closedTSTarget = hlc.MinTimestamp
+			//}
 			log.Infof(ctx, "!!! new lease start time: %s", closedTSTarget)
 		}
 	}
 	if !isBrandNewLeaseRequest {
-		log.Infof(ctx, "!!! assign1. target: %s", closedTSTarget)
 		lb := b.evalTracker.LowerBound(ctx)
 		if !lb.IsEmpty() {
 			closedTSTarget.Backward(lb.FloorPrev())
@@ -749,7 +750,6 @@ func (b *propBuf) assignClosedTimestampToProposal(
 		closedTSTarget.Backward(p.leaseStatus.Expiration())
 	}
 
-	log.Infof(ctx, "!!! assign2. target: %s, b.closedTS: %s", closedTSTarget, b.closedTS)
 	b.closedTS.Forward(closedTSTarget)
 	// Fill in the closed ts in the proposal.
 	f := &b.tmpClosedTimestampFooter
