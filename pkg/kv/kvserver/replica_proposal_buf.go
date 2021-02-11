@@ -701,8 +701,7 @@ func (b *propBuf) OnLeaseChangeLocked(leaseOwned bool, leaseStart hlc.Timestamp)
 // assignClosedTimestampToProposal assigns a closed timestamp to be carried by
 // an outgoing proposal.
 //
-// If the proposal had been assigned a closed timestamp before (i.e. if this is
-// a reproposal) the old closed timestamp will be overwritten.
+// This shouldn't be called for reproposals.
 func (b *propBuf) assignClosedTimestampToProposal(
 	ctx context.Context, p *ProposalData, closedTSTarget hlc.Timestamp,
 ) error {
@@ -711,39 +710,30 @@ func (b *propBuf) assignClosedTimestampToProposal(
 	}
 
 	// For lease requests, we make a distinction between lease extensions and
-	// brand new leases. Brand new leases carry a closed timestamp equal to the lease start time.
-	// Lease extensions, however, behave like any other proposal and get a closed timestamp
-	// that can be in advance of the lease start time. This is because we might have already
-	// closed timestamps above this lease start time, as the lease extension can start before
-	// the expiration of the existing lease.
-	// Lease transfers also behave like regular proposals. Note that transfers
+	// brand new leases. Brand new leases carry a closed timestamp equal to the
+	// lease start time. Lease extensions don't get a closed timestamp. This is
+	// because they're proposed without a MLAI, and so two lease extensions might
+	// commute and both apply which would result in a closed timestamp regression.
+	// The command application side doesn't bother protecting against such
+	// regressions.
+	// Lease transfers behave like regular proposals. Note that transfers
 	// carry a summary of the timestamp cache, so the new leaseholder will be
 	// aware of all the reads performed by the transferer.
-	//
-	// !!! don't assign closed timestamps to extensions because they can commute
 	isBrandNewLeaseRequest := false
+	isLeaseExtension := false
 	if p.Request.IsLeaseRequest() {
 		req, _ /* ok */ := p.Request.GetArg(roachpb.RequestLease)
 		leaseReq := req.(*roachpb.RequestLeaseRequest)
 		// We read the lease from the ReplicatedEvalResult, not from leaseReq, because the
 		// former is more up to date, having been modified by the evaluation.
 		newLease := p.command.ReplicatedEvalResult.State.Lease
-		if newLease.Sequence != leaseReq.PrevLease.Sequence {
-			isBrandNewLeaseRequest = true
-			closedTSTarget = newLease.Start.ToTimestamp()
-			// We handle the special case of the first lease on a range (i.e. for the
-			// initial ranges after cluster bootstrap time). In this case, the closed
-			// timestamp can be arbitrarily small, since there's been no writes. We
-			// don't want to close a higher timestamp in order to not force the first
-			// request to one of these ranges to bump its write timestamp. This helps
-			// tests with ManualClocks. This also matches
-			// !!!
-			//if leaseReq.PrevLease.Empty() {
-			//	log.Infof(ctx, "!!! proposing lease with empty prev")
-			//	closedTSTarget = hlc.MinTimestamp
-			//}
-			log.Infof(ctx, "!!! new lease start time: %s", closedTSTarget)
+		isLeaseExtension = newLease.Sequence != leaseReq.PrevLease.Sequence
+		if isLeaseExtension {
+			return nil
 		}
+		isBrandNewLeaseRequest = true
+		closedTSTarget = newLease.Start.ToTimestamp()
+		log.Infof(ctx, "!!! new lease start time: %s", closedTSTarget)
 	}
 	if !isBrandNewLeaseRequest {
 		lb := b.evalTracker.LowerBound(ctx)
@@ -762,7 +752,6 @@ func (b *propBuf) assignClosedTimestampToProposal(
 		// timestamp; we won't regress the closed timestamp.
 		closedTSTarget.Backward(p.leaseStatus.Expiration())
 	}
-
 	b.closedTS.Forward(closedTSTarget)
 	// Fill in the closed ts in the proposal.
 	f := &b.tmpClosedTimestampFooter
