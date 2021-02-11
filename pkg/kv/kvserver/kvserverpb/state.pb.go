@@ -3,17 +3,16 @@
 
 package kvserverpb
 
-import (
-	fmt "fmt"
-	io "io"
-	math "math"
+import proto "github.com/gogo/protobuf/proto"
+import fmt "fmt"
+import math "math"
+import roachpb "github.com/cockroachdb/cockroach/pkg/roachpb"
+import enginepb "github.com/cockroachdb/cockroach/pkg/storage/enginepb"
+import hlc "github.com/cockroachdb/cockroach/pkg/util/hlc"
 
-	roachpb "github.com/cockroachdb/cockroach/pkg/roachpb"
-	github_com_cockroachdb_cockroach_pkg_roachpb "github.com/cockroachdb/cockroach/pkg/roachpb"
-	enginepb "github.com/cockroachdb/cockroach/pkg/storage/enginepb"
-	hlc "github.com/cockroachdb/cockroach/pkg/util/hlc"
-	proto "github.com/gogo/protobuf/proto"
-)
+import github_com_cockroachdb_cockroach_pkg_roachpb "github.com/cockroachdb/cockroach/pkg/roachpb"
+
+import io "io"
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
@@ -82,7 +81,7 @@ type ReplicaState struct {
 	// assumed to have run.
 	//
 	// We should note that the progression of cluster versions in the cluster does
-	// not happen in lock step ComputeStatsForRangewith replica versions for all replicas in the
+	// not happen in lock step with replica versions for all replicas in the
 	// system. Well, not for all cluster versions. Replica versions are one the
 	// primitives used to coordinate below-raft migrations, and when cluster
 	// versions for those are being rolled out cluster-wide, the expectation is

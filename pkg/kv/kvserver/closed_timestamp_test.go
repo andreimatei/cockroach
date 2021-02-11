@@ -421,7 +421,6 @@ func TestClosedTimestampCantServeBasedOnMaxTimestamp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	log.Infof(ctx, "!!! test: about to validate 1")
 	// Grab a timestamp before initiating a lease transfer, transfer the lease,
 	// then ensure that reads at that timestamp can occur from all the replicas.
 	ts := hlc.Timestamp{WallTime: timeutil.Now().UnixNano()}
@@ -432,7 +431,6 @@ func TestClosedTimestampCantServeBasedOnMaxTimestamp(t *testing.T) {
 	testutils.SucceedsSoon(t, func() error {
 		return verifyCanReadFromAllRepls(ctx, t, baRead, repls, expectRows(1))
 	})
-	log.Infof(ctx, "!!! test: about to validate 2")
 	// Make a non-writing transaction that has a MaxTimestamp after the lease
 	// transfer but a timestamp before.
 	roTxn := roachpb.MakeTransaction("test", nil, roachpb.NormalUserPriority, ts,
@@ -489,7 +487,6 @@ func TestClosedTimestampCanServeForWritingTransaction(t *testing.T) {
 
 	// Send the request to all three replicas. One should succeed and the other
 	// two should return NotLeaseHolderErrors.
-	log.Infof(ctx, "!!! test verifying NLHE")
 	verifyNotLeaseHolderErrors(t, baRead, repls, 2)
 }
 
@@ -1147,7 +1144,6 @@ func countNotLeaseHolderErrors(ba roachpb.BatchRequest, repls []*kvserver.Replic
 	for i := range repls {
 		repl := repls[i]
 		g.Go(func() (err error) {
-			log.Infof(ctx, "!!! sending request to replica: %s (%s)", repl, ba)
 			if _, pErr := repl.Send(ctx, ba); pErr != nil {
 				if _, ok := pErr.GetDetail().(*roachpb.NotLeaseHolderError); ok {
 					atomic.AddInt64(&notLeaseholderErrs, 1)

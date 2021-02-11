@@ -291,7 +291,6 @@ func (m *manager) resolveIndeterminateCommitForTxnProbe(
 func (m *manager) resolveIndeterminateCommitForTxnRecover(
 	ctx context.Context, txn *roachpb.Transaction, preventedIntent bool,
 ) (*roachpb.Transaction, error) {
-	log.Infof(ctx, "!!! resolveIndeterminateCommit")
 	var b kv.Batch
 	b.Header.Timestamp = m.batchTimestamp(txn)
 	b.AddRawRequest(&roachpb.RecoverTxnRequest{
