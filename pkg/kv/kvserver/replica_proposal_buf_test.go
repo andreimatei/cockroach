@@ -107,6 +107,10 @@ func (t *testProposer) closeTimestampPolicy() roachpb.RangeClosedTimestampPolicy
 	return roachpb.LAG_BY_CLUSTER_SETTING
 }
 
+func (rp *testProposer) raftAppliedClosedTimestamp() hlc.Timestamp {
+	return hlc.MinTimestamp
+}
+
 func (t *testProposer) withGroupLocked(fn func(proposerRaft) error) error {
 	// Note that t.raftGroup can be nil, which FlushLockedWithRaftGroup supports.
 	return fn(t.raftGroup)

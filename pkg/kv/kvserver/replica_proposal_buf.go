@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/cockroachdb/cockroach/pkg/clusterversion"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/closedts"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/closedts/tracker"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/kvserverpb"
@@ -213,6 +214,10 @@ type proposer interface {
 	leaseAppliedIndex() uint64
 	enqueueUpdateCheck()
 	closeTimestampPolicy() roachpb.RangeClosedTimestampPolicy
+	// raftAppliedClosedTimestamp returns the closed timestamp from the ReplicaState.
+	// TODO(andrei): This shouldn't be needed any more in 21.2, once the Raft
+	// transport is unconditionally enabled.
+	raftAppliedClosedTimestamp() hlc.Timestamp
 	// The following require the proposer to hold an exclusive lock.
 	withGroupLocked(func(proposerRaft) error) error
 	registerProposalLocked(*ProposalData)
@@ -707,6 +712,13 @@ func (b *propBuf) assignClosedTimestampToProposal(
 	if b.testing.dontCloseTimestamps {
 		return nil
 	}
+	// If the Raft transport is not enabled yet, bail. If the range has already
+	// started publishing closed timestamps using Raft, then it doesn't matter
+	// whether this node found out about the version bump yet.
+	if b.p.raftAppliedClosedTimestamp().IsEmpty() &&
+		!b.settings.Version.IsActive(ctx, clusterversion.ClosedTimestampsRaftTransport) {
+		return nil
+	}
 
 	// For lease requests, we make a distinction between lease extensions and
 	// brand new leases. Brand new leases carry a closed timestamp equal to the
@@ -1006,6 +1018,10 @@ func (rp *replicaProposer) enqueueUpdateCheck() {
 
 func (rp *replicaProposer) closeTimestampPolicy() roachpb.RangeClosedTimestampPolicy {
 	return (*Replica)(rp).closedTimestampPolicyRLocked()
+}
+
+func (rp *replicaProposer) raftAppliedClosedTimestamp() hlc.Timestamp {
+	return (*Replica)(rp).mu.state.ClosedTimestamp
 }
 
 func (rp *replicaProposer) withGroupLocked(fn func(raftGroup proposerRaft) error) error {

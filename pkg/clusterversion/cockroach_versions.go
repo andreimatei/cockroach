@@ -219,6 +219,9 @@ const (
 	PostTruncatedAndRangeAppliedStateMigration
 	// NewSchemaChanger enables the new schema changer.
 	NewSchemaChanger
+	// ClosedTimestampsRaftTransport enables the Raft transport for closed
+	// timestamps and disables the previous per-node transport.
+	ClosedTimestampsRaftTransport
 
 	// Step (1): Add new versions here.
 )
@@ -360,6 +363,10 @@ var versionsSingleton = keyedVersions([]keyedVersion{
 	{
 		Key:     NewSchemaChanger,
 		Version: roachpb.Version{Major: 20, Minor: 2, Internal: 18},
+	},
+	{
+		Key:     ClosedTimestampsRaftTransport,
+		Version: roachpb.Version{Major: 20, Minor: 2, Internal: 19},
 	},
 	// Step (2): Add new versions here.
 })
