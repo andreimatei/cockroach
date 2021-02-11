@@ -393,7 +393,6 @@ func (r *Replica) handleWriteIntentError(
 	pErr *roachpb.Error,
 	t *roachpb.WriteIntentError,
 ) (*concurrency.Guard, *roachpb.Error) {
-	log.Infof(ctx, "!!! handleWriteIntentError: %s", pErr)
 	if r.store.cfg.TestingKnobs.DontPushOnWriteIntentError {
 		return g, pErr
 	}

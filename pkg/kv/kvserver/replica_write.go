@@ -77,7 +77,6 @@ func (r *Replica) executeWriteBatch(
 
 	// Verify that the batch can be executed.
 	st, err := r.checkExecutionCanProceed(ctx, ba, g)
-	log.Infof(ctx, "!!! executionCanProceed says: %s", st)
 	if err != nil {
 		return nil, g, roachpb.NewError(err)
 	}
@@ -108,7 +107,6 @@ func (r *Replica) executeWriteBatch(
 	// again?
 	minTS2, tok := r.mu.proposalBuf.TrackEvaluatingRequest(ctx, writeTS)
 	defer tok.DoneIfNotMoved(ctx)
-	log.Infof(ctx, "!!! minTS: %s minTS2: %s", minTS, minTS2)
 	minTS.Forward(minTS2)
 
 	// Examine the timestamp cache for preceding commands which require this
@@ -133,7 +131,6 @@ func (r *Replica) executeWriteBatch(
 		}()
 	}
 	log.Event(ctx, "applied timestamp cache")
-	log.Infof(ctx, "!!! request final timestamp: %s", ba.Txn)
 
 	// Checking the context just before proposing can help avoid ambiguous errors.
 	if err := ctx.Err(); err != nil {

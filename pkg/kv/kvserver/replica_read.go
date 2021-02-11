@@ -36,7 +36,6 @@ func (r *Replica) executeReadOnlyBatch(
 ) (br *roachpb.BatchResponse, _ *concurrency.Guard, pErr *roachpb.Error) {
 	r.readOnlyCmdMu.RLock()
 	defer r.readOnlyCmdMu.RUnlock()
-	log.Infof(ctx, "!!! batch: %s (txn: %s) rts: %s. now: %s", ba, ba.Txn, ba.Timestamp, r.Clock().Now())
 
 	// Verify that the batch can be executed.
 	st, err := r.checkExecutionCanProceed(ctx, ba, g)

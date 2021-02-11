@@ -302,7 +302,7 @@ func (b *propBuf) Insert(
 	// the MLAI for the benefit of the "old" closed timestamp tracker. When moving
 	// to flush, make sure to not reassign it on reproposals.
 	p.command.MaxLeaseIndex = b.liBase + res.leaseIndexOffset()
-	log.Infof(ctx, "!!! queuing command %x with MaxLeaseIndex %d: %s", p.idKey, p.command.MaxLeaseIndex, p.Request)
+	//log.Infof(ctx, "!!! queuing command %x with MaxLeaseIndex %d: %s", p.idKey, p.command.MaxLeaseIndex, p.Request)
 	if filter := b.testing.leaseIndexFilter; filter != nil {
 		if override, err := filter(p); err != nil {
 			return 0, err
@@ -588,9 +588,8 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 
 		// Exit the tracker.
 		reproposal := !p.tok.stillTracked()
-		p.tok.doneRLocked(ctx)
+		p.tok.doneLocked(ctx)
 		// Raft processing bookkeeping.
-		// !!! reproposal := p.proposedAtTicks != 0
 		b.p.registerProposalLocked(p)
 
 		// Potentially drop the proposal before passing it to etcd/raft, but
@@ -623,12 +622,10 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 				firstErr = err
 				continue
 			}
-		} else {
-			log.Infof(ctx, "!!! not assigning closed ts to reproposal: %x", p.idKey)
 		}
-		log.Infof(ctx, "!!! propBuf flushing command %x MLAI: %d:%d (%s txn: %s)",
-			p.idKey,
-			p.command.ProposerLeaseSequence, p.command.MaxLeaseIndex, p.Request, p.Request.Txn)
+		//log.Infof(ctx, "!!! propBuf flushing command %x MLAI: %d:%d (%s txn: %s)",
+		//	p.idKey,
+		//	p.command.ProposerLeaseSequence, p.command.MaxLeaseIndex, p.Request, p.Request.Txn)
 
 		// Coordinate proposing the command to etcd/raft.
 		if crt := p.command.ReplicatedEvalResult.ChangeReplicas; crt != nil {
@@ -722,6 +719,8 @@ func (b *propBuf) assignClosedTimestampToProposal(
 	// Lease transfers also behave like regular proposals. Note that transfers
 	// carry a summary of the timestamp cache, so the new leaseholder will be
 	// aware of all the reads performed by the transferer.
+	//
+	// !!! don't assign closed timestamps to extensions because they can commute
 	isBrandNewLeaseRequest := false
 	if p.Request.IsLeaseRequest() {
 		req, _ /* ok */ := p.Request.GetArg(roachpb.RequestLease)
@@ -775,9 +774,9 @@ func (b *propBuf) assignClosedTimestampToProposal(
 	// capacity for this footer.
 	p.encodedCommand = p.encodedCommand[:preLen+footerLen]
 	_, err := protoutil.MarshalTo(f, p.encodedCommand[preLen:])
-	log.Infof(ctx, "!!! propBuf attached closedts: %s to %x MLAI: %d:%d (%s)", f.ClosedTimestamp,
-		p.idKey,
-		p.command.ProposerLeaseSequence, p.command.MaxLeaseIndex, p.Request)
+	//log.Infof(ctx, "!!! propBuf attached closedts: %s to %x MLAI: %d:%d (%s)", f.ClosedTimestamp,
+	//	p.idKey,
+	//	p.command.ProposerLeaseSequence, p.command.MaxLeaseIndex, p.Request)
 	return err
 }
 
@@ -846,16 +845,23 @@ type TrackedRequestToken struct {
 
 // DoneIfNotMoved untracks the request if Move had not been called on the token
 // previously. If Move had been called, this is a no-op.
+//
+// Note that if this ends up actually destroying the token (i.e. if Move() had
+// not been called previously) this takes r.mu, so it's pretty expensive. On
+// happy paths, the token is expected to have been Move()d, and a batch of
+// tokens are expected to be destroyed at once by the propBuf (which calls
+// doneLocked).
 func (t *TrackedRequestToken) DoneIfNotMoved(ctx context.Context) {
 	if t.done {
 		return
 	}
-	t.b.p.rlocker().Lock()
-	t.doneRLocked(ctx)
-	t.b.p.rlocker().Unlock()
+	// !!! t.b.p.rlocker().Lock()
+	t.b.p.locker().Lock()
+	t.doneLocked(ctx)
+	t.b.p.locker().Unlock()
 }
 
-func (t *TrackedRequestToken) doneRLocked(ctx context.Context) {
+func (t *TrackedRequestToken) doneLocked(ctx context.Context) {
 	if t.done {
 		// t.b == nil means that Reset() was called on this token.
 		if t.b == nil {

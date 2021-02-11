@@ -19,7 +19,6 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/storage"
 	"github.com/cockroachdb/cockroach/pkg/storage/enginepb"
-	"github.com/cockroachdb/cockroach/pkg/util"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
@@ -469,7 +468,6 @@ func (p *Processor) ConsumeLogicalOps(ops ...enginepb.MVCCLogicalOp) bool {
 // will have been stopped, so calling Stop is not necessary.  Safe to call on
 // nil Processor.
 func (p *Processor) ForwardClosedTS(closedTS hlc.Timestamp) bool {
-	log.Infof(context.TODO(), "!!! Processor.ForwardClosedTS")
 	if p == nil {
 		return true
 	}
@@ -483,7 +481,6 @@ func (p *Processor) ForwardClosedTS(closedTS hlc.Timestamp) bool {
 // the method will wait for no longer than that duration before giving up,
 // shutting down the Processor, and returning false. 0 for no timeout.
 func (p *Processor) sendEvent(e event, timeout time.Duration) bool {
-	log.Infof(context.TODO(), "!!! sendEvent")
 	ev := getPooledEvent(e)
 	if timeout == 0 {
 		select {
@@ -542,7 +539,6 @@ func (p *Processor) consumeEvent(ctx context.Context, e *event) {
 	case len(e.ops) > 0:
 		p.consumeLogicalOps(ctx, e.ops)
 	case !e.ct.IsEmpty():
-		log.Infof(ctx, "!!! consumeEvent: %s", e.ct)
 		p.forwardClosedTS(ctx, e.ct)
 	case e.initRTS:
 		p.initResolvedTS(ctx)
@@ -599,7 +595,6 @@ func (p *Processor) consumeLogicalOps(ctx context.Context, ops []enginepb.MVCCLo
 }
 
 func (p *Processor) forwardClosedTS(ctx context.Context, newClosedTS hlc.Timestamp) {
-	log.Infof(ctx, "!!! forwardClosedTS")
 	if p.rts.ForwardClosedTS(newClosedTS) {
 		p.publishCheckpoint(ctx)
 	}
@@ -638,7 +633,6 @@ func (p *Processor) publishCheckpoint(ctx context.Context) {
 	// TODO(nvanbenschoten): persist resolvedTimestamp. Give Processor a client.DB.
 	// TODO(nvanbenschoten): rate limit these? send them periodically?
 
-	log.Infof(ctx, "!!! publishCheckpoint")
 	event := p.newCheckpointEvent()
 	p.reg.PublishToOverlapping(all, event)
 }
@@ -652,6 +646,5 @@ func (p *Processor) newCheckpointEvent() *roachpb.RangeFeedEvent {
 		Span:       p.Span.AsRawSpanWithNoLocals(),
 		ResolvedTS: p.rts.Get(),
 	})
-	log.Infof(context.TODO(), "!!! newCheckpointEvent resolved: %s %s", event.Checkpoint.ResolvedTS, util.GetSmallTrace(1))
 	return &event
 }

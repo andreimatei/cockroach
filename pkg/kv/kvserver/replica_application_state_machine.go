@@ -428,7 +428,6 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 		return nil, makeNonDeterministicFailure("applied index jumped from %d to %d", applied, idx)
 	}
 	if log.V(4) {
-		// !!!
 		log.Infof(ctx, "processing command %x: maxLeaseIndex=%d closedts: %s idx: %d",
 			cmd.idKey, cmd.raftCmd.MaxLeaseIndex, cmd.raftCmd.ClosedTimestamp, cmd.ent.Index)
 	}
@@ -446,8 +445,8 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 		cmd.raftCmd.LogicalOpLog = nil
 		cmd.raftCmd.ClosedTimestamp.Reset()
 	} else {
-		log.Infof(ctx, "!!!! applying command %x: maxLeaseIndex=%d closedts: %s",
-			cmd.idKey, cmd.raftCmd.MaxLeaseIndex, cmd.raftCmd.ClosedTimestamp)
+		//log.Infof(ctx, "!!!! applying command %x: maxLeaseIndex=%d closedts: %s",
+		//	cmd.idKey, cmd.raftCmd.MaxLeaseIndex, cmd.raftCmd.ClosedTimestamp)
 		// !!! Find a way to assert that this command is not writing below the replica's closed ts.
 		// Check that the closed timestamp doesn't regress.
 		// !!! I also assert the same in stateTrivialEvalResult. De-dup?
@@ -897,7 +896,7 @@ func (b *replicaAppBatch) ApplyToStateMachine(ctx context.Context) error {
 	r.mu.state.LeaseAppliedIndex = b.state.LeaseAppliedIndex
 	closedTimestampUpdated := !r.mu.state.ClosedTimestamp.Equal(b.state.ClosedTimestamp)
 	if closedTimestampUpdated {
-		log.VInfof(ctx, 2, "!!! received closed: %s", b.state.ClosedTimestamp)
+		//log.VInfof(ctx, 2, "!!! received closed: %s", b.state.ClosedTimestamp)
 		// Overwrite the replica's closed timestamp. We've already asserted that the
 		// batch contains a higher timestamp than the existing one.
 		r.mu.state.ClosedTimestamp = b.state.ClosedTimestamp
