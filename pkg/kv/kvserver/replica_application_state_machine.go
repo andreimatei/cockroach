@@ -428,8 +428,9 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 		return nil, makeNonDeterministicFailure("applied index jumped from %d to %d", applied, idx)
 	}
 	if log.V(4) {
-		log.Infof(ctx, "processing command %x: maxLeaseIndex=%d closedts: %s",
-			cmd.idKey, cmd.raftCmd.MaxLeaseIndex, cmd.raftCmd.ClosedTimestamp)
+		// !!!
+		log.Infof(ctx, "processing command %x: maxLeaseIndex=%d closedts: %s idx: %d",
+			cmd.idKey, cmd.raftCmd.MaxLeaseIndex, cmd.raftCmd.ClosedTimestamp, cmd.ent.Index)
 	}
 
 	// Determine whether the command should be applied to the replicated state
@@ -437,7 +438,7 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 	// This check is deterministic on all replicas, so if one replica decides to
 	// reject a command, all will.
 	if !b.r.shouldApplyCommand(ctx, cmd, &b.state) {
-		log.VEventf(ctx, 1, "applying command with forced error: %s", cmd.forcedErr)
+		log.VEventf(ctx, 1, "applying command %x with forced error: %s", cmd.raftCmd.ClosedTimestamp, cmd.forcedErr)
 
 		// Apply an empty command.
 		cmd.raftCmd.ReplicatedEvalResult = kvserverpb.ReplicatedEvalResult{}
@@ -445,6 +446,8 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 		cmd.raftCmd.LogicalOpLog = nil
 		cmd.raftCmd.ClosedTimestamp.Reset()
 	} else {
+		log.Infof(ctx, "!!!! applying command %x: maxLeaseIndex=%d closedts: %s",
+			cmd.idKey, cmd.raftCmd.MaxLeaseIndex, cmd.raftCmd.ClosedTimestamp)
 		// !!! Find a way to assert that this command is not writing below the replica's closed ts.
 		// Check that the closed timestamp doesn't regress.
 		// !!! I also assert the same in stateTrivialEvalResult. De-dup?

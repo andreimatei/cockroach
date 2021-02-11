@@ -127,6 +127,7 @@ type ProposalData struct {
 	// written. Keeping track of this index is necessary because, in case of
 	// reproposals, this footer will be (over-)written multiple times: each
 	// reproposal carries a new (and higher) timestamps than before.
+	// !!! still needed now that reproposals don't overwrite?
 	encodedLenWithoutClosedTSFooter int
 }
 
@@ -173,6 +174,10 @@ func (proposal *ProposalData) releaseQuota() {
 		proposal.quotaAlloc.Release()
 		proposal.quotaAlloc = nil
 	}
+}
+
+func (proposal *ProposalData) alreadyP() {
+
 }
 
 // TODO(tschottdorf): we should find new homes for the checksum, lease

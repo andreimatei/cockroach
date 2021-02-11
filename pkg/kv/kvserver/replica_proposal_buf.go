@@ -297,6 +297,10 @@ func (b *propBuf) Insert(
 	}
 
 	// Assign the command's maximum lease index.
+	// TODO(andrei): Move this to Flush in 21.2, to mirror the assignment of the
+	// closed timestamp. For now it's needed here because Insert needs to return
+	// the MLAI for the benefit of the "old" closed timestamp tracker. When moving
+	// to flush, make sure to not reassign it on reproposals.
 	p.command.MaxLeaseIndex = b.liBase + res.leaseIndexOffset()
 	log.Infof(ctx, "!!! queuing command %x with MaxLeaseIndex %d: %s", p.idKey, p.command.MaxLeaseIndex, p.Request)
 	if filter := b.testing.leaseIndexFilter; filter != nil {
@@ -517,7 +521,6 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 	case roachpb.LAG_BY_CLUSTER_SETTING:
 		targetDuration := closedts.TargetDuration.Get(&b.settings.SV)
 		closedTSTarget = hlc.Timestamp{WallTime: now - targetDuration.Nanoseconds()}
-		log.Infof(ctx, "!!! target: %s %s", targetDuration, closedTSTarget)
 	case roachpb.LEAD_FOR_GLOBAL_READS:
 		closedTSTarget = hlc.Timestamp{
 			WallTime:  now + 2*b.clock.MaxOffset().Nanoseconds(),
@@ -584,8 +587,10 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 		}
 
 		// Exit the tracker.
+		reproposal := !p.tok.stillTracked()
 		p.tok.doneRLocked(ctx)
 		// Raft processing bookkeeping.
+		// !!! reproposal := p.proposedAtTicks != 0
 		b.p.registerProposalLocked(p)
 
 		// Potentially drop the proposal before passing it to etcd/raft, but
@@ -607,10 +612,19 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 			continue
 		}
 
-		err := b.assignClosedTimestampToProposal(ctx, p, closedTSTarget)
-		if err != nil {
-			firstErr = err
-			continue
+		// Figure out what closed timestamp this command will carry.
+		// If this is a reproposal, we don't reassign the closed timestamp. We
+		// could, in principle, but we'd have to make a copy of the encoded command
+		// as to not modify the copy that's already stored in the local replica's
+		// command cache.
+		if !reproposal {
+			err := b.assignClosedTimestampToProposal(ctx, p, closedTSTarget)
+			if err != nil {
+				firstErr = err
+				continue
+			}
+		} else {
+			log.Infof(ctx, "!!! not assigning closed ts to reproposal: %x", p.idKey)
 		}
 		log.Infof(ctx, "!!! propBuf flushing command %x MLAI: %d:%d (%s txn: %s)",
 			p.idKey,
@@ -855,11 +869,16 @@ func (t *TrackedRequestToken) doneRLocked(ctx context.Context) {
 	}
 }
 
+// stillTracked returns true if no Done* method has been called.
+func (t *TrackedRequestToken) stillTracked() bool {
+	return !t.done
+}
+
 // Move returns a new token which can untrack the request. The original token is
 // neutered; calling DoneIfNotMoved on it becomes a no-op.
 func (t *TrackedRequestToken) Move(ctx context.Context) TrackedRequestToken {
 	if t.done {
-		log.Fatalf(ctx, "duplicate Done() call")
+		log.Fatalf(ctx, "attempting to Move() after Done() call")
 	}
 	cpy := *t
 	t.done = true
@@ -873,6 +892,7 @@ func (t *TrackedRequestToken) Move(ctx context.Context) TrackedRequestToken {
 //
 // This is useful in relation to Raft reproposals, which operate on
 // already-untracked proposals.
+// !!! still neded given stillTracked() ?
 func (t *TrackedRequestToken) Reset(ctx context.Context) {
 	if !t.done {
 		log.Fatalf(ctx, "Reset called on tracked token")
