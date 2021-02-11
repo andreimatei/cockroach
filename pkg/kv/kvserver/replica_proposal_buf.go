@@ -323,7 +323,7 @@ func (b *propBuf) Insert(
 
 	preLen := len(data)
 	p.encodedCommand = data[:preLen+footerLen]
-	p.encodedLenWithoutClosedTSFooter = len(p.encodedCommand)
+	// !!! p.encodedLenWithoutClosedTSFooter = len(p.encodedCommand)
 	if _, err := protoutil.MarshalTo(f, p.encodedCommand[preLen:]); err != nil {
 		return 0, err
 	}
@@ -347,9 +347,6 @@ func (b *propBuf) Insert(
 // buffer back into the buffer to be reproposed at a new Raft log index. Unlike
 // insert, it does not modify the command or assign a new maximum lease index.
 func (b *propBuf) ReinsertLocked(ctx context.Context, p *ProposalData) error {
-	// Assure that the proposal buffer doesn't blow up when trying to untrack this
-	// already-untracked request.
-	p.tok.Reset(ctx)
 	// When re-inserting a command into the proposal buffer, the command never
 	// wants a new lease index. Simply add it back to the buffer and let it be
 	// reproposed.
@@ -588,7 +585,9 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 
 		// Exit the tracker.
 		reproposal := !p.tok.stillTracked()
-		p.tok.doneLocked(ctx)
+		if !reproposal {
+			p.tok.doneLocked(ctx)
+		}
 		// Raft processing bookkeeping.
 		b.p.registerProposalLocked(p)
 
@@ -758,7 +757,8 @@ func (b *propBuf) assignClosedTimestampToProposal(
 	f.ClosedTimestamp = b.closedTS
 	footerLen := f.Size()
 
-	preLen := p.encodedLenWithoutClosedTSFooter
+	// !!! preLen := p.encodedLenWithoutClosedTSFooter
+	preLen := len(p.encodedCommand)
 	// Here we rely on p.encodedCommand to have been allocated with enough
 	// capacity for this footer.
 	p.encodedCommand = p.encodedCommand[:preLen+footerLen]
@@ -878,21 +878,6 @@ func (t *TrackedRequestToken) Move(ctx context.Context) TrackedRequestToken {
 	cpy := *t
 	t.done = true
 	return cpy
-}
-
-// Reset marks the token such that another Done call is allowed on it, and makes
-// that Done call a no-op. This can only be done on tokens on which Done() has
-// already been called (i.e. tokens corresponding to requests that are no longer
-// tracked).
-//
-// This is useful in relation to Raft reproposals, which operate on
-// already-untracked proposals.
-// !!! still neded given stillTracked() ?
-func (t *TrackedRequestToken) Reset(ctx context.Context) {
-	if !t.done {
-		log.Fatalf(ctx, "Reset called on tracked token")
-	}
-	t.b = nil
 }
 
 // TrackEvaluatingRequest atomically starts tracking an evaluating request and

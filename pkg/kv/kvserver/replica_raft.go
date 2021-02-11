@@ -308,7 +308,9 @@ func (r *Replica) propose(
 	cmdLen := p.command.Size()
 	// Allocate the data slice with enough capacity to eventually hold the two
 	// "footers" that are filled later.
-	needed := preLen + cmdLen + kvserverpb.MaxRaftCommandFooterSize() + kvserverpb.MaxClosedTimestampFooterSize()
+	needed := preLen + cmdLen +
+		kvserverpb.MaxRaftCommandFooterSize() +
+		kvserverpb.MaxClosedTimestampFooterSize()
 	data := make([]byte, preLen, needed)
 	// Encode prefix with command ID, if necessary.
 	if prefix {

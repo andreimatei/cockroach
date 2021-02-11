@@ -128,7 +128,7 @@ type ProposalData struct {
 	// reproposals, this footer will be (over-)written multiple times: each
 	// reproposal carries a new (and higher) timestamps than before.
 	// !!! still needed now that reproposals don't overwrite?
-	encodedLenWithoutClosedTSFooter int
+	// encodedLenWithoutClosedTSFooter int
 }
 
 // finishApplication is called when a command application has finished. The
