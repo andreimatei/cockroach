@@ -16,7 +16,33 @@ import "kv/kvserver/closedts/ctpb/entry.proto";
 
 import "gogoproto/gogo.proto";
 import "google/api/annotations.proto";
+import "util/hlc/timestamp.proto";
 
 service ClosedTimestamp {
     rpc Get(stream Reaction) returns (stream Entry) { }
+}
+
+message Group {
+  // !!! option (gogoproto.goproto_stringer) = false;
+
+  // id identifies this group across multiple Group messages. ids are unique across a stream of messages
+  // coming on one InactiveRangesClosedTimestamp
+  int32 id = 1;
+  // closed_timestamp is the timestamp that's being closed for all the ranges in the group.
+  util.hlc.Timestamp closed_timestamp = 2 [(gogoproto.nullable) = false];
+  map<int32, int64> additions = 3 [(gogoproto.castkey) = "github.com/cockroachdb/cockroach/pkg/roachpb.RangeID",
+    (gogoproto.castvalue) = "LAI"];
+  map<int32, int64> removals = 4 [(gogoproto.castkey) = "github.com/cockroachdb/cockroach/pkg/roachpb.RangeID",
+    (gogoproto.castvalue) = "LAI"];
+}
+
+// Update represents !!!
+message Update {
+  repeated Group groups = 1;
+}
+
+message UpdateResponse {}
+
+service InactiveRangesClosedTimestamp {
+  rpc UpdateClosedTimestamps (stream Update) returns (stream UpdateResponse) { }
 }

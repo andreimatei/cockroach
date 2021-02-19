@@ -935,6 +935,21 @@ func (b *propBuf) TrackEvaluatingRequest(
 	return minTS, TrackedRequestToken{tok: tok, b: b}
 }
 
+func (b *propBuf) AdvanceClosedTimestamp(ctx context.Context, cts hlc.Timestamp) bool {
+	b.p.rlocker().Lock()
+	defer b.p.rlocker().Unlock()
+
+	lb := b.evalTracker.LowerBound(ctx)
+	if lb.LessEq(cts) {
+		return false
+	}
+	// If this
+	if cts.Less(b.assignedClosedTimestamp) {
+
+	}
+
+}
+
 const propBufArrayMinSize = 4
 const propBufArrayMaxSize = 256
 const propBufArrayShrinkDelay = 16
