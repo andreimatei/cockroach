@@ -451,16 +451,35 @@ func (b *replicaAppBatch) Stage(cmdI apply.Command) (apply.CheckedCommand, error
 		cmd.raftCmd.LogicalOpLog = nil
 		cmd.raftCmd.ClosedTimestamp = nil
 	} else {
-		// Assert that we're not writing under the closed timestamp. We can only do
-		// these checks on IsIntentWrite requests, since others (for example,
-		// EndTxn) can operate below the closed timestamp. In turn, this means that
-		// we can only assert on the leaseholder, as only that replica has
-		// cmd.proposal.Request filled in.
+		// Sanity check that the RaftClosedTimestamp doesn't go backwards.
+		existingClosed := b.state.RaftClosedTimestamp
+		newClosed := cmd.raftCmd.ClosedTimestamp
+		if newClosed != nil && !newClosed.IsEmpty() && newClosed.Less(existingClosed) {
+			return nil, errors.AssertionFailedf(
+				"raft closed timestamp regression; replica has: %s, new batch has: %s.",
+				existingClosed.String(), newClosed.String())
+		}
+
+		// Assert that the current command is not writing under the closed
+		// timestamp. We can only do these checks on IsIntentWrite requests, since
+		// others (for example, EndTxn) can operate below the closed timestamp. In
+		// turn, this means that we can only assert on the leaseholder, as only that
+		// replica has cmd.proposal.Request filled in.
+		//
+		// Note that we check that we're we're writing under
+		// b.state.RaftClosedTimestamp (i.e. below the timestamp closed by previous
+		// commands), not below cmd.raftCmd.ClosedTimestamp. A command is allowed to
+		// write below the closed timestamp carried by itself; in other words
+		// cmd.raftCmd.ClosedTimestamp is a promise about future commands, not the
+		// command carrying it.
 		if cmd.IsLocal() && cmd.proposal.Request.IsIntentWrite() {
 			wts := cmd.proposal.Request.WriteTimestamp()
 			if wts.LessEq(b.state.RaftClosedTimestamp) {
-				return nil, makeNonDeterministicFailure("writing at %s below closed ts: %s (%s)",
-					wts, b.state.RaftClosedTimestamp.String(), cmd.proposal.Request.String())
+				return nil, makeNonDeterministicFailure("writing at %s below closed ts: %s "+
+					"(command closed ts: %s, request: %s, lease: %s)",
+					wts, b.state.RaftClosedTimestamp.String(),
+					cmd.raftCmd.ClosedTimestamp, cmd.proposal.Request.String(), b.state.Lease,
+				)
 			}
 		}
 		log.Event(ctx, "applying command")
@@ -830,7 +849,7 @@ func (b *replicaAppBatch) stageTrivialReplicatedEvalResult(
 	if cts := cmd.raftCmd.ClosedTimestamp; cts != nil && !cts.IsEmpty() {
 		if cts.Less(b.state.RaftClosedTimestamp) {
 			log.Fatalf(ctx,
-				"closed timestamp regressing from %s to %s when applying command %x",
+				"raft closed timestamp regression from %s to %s when applying command %x",
 				b.state.RaftClosedTimestamp, cts, cmd.idKey)
 		}
 		b.state.RaftClosedTimestamp = *cts
@@ -896,6 +915,16 @@ func (b *replicaAppBatch) ApplyToStateMachine(ctx context.Context) error {
 	r.mu.Lock()
 	r.mu.state.RaftAppliedIndex = b.state.RaftAppliedIndex
 	r.mu.state.LeaseAppliedIndex = b.state.LeaseAppliedIndex
+
+	// Sanity check that the RaftClosedTimestamp doesn't go backwards.
+	existingClosed := r.mu.state.RaftClosedTimestamp
+	newClosed := b.state.RaftClosedTimestamp
+	if !newClosed.IsEmpty() && newClosed.Less(existingClosed) {
+		return errors.AssertionFailedf(
+			"raft closed timestamp regression; replica has: %s, new batch has: %s.",
+			existingClosed.String(), newClosed.String())
+	}
+
 	closedTimestampUpdated := r.mu.state.RaftClosedTimestamp.Forward(b.state.RaftClosedTimestamp)
 	prevStats := *r.mu.state.Stats
 	*r.mu.state.Stats = *b.state.Stats
