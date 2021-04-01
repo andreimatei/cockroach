@@ -793,6 +793,16 @@ func runTPCCBench(ctx context.Context, t *test, c *cluster, b tpccBenchSpec) {
 	}
 	t.Status()
 
+	{
+		t.l.Printf("reducing kv.closed_timestamp.target_duration\n")
+		db := c.Conn(ctx, 1)
+		_, err := db.ExecContext(ctx, `SET CLUSTER SETTING kv.closed_timestamp.target_duration='500ms'`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		db.Close()
+	}
+
 	// Search between 1 and b.LoadWarehouses for the largest number of
 	// warehouses that can be operated on while sustaining a throughput
 	// threshold, set to a fraction of max tpmC.
@@ -828,7 +838,7 @@ func runTPCCBench(ctx context.Context, t *test, c *cluster, b tpccBenchSpec) {
 
 			// Kill one node at a time.
 			ch := Chaos{
-				Timer:   Periodic{Period: 90 * time.Second, DownTime: 5 * time.Second},
+				Timer:   Periodic{Period: 30 * time.Second, DownTime: 15 * time.Second},
 				Target:  roachNodes.randNode,
 				Stopper: loadDone,
 			}
