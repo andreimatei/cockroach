@@ -17,7 +17,6 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/kv"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/abortspan"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/batcheval"
-	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/closedts"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/concurrency"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/kvserverbase"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/readsummary/rspb"
@@ -110,12 +109,6 @@ func (rec *SpanSetReplicaEvalContext) GetTerm(i uint64) (uint64, error) {
 // GetLeaseAppliedIndex returns the lease index of the last applied command.
 func (rec *SpanSetReplicaEvalContext) GetLeaseAppliedIndex() uint64 {
 	return rec.i.GetLeaseAppliedIndex()
-}
-
-// GetTracker returns the min prop tracker that keeps tabs over ongoing command
-// evaluations for the closed timestamp subsystem.
-func (rec *SpanSetReplicaEvalContext) GetTracker() closedts.TrackerI {
-	return rec.i.GetTracker()
 }
 
 // IsFirstRange returns true iff the replica belongs to the first range.

@@ -1277,7 +1277,6 @@ type StoreMetrics struct {
 
 	// Closed timestamp metrics.
 	ClosedTimestampMaxBehindNanos  *metric.Gauge
-	ClosedTimestampFailuresToClose *metric.Gauge
 
 	// Intent cleanup failures
 	ConflictingIntentsResolveRejected *metric.Counter
@@ -1664,7 +1663,6 @@ func newStoreMetrics(histogramWindow time.Duration) *StoreMetrics {
 
 		// Closed timestamp metrics.
 		ClosedTimestampMaxBehindNanos:  metric.NewGauge(metaClosedTimestampMaxBehindNanos),
-		ClosedTimestampFailuresToClose: metric.NewGauge(metaClosedTimestampFailuresToClose),
 
 		// Intent leak metrics
 		ConflictingIntentsResolveRejected: metric.NewCounter(metaConflictingIntentsResolveRejected),

@@ -38,24 +38,23 @@ func _() {
 	_ = x[SequencesRegclass-27]
 	_ = x[ImplicitColumnPartitioning-28]
 	_ = x[MultiRegionFeatures-29]
-	_ = x[ClosedTimestampsRaftTransport-30]
-	_ = x[ChangefeedsSupportPrimaryIndexChanges-31]
-	_ = x[ForeignKeyRepresentationMigration-32]
-	_ = x[PriorReadSummaries-33]
-	_ = x[NonVotingReplicas-34]
-	_ = x[ProtectedTsMetaPrivilegesMigration-35]
-	_ = x[V21_1-36]
-	_ = x[Start21_2-37]
-	_ = x[JoinTokensTable-38]
-	_ = x[AcquisitionTypeInLeaseHistory-39]
-	_ = x[SerializeViewUDTs-40]
-	_ = x[ExpressionIndexes-41]
-	_ = x[DeleteDeprecatedNamespaceTableDescriptorMigration-42]
+	_ = x[ChangefeedsSupportPrimaryIndexChanges-30]
+	_ = x[ForeignKeyRepresentationMigration-31]
+	_ = x[PriorReadSummaries-32]
+	_ = x[NonVotingReplicas-33]
+	_ = x[ProtectedTsMetaPrivilegesMigration-34]
+	_ = x[V21_1-35]
+	_ = x[Start21_2-36]
+	_ = x[JoinTokensTable-37]
+	_ = x[AcquisitionTypeInLeaseHistory-38]
+	_ = x[SerializeViewUDTs-39]
+	_ = x[ExpressionIndexes-40]
+	_ = x[DeleteDeprecatedNamespaceTableDescriptorMigration-41]
 }
 
-const _Key_name = "Start20_2GeospatialTypeAlterColumnTypeGeneralUserDefinedSchemasNoOriginFKIndexesNodeMembershipStatusMinPasswordLengthAbortSpanBytesMaterializedViewsBox2DTypeCreateLoginPrivilegeHBAForNonTLSV20_2Start21_1EmptyArraysInInvertedIndexesUniqueWithoutIndexConstraintsVirtualComputedColumnsCPutInlineReplicaVersionsreplacedTruncatedAndRangeAppliedStateMigrationreplacedPostTruncatedAndRangeAppliedStateMigrationNewSchemaChangerLongRunningMigrationsTruncatedAndRangeAppliedStateMigrationPostTruncatedAndRangeAppliedStateMigrationSeparatedIntentsTracingVerbosityIndependentSemanticsSequencesRegclassImplicitColumnPartitioningMultiRegionFeaturesClosedTimestampsRaftTransportChangefeedsSupportPrimaryIndexChangesForeignKeyRepresentationMigrationPriorReadSummariesNonVotingReplicasProtectedTsMetaPrivilegesMigrationV21_1Start21_2JoinTokensTableAcquisitionTypeInLeaseHistorySerializeViewUDTsExpressionIndexesDeleteDeprecatedNamespaceTableDescriptorMigration"
+const _Key_name = "Start20_2GeospatialTypeAlterColumnTypeGeneralUserDefinedSchemasNoOriginFKIndexesNodeMembershipStatusMinPasswordLengthAbortSpanBytesMaterializedViewsBox2DTypeCreateLoginPrivilegeHBAForNonTLSV20_2Start21_1EmptyArraysInInvertedIndexesUniqueWithoutIndexConstraintsVirtualComputedColumnsCPutInlineReplicaVersionsreplacedTruncatedAndRangeAppliedStateMigrationreplacedPostTruncatedAndRangeAppliedStateMigrationNewSchemaChangerLongRunningMigrationsTruncatedAndRangeAppliedStateMigrationPostTruncatedAndRangeAppliedStateMigrationSeparatedIntentsTracingVerbosityIndependentSemanticsSequencesRegclassImplicitColumnPartitioningMultiRegionFeaturesChangefeedsSupportPrimaryIndexChangesForeignKeyRepresentationMigrationPriorReadSummariesNonVotingReplicasProtectedTsMetaPrivilegesMigrationV21_1Start21_2JoinTokensTableAcquisitionTypeInLeaseHistorySerializeViewUDTsExpressionIndexesDeleteDeprecatedNamespaceTableDescriptorMigration"
 
-var _Key_index = [...]uint16{0, 9, 23, 45, 63, 80, 100, 117, 131, 148, 157, 177, 189, 194, 203, 231, 260, 282, 292, 307, 353, 403, 419, 440, 478, 520, 536, 572, 589, 615, 634, 663, 700, 733, 751, 768, 802, 807, 816, 831, 860, 877, 894, 943}
+var _Key_index = [...]uint16{0, 9, 23, 45, 63, 80, 100, 117, 131, 148, 157, 177, 189, 194, 203, 231, 260, 282, 292, 307, 353, 403, 419, 440, 478, 520, 536, 572, 589, 615, 634, 671, 704, 722, 739, 773, 778, 787, 802, 831, 848, 865, 914}
 
 func (i Key) String() string {
 	if i < 0 || i >= Key(len(_Key_index)-1) {
