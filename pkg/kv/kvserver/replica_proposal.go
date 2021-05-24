@@ -82,8 +82,9 @@ type ProposalData struct {
 	// passed to r.mu.quotaReleaseQueue.
 	quotaAlloc *quotapool.IntAlloc
 
-	// tmpFooter is used to avoid an allocation.
-	tmpFooter kvserverpb.MaxLeaseFooter
+	// !!!
+	//// tmpFooter is used to avoid an allocation.
+	//tmpFooter kvserverpb.MaxLeaseFooter
 
 	// ec.done is called after command application to update the timestamp
 	// cache and optionally release latches and exits lock wait-queues.

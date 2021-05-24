@@ -622,7 +622,7 @@ func sendLeaseRequest(r *Replica, l *roachpb.Lease) error {
 	ba.Add(&roachpb.RequestLeaseRequest{Lease: *l})
 	st := r.CurrentLeaseStatus(ctx)
 	_, tok := r.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
-	ch, _, _, pErr := r.evalAndPropose(ctx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
+	ch, _, pErr := r.evalAndPropose(ctx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
 	if pErr == nil {
 		// Next if the command was committed, wait for the range to apply it.
 		// TODO(bdarnell): refactor this to a more conventional error-handling pattern.
@@ -1424,7 +1424,7 @@ func TestReplicaLeaseRejectUnknownRaftNodeID(t *testing.T) {
 	ba.Timestamp = tc.repl.store.Clock().Now()
 	ba.Add(&roachpb.RequestLeaseRequest{Lease: *lease})
 	_, tok := tc.repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
-	ch, _, _, pErr := tc.repl.evalAndPropose(ctx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
+	ch, _, pErr := tc.repl.evalAndPropose(ctx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
 	if pErr == nil {
 		// Next if the command was committed, wait for the range to apply it.
 		// TODO(bdarnell): refactor to a more conventional error-handling pattern.
@@ -8112,7 +8112,7 @@ func TestReplicaBurstPendingCommandsAndRepropose(t *testing.T) {
 		})
 		_, tok := tc.repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
 		st := tc.repl.CurrentLeaseStatus(ctx)
-		ch, _, _, err := tc.repl.evalAndPropose(ctx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
+		ch, _, err := tc.repl.evalAndPropose(ctx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -9558,7 +9558,7 @@ func TestApplyPaginatedCommittedEntries(t *testing.T) {
 	atomic.StoreInt32(&filterActive, 1)
 	st := repl.CurrentLeaseStatus(ctx)
 	_, tok := repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
-	_, _, _, pErr := repl.evalAndPropose(ctx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
+	_, _, pErr := repl.evalAndPropose(ctx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
 	if pErr != nil {
 		t.Fatal(pErr)
 	}
@@ -9577,7 +9577,7 @@ func TestApplyPaginatedCommittedEntries(t *testing.T) {
 
 		var pErr *roachpb.Error
 		_, tok := repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
-		ch, _, _, pErr = repl.evalAndPropose(ctx, &ba2, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
+		ch, _, pErr = repl.evalAndPropose(ctx, &ba2, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
 		if pErr != nil {
 			t.Fatal(pErr)
 		}
@@ -12756,7 +12756,7 @@ func TestProposalNotAcknowledgedOrReproposedAfterApplication(t *testing.T) {
 	_, tok := tc.repl.mu.proposalBuf.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
 	sp := cfg.AmbientCtx.Tracer.StartSpan("replica send", tracing.WithForceRealSpan())
 	tracedCtx := tracing.ContextWithSpan(ctx, sp)
-	ch, _, _, pErr := tc.repl.evalAndPropose(tracedCtx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok)
+	ch, _, pErr := tc.repl.evalAndPropose(tracedCtx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok)
 	if pErr != nil {
 		t.Fatal(pErr)
 	}
@@ -12849,7 +12849,7 @@ func TestLaterReproposalsDoNotReuseContext(t *testing.T) {
 	// Go out of our way to enable recording so that expensive logging is enabled
 	// for this context.
 	sp.SetVerbose(true)
-	ch, _, _, pErr := tc.repl.evalAndPropose(tracedCtx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
+	ch, _, pErr := tc.repl.evalAndPropose(tracedCtx, &ba, allSpansGuard(), st, hlc.Timestamp{}, tok.Move(ctx))
 	if pErr != nil {
 		t.Fatal(pErr)
 	}

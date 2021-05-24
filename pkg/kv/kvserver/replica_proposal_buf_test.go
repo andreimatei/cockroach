@@ -29,7 +29,6 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/protoutil"
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
 	"github.com/cockroachdb/errors"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
@@ -261,7 +260,9 @@ func TestProposalBuffer(t *testing.T) {
 	defer log.Scope(t).Close(t)
 	ctx := context.Background()
 
+	r := &testProposerRaft{}
 	var p testProposer
+	p.raftGroup = r
 	var b propBuf
 	var pc proposalCreator
 	clock := hlc.NewClock(hlc.UnixNano, time.Nanosecond)
@@ -292,7 +293,7 @@ func TestProposalBuffer(t *testing.T) {
 			require.Equal(t, expMlai, pd.command.MaxLeaseIndex)
 			require.Equal(t, expMlai, b.LastAssignedLeaseIndexRLocked())
 		}
-		require.Equal(t, i+1, b.Len())
+		require.Equal(t, i+1, b.AllocatedIdx())
 		require.Equal(t, 1, p.enqueued)
 		require.Equal(t, 0, p.registered)
 	}
@@ -309,7 +310,7 @@ func TestProposalBuffer(t *testing.T) {
 	require.Equal(t, expMlai, mlai)
 	require.Equal(t, expMlai, pd.command.MaxLeaseIndex)
 	require.Equal(t, expMlai, b.LastAssignedLeaseIndexRLocked())
-	require.Equal(t, 1, b.Len())
+	require.Equal(t, 1, b.AllocatedIdx())
 	require.Equal(t, 2, p.enqueued)
 	require.Equal(t, num, p.registered)
 	require.Equal(t, uint64(num), b.liBase)
@@ -320,10 +321,15 @@ func TestProposalBuffer(t *testing.T) {
 	// lease index offset should jump up.
 	p.lai = 10
 	require.Nil(t, b.flushLocked(ctx))
-	require.Equal(t, 0, b.Len())
+	require.Equal(t, 0, b.AllocatedIdx())
 	require.Equal(t, 2, p.enqueued)
 	require.Equal(t, num+1, p.registered)
 	require.Equal(t, p.lai, b.liBase)
+	require.Len(t, r.lastProps, propBufArrayMinSize)
+	require.Equal(t, r.lastProps[0].MaxLeaseIndex, 1)
+	require.Equal(t, r.lastProps[1].MaxLeaseIndex, 2)
+	require.Equal(t, r.lastProps[2].MaxLeaseIndex, 3)
+	require.Equal(t, r.lastProps[3].MaxLeaseIndex, 0)
 
 	// Insert one more proposal. The lease applied index should adjust to
 	// the increase accordingly.
@@ -334,7 +340,7 @@ func TestProposalBuffer(t *testing.T) {
 	require.Equal(t, expMlai, mlai)
 	require.Equal(t, expMlai, pd.command.MaxLeaseIndex)
 	require.Equal(t, expMlai, b.LastAssignedLeaseIndexRLocked())
-	require.Equal(t, 1, b.Len())
+	require.Equal(t, 1, b.AllocatedIdx())
 	require.Equal(t, 3, p.enqueued)
 	require.Equal(t, num+1, p.registered)
 
@@ -444,7 +450,7 @@ func TestProposalBufferRegistersAllOnProposalError(t *testing.T) {
 		_, err := b.Insert(ctx, pd, data, toks[i])
 		require.Nil(t, err)
 	}
-	require.Equal(t, num, b.Len())
+	require.Equal(t, num, b.AllocatedIdx())
 
 	propNum := 0
 	propErr := errors.New("failed proposal")
@@ -465,6 +471,8 @@ func TestProposalBufferRegistersAllOnProposalError(t *testing.T) {
 // TestProposalBufferRegistrationWithInsertionErrors tests that if during
 // proposal insertion we reserve array indexes but are unable to actually insert
 // them due to errors, we simply ignore said indexes when flushing proposals.
+!!! I think this test no longer serves a purpose since there's no longer an error possible in between
+allocating an index and adding to the array
 func TestProposalBufferRegistrationWithInsertionErrors(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
@@ -509,51 +517,52 @@ func TestProposalBufferRegistrationWithInsertionErrors(t *testing.T) {
 		_, err := b.Insert(ctx, pd, data, toks2[i])
 		require.Equal(t, insertErr, err)
 	}
-	require.Equal(t, 2*num, b.Len())
+	require.Equal(t, 2*num, b.AllocatedIdx())
 
 	require.Nil(t, b.flushLocked(ctx))
 
-	require.Equal(t, 0, b.Len())
+	require.Equal(t, 0, b.AllocatedIdx())
 	require.Equal(t, num, p.registered)
 	require.Zero(t, b.evalTracker.Count())
 }
 
-// TestPropBufCnt tests the basic behavior of the counter maintained by the
-// proposal buffer.
-func TestPropBufCnt(t *testing.T) {
-	defer leaktest.AfterTest(t)()
-	defer log.Scope(t).Close(t)
-
-	var count propBufCnt
-	const numReqs = 10
-
-	reqLeaseInc := makePropBufCntReq(true)
-	reqLeaseNoInc := makePropBufCntReq(false)
-
-	for i := 0; i < numReqs; i++ {
-		count.update(reqLeaseInc)
-	}
-
-	res := count.read()
-	assert.Equal(t, numReqs, res.arrayLen())
-	assert.Equal(t, numReqs-1, res.arrayIndex())
-	assert.Equal(t, uint64(numReqs), res.leaseIndexOffset())
-
-	for i := 0; i < numReqs; i++ {
-		count.update(reqLeaseNoInc)
-	}
-
-	res = count.read()
-	assert.Equal(t, 2*numReqs, res.arrayLen())
-	assert.Equal(t, (2*numReqs)-1, res.arrayIndex())
-	assert.Equal(t, uint64(numReqs), res.leaseIndexOffset())
-
-	count.clear()
-	res = count.read()
-	assert.Equal(t, 0, res.arrayLen())
-	assert.Equal(t, -1, res.arrayIndex())
-	assert.Equal(t, uint64(0), res.leaseIndexOffset())
-}
+// !!!
+//// TestPropBufCnt tests the basic behavior of the counter maintained by the
+//// proposal buffer.
+//func TestPropBufCnt(t *testing.T) {
+//	defer leaktest.AfterTest(t)()
+//	defer log.Scope(t).Close(t)
+//
+//	var count propBufCnt
+//	const numReqs = 10
+//
+//	reqLeaseInc := makePropBufCntReq(true)
+//	reqLeaseNoInc := makePropBufCntReq(false)
+//
+//	for i := 0; i < numReqs; i++ {
+//		count.update(reqLeaseInc)
+//	}
+//
+//	res := count.read()
+//	assert.Equal(t, numReqs, res.arrayLen())
+//	assert.Equal(t, numReqs-1, res.arrayIndex())
+//	assert.Equal(t, uint64(numReqs), res.leaseIndexOffset())
+//
+//	for i := 0; i < numReqs; i++ {
+//		count.update(reqLeaseNoInc)
+//	}
+//
+//	res = count.read()
+//	assert.Equal(t, 2*numReqs, res.arrayLen())
+//	assert.Equal(t, (2*numReqs)-1, res.arrayIndex())
+//	assert.Equal(t, uint64(numReqs), res.leaseIndexOffset())
+//
+//	count.clear()
+//	res = count.read()
+//	assert.Equal(t, 0, res.arrayLen())
+//	assert.Equal(t, -1, res.arrayIndex())
+//	assert.Equal(t, uint64(0), res.leaseIndexOffset())
+//}
 
 // Test that the proposal buffer rejects lease acquisition proposals from
 // followers. We want the leader to take the lease; see comments in

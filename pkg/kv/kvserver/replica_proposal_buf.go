@@ -27,87 +27,88 @@ import (
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
-// propBufCnt is a counter maintained by proposal buffer that tracks an index
-// into the buffer's array and an offset from the buffer's base lease index.
-// The counter is accessed atomically.
+// !!!
+//// propBufCnt is a counter maintained by proposal buffer that tracks an index
+//// into the buffer's array and an offset from the buffer's base lease index.
+//// The counter is accessed atomically.
+////
+//// Bit layout (LSB to MSB):
+////  bits 0  - 31: index into array
+////  bits 32 - 63: lease index offset
+//type propBufCnt uint64
 //
-// Bit layout (LSB to MSB):
-//  bits 0  - 31: index into array
-//  bits 32 - 63: lease index offset
-type propBufCnt uint64
-
-// propBufCntReq is a request to atomically update the proposal buffer's
-// counter. The bit layout of the request is similar to that of propBufCnt,
-// except that the two 32-bit segments represent deltas instead of absolute
-// values.
+//// propBufCntReq is a request to atomically update the proposal buffer's
+//// counter. The bit layout of the request is similar to that of propBufCnt,
+//// except that the two 32-bit segments represent deltas instead of absolute
+//// values.
+////
+//// In practice, there are only two variants of requests. The first variant
+//// consists of requests that want to increment only the counter's array index
+//// by one. These are represented like:
+////
+////   0 0 0 ..[63 times].. 1
+////
+//// The second variant consists of requests that want to increment the counter's
+//// array index by one and want to increment the counter's lease index offset by
+//// one. These are represented like:
+////
+////   0 0 0 ..[31 times].. 1 0 0 0 ..[31 times].. 1
+////
+//// Representing requests like this allows them to be atomically added directly
+//// to the proposal buffer counter to reserve an array index and optionally
+//// reserve a lease index.
+//type propBufCntReq uint64
 //
-// In practice, there are only two variants of requests. The first variant
-// consists of requests that want to increment only the counter's array index
-// by one. These are represented like:
+//// propBufCntRes is a response from updating or reading the proposal buffer's
+//// counter. It can be understood as a snapshot of the counter.
+//type propBufCntRes uint64
 //
-//   0 0 0 ..[63 times].. 1
+//// makePropBufCntReq creates a new proposal buffer request. The incLeaseIndex
+//// arg indicates whether the request would like a new maximum lease index or
+//// whether it would like the same maximum lease index as the previous request.
+//func makePropBufCntReq(incLeaseIndex bool) propBufCntReq {
+//	r := propBufCntReq(1)
+//	if incLeaseIndex {
+//		r |= (1 << 32)
+//	}
+//	return r
+//}
 //
-// The second variant consists of requests that want to increment the counter's
-// array index by one and want to increment the counter's lease index offset by
-// one. These are represented like:
+//// arrayLen returns the number of elements in the proposal buffer's array.
+//func (r propBufCntRes) arrayLen() int {
+//	return int(r & (1<<32 - 1))
+//}
 //
-//   0 0 0 ..[31 times].. 1 0 0 0 ..[31 times].. 1
+//// arrayIndex returns the index into the proposal buffer that was reserved for
+//// the request. The returned index will be -1 if no index was reserved (e.g. by
+//// propBufCnt.read) and if the buffer is empty.
+//func (r propBufCntRes) arrayIndex() int {
+//	// NB: -1 because the array is 0-indexed.
+//	return r.arrayLen() - 1
+//}
 //
-// Representing requests like this allows them to be atomically added directly
-// to the proposal buffer counter to reserve an array index and optionally
-// reserve a lease index.
-type propBufCntReq uint64
-
-// propBufCntRes is a response from updating or reading the proposal buffer's
-// counter. It can be understood as a snapshot of the counter.
-type propBufCntRes uint64
-
-// makePropBufCntReq creates a new proposal buffer request. The incLeaseIndex
-// arg indicates whether the request would like a new maximum lease index or
-// whether it would like the same maximum lease index as the previous request.
-func makePropBufCntReq(incLeaseIndex bool) propBufCntReq {
-	r := propBufCntReq(1)
-	if incLeaseIndex {
-		r |= (1 << 32)
-	}
-	return r
-}
-
-// arrayLen returns the number of elements in the proposal buffer's array.
-func (r propBufCntRes) arrayLen() int {
-	return int(r & (1<<32 - 1))
-}
-
-// arrayIndex returns the index into the proposal buffer that was reserved for
-// the request. The returned index will be -1 if no index was reserved (e.g. by
-// propBufCnt.read) and if the buffer is empty.
-func (r propBufCntRes) arrayIndex() int {
-	// NB: -1 because the array is 0-indexed.
-	return r.arrayLen() - 1
-}
-
-// leaseIndexOffset returns the offset from the proposal buffer's current lease
-// index base that was reserved for the request's maximum lease index.
-func (r propBufCntRes) leaseIndexOffset() uint64 {
-	return uint64(r >> 32)
-}
-
-// update accepts a proposal buffer request and applies it to the proposal
-// buffer counter, returning the response.
-func (c *propBufCnt) update(r propBufCntReq) propBufCntRes {
-	return propBufCntRes(atomic.AddUint64((*uint64)(c), uint64(r)))
-}
-
-// clear resets a proposal buffer counter to its zero value and returns the
-// response returned to the last accepted request.
-func (c *propBufCnt) clear() propBufCntRes {
-	return propBufCntRes(atomic.SwapUint64((*uint64)(c), 0))
-}
-
-// read reads from the proposal buffer counter.
-func (c *propBufCnt) read() propBufCntRes {
-	return propBufCntRes(atomic.LoadUint64((*uint64)(c)))
-}
+//// leaseIndexOffset returns the offset from the proposal buffer's current lease
+//// index base that was reserved for the request's maximum lease index.
+//func (r propBufCntRes) leaseIndexOffset() uint64 {
+//	return uint64(r >> 32)
+//}
+//
+//// update accepts a proposal buffer request and applies it to the proposal
+//// buffer counter, returning the response.
+//func (c *propBufCnt) update(r propBufCntReq) propBufCntRes {
+//	return propBufCntRes(atomic.AddUint64((*uint64)(c), uint64(r)))
+//}
+//
+//// clear resets a proposal buffer counter to its zero value and returns the
+//// response returned to the last accepted request.
+//func (c *propBufCnt) clear() propBufCntRes {
+//	return propBufCntRes(atomic.SwapUint64((*uint64)(c), 0))
+//}
+//
+//// read reads from the proposal buffer counter.
+//func (c *propBufCnt) read() propBufCntRes {
+//	return propBufCntRes(atomic.LoadUint64((*uint64)(c)))
+//}
 
 // propBuf is a multi-producer, single-consumer buffer for Raft proposals on a
 // range. The buffer supports concurrent insertion of proposals.
@@ -145,9 +146,12 @@ type propBuf struct {
 	evalTracker tracker.Tracker
 	full        sync.Cond
 
+	// !!! rename liBase to maxLAI
 	liBase uint64
-	cnt    propBufCnt
-	arr    propBufArray
+	// !!! cnt    propBufCnt
+	// !!! accessed atomically
+	allocatedIdx int64
+	arr          propBufArray
 
 	// assignedClosedTimestamp is the largest "closed timestamp" - i.e. the
 	// largest timestamp that was communicated to other replicas as closed,
@@ -164,12 +168,14 @@ type propBuf struct {
 	// the write lock.
 	assignedClosedTimestamp hlc.Timestamp
 
-	// A buffer used to avoid allocations.
+	// Buffers used to avoid allocations.
+	tmpLAIFooter             kvserverpb.MaxLeaseFooter
 	tmpClosedTimestampFooter kvserverpb.ClosedTimestampFooter
 
 	testing struct {
 		// leaseIndexFilter can be used by tests to override the max lease index
 		// assigned to a proposal by returning a non-zero lease index.
+		// !!! figure out when to call this; it used to be called at insertion time
 		leaseIndexFilter func(*ProposalData) (indexOverride uint64, err error)
 		// submitProposalFilter can be used by tests to observe and optionally
 		// drop Raft proposals before they are handed to etcd/raft to begin the
@@ -253,39 +259,41 @@ func (b *propBuf) Init(
 	b.liBase = p.leaseAppliedIndex()
 }
 
-// Len returns the number of proposals currently in the buffer.
-func (b *propBuf) Len() int {
-	return b.cnt.read().arrayLen()
+// AllocatedIdx returns the highest index that was allocated. This generally
+// corresponds to the size of the buffer but, if the buffer is full, the
+// allocated index can temporarily be in advance of the size.
+func (b *propBuf) AllocatedIdx() int {
+	return int(atomic.LoadInt64(&b.allocatedIdx))
+	// !!! return b.cnt.read().arrayLen()
 }
 
 // LastAssignedLeaseIndexRLocked returns the last assigned lease index.
 func (b *propBuf) LastAssignedLeaseIndexRLocked() uint64 {
-	return b.liBase + b.cnt.read().leaseIndexOffset()
+	return b.liBase
+	// !!! return b.liBase + b.cnt.read().leaseIndexOffset()
 }
 
 // Insert inserts a new command into the proposal buffer to be proposed to the
 // proposer's Raft group. The method accepts the Raft command as part of the
-// ProposalData struct, along with a partial encoding of the command in the
-// provided byte slice. It is expected that the byte slice contains marshaled
-// information for all of the command's fields except for MaxLeaseIndex, and
-// ClosedTimestamp. MaxLeaseIndex is assigned here, when the command is
-// sequenced in the buffer. ClosedTimestamp will be assigned later, when the
-// buffer is flushed. It is also expected that the byte slice has sufficient
-// capacity to marshal these fields into it. After adding the proposal to the
-// buffer, the assigned max lease index is returned.
+// ProposalData struct. ProposalData.encodedCommand is expected to contain a
+// partial encoding of the command. That byte slice is expected to contain
+// marshaled information for all of the command's fields except for
+// MaxLeaseIndex, and ClosedTimestamp. These fields will be assigned later, when
+// the buffer is flushed (after the command is sequenced in the buffer). It is
+// also expected that the byte slice has sufficient capacity to marshal these
+// fields into it.
 //
 // Insert takes ownership of the supplied token; the caller should tok.Move() it
 // into this method. It will be used to untrack the request once it comes out of the
 // proposal buffer.
-func (b *propBuf) Insert(
-	ctx context.Context, p *ProposalData, data []byte, tok TrackedRequestToken,
-) (uint64, error) {
+func (b *propBuf) Insert(ctx context.Context, p *ProposalData, tok TrackedRequestToken) error {
 	defer tok.DoneIfNotMoved(ctx)
-	// Request a new max lease applied index for any request that isn't itself
-	// a lease request. Lease requests don't need unique max lease index values
-	// because their max lease indexes are ignored. See checkForcedErr.
-	isLease := p.Request.IsLeaseRequest()
-	req := makePropBufCntReq(!isLease)
+	// !!!
+	//// Request a new max lease applied index for any request that isn't itself
+	//// a lease request. Lease requests don't need unique max lease index values
+	//// because their max lease indexes are ignored. See checkForcedErr.
+	//isLease := p.Request.IsLeaseRequest()
+	// !!! req := makePropBufCntReq(!isLease)
 
 	// Hold the read lock while inserting into the proposal buffer. Other
 	// insertion attempts will also grab the read lock, so they can insert
@@ -296,74 +304,70 @@ func (b *propBuf) Insert(
 
 	// Update the proposal buffer counter and determine which index we should
 	// insert at.
-	res, err := b.handleCounterRequestRLocked(ctx, req, false /* wLocked */)
+	idx, err := b.handleCounterRequestRLocked(ctx, false /* wLocked */)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
-	// Assign the command's maximum lease index.
-	// TODO(andrei): Move this to Flush in 21.2, to mirror the assignment of the
-	// closed timestamp. For now it's needed here because Insert needs to return
-	// the MLAI for the benefit of the "old" closed timestamp tracker. When moving
-	// to flush, make sure to not reassign it on reproposals.
-	p.command.MaxLeaseIndex = b.liBase + res.leaseIndexOffset()
-	if filter := b.testing.leaseIndexFilter; filter != nil {
-		if override, err := filter(p); err != nil {
-			return 0, err
-		} else if override != 0 {
-			p.command.MaxLeaseIndex = override
-		}
-	}
+	// !!!
+	//// Assign the command's maximum lease index.
+	//// TODO(andrei): Move this to Flush in 21.2, to mirror the assignment of the
+	//// closed timestamp. For now it's needed here because Insert needs to return
+	//// the MLAI for the benefit of the "old" closed timestamp tracker. When moving
+	//// to flush, make sure to not reassign it on reproposals.
+	//p.command.MaxLeaseIndex = b.liBase + res.leaseIndexOffset()
+	//if filter := b.testing.leaseIndexFilter; filter != nil {
+	//	if override, err := filter(p); err != nil {
+	//		return 0, err
+	//	} else if override != 0 {
+	//		p.command.MaxLeaseIndex = override
+	//	}
+	//}
 	if log.V(4) {
+		// !!! fix LAI
 		log.Infof(p.ctx, "submitting proposal %x: maxLeaseIndex=%d", p.idKey, p.command.MaxLeaseIndex)
 	}
 
-	// Marshal the command's footer with the newly assigned maximum lease index
-	// into the command's pre-allocated buffer. It should already have enough
-	// room to accommodate the command footer without needing an allocation.
-	f := &p.tmpFooter
-	f.MaxLeaseIndex = p.command.MaxLeaseIndex
-	footerLen := f.Size()
-
-	preLen := len(data)
-	p.encodedCommand = data[:preLen+footerLen]
-	if _, err := protoutil.MarshalTo(f, p.encodedCommand[preLen:]); err != nil {
-		return 0, err
-	}
+	// !!!
+	//// Marshal the command's footer with the newly assigned maximum lease index
+	//// into the command's pre-allocated buffer. It should already have enough
+	//// room to accommodate the command footer without needing an allocation.
+	//f := &p.tmpFooter
+	//f.MaxLeaseIndex = p.command.MaxLeaseIndex
+	//footerLen := f.Size()
+	//
+	//preLen := len(data)
+	//p.encodedCommand = data[:preLen+footerLen]
+	//if _, err := protoutil.MarshalTo(f, p.encodedCommand[preLen:]); err != nil {
+	//	return 0, err
+	//}
 
 	// Insert the proposal into the buffer's array. The buffer now takes ownership
 	// of the token.
 	p.tok = tok.Move(ctx)
-	b.insertIntoArray(p, res.arrayIndex())
-
-	// Return the maximum lease index that the proposal's command was given.
-	if isLease {
-		// For lease requests, we return zero because no real MaxLeaseIndex is
-		// assigned. We could also return command.MaxLeaseIndex but this invites
-		// confusion.
-		return 0, nil
-	}
-	return p.command.MaxLeaseIndex, nil
+	b.insertIntoArray(p, idx)
+	return nil
 }
 
 // ReinsertLocked inserts a command that has already passed through the proposal
 // buffer back into the buffer to be reproposed at a new Raft log index. Unlike
 // insert, it does not modify the command or assign a new maximum lease index.
 func (b *propBuf) ReinsertLocked(ctx context.Context, p *ProposalData) error {
-	// When re-inserting a command into the proposal buffer, the command never
-	// wants a new lease index. Simply add it back to the buffer and let it be
-	// reproposed.
-	req := makePropBufCntReq(false /* incLeaseIndex */)
+	// !!!
+	//// When re-inserting a command into the proposal buffer, the command never
+	//// wants a new lease index. Simply add it back to the buffer and let it be
+	//// reproposed.
+	//req := makePropBufCntReq(false /* incLeaseIndex */)
 
 	// Update the proposal buffer counter and determine which index we should
 	// insert at.
-	res, err := b.handleCounterRequestRLocked(ctx, req, true /* wLocked */)
+	idx, err := b.handleCounterRequestRLocked(ctx, true /* wLocked */)
 	if err != nil {
 		return err
 	}
 
 	// Insert the proposal into the buffer's array.
-	b.insertIntoArray(p, res.arrayIndex())
+	b.insertIntoArray(p, idx)
 	return nil
 }
 
@@ -376,9 +380,8 @@ func (b *propBuf) ReinsertLocked(ctx context.Context, p *ProposalData) error {
 // The method expects that either the proposer's read lock or write lock is
 // held. It does not mandate which, but expects the caller to specify using
 // the wLocked argument.
-func (b *propBuf) handleCounterRequestRLocked(
-	ctx context.Context, req propBufCntReq, wLocked bool,
-) (propBufCntRes, error) {
+// !!! rename
+func (b *propBuf) handleCounterRequestRLocked(ctx context.Context, wLocked bool) (int, error) {
 	// Repeatedly attempt to find an open index in the buffer's array.
 	for {
 		// NB: We need to check whether the proposer is destroyed before each
@@ -389,11 +392,14 @@ func (b *propBuf) handleCounterRequestRLocked(
 			return 0, status.err
 		}
 
-		res := b.cnt.update(req)
-		idx := res.arrayIndex()
+		// !!!
+		//res := b.cnt.
+		//idx := res.arrayIndex()
+		idx64 := atomic.AddInt64(&b.allocatedIdx, 1)
+		idx := int(idx64) - 1 // -1 since the index is zero-based
 		if idx < b.arr.len() {
 			// The buffer is not full. Our slot in the array is reserved.
-			return res, nil
+			return idx, nil
 		} else if wLocked {
 			// The buffer is full and we're holding the exclusive lock. Flush
 			// the buffer before trying again.
@@ -480,8 +486,7 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 	// We hold the write lock while reading from and flushing the proposal
 	// buffer. This ensures that we synchronize with all producers and other
 	// consumers.
-	res := b.cnt.clear()
-	used := res.arrayLen()
+	used := b.AllocatedIdx()
 	// Before returning, consider resizing the proposal buffer's array,
 	// depending on how much of it was used before the current flush.
 	defer b.arr.adjustSize(used)
@@ -494,10 +499,6 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 		used = b.arr.len()
 		defer b.full.Broadcast()
 	}
-
-	// Update the maximum lease index base value, based on the maximum lease
-	// index assigned since the last flush.
-	b.forwardLeaseIndexBaseLocked(b.liBase + res.leaseIndexOffset())
 
 	// Iterate through the proposals in the buffer and propose them to Raft.
 	// While doing so, build up batches of entries and submit them to Raft all
@@ -696,9 +697,29 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 // timestamp they carry (we could, in principle, but we'd have to make a copy of
 // the encoded command as to not modify the copy that's already stored in the
 // local replica's raft entry cache).
+// !!! rename with LAI
 func (b *propBuf) assignClosedTimestampToProposalLocked(
 	ctx context.Context, p *ProposalData, closedTSTarget hlc.Timestamp,
 ) error {
+	{
+		// Add the LAI to the encoded command. Note that p.encodedCommand is assumed
+		// to have enough capacity.
+
+		// Request a new max lease applied index for any request that isn't itself
+		// a lease request. Lease requests don't need unique max lease index values
+		// because their max lease indexes are ignored. See checkForcedErr.
+		if !p.Request.IsLeaseRequest() {
+			b.liBase++
+		}
+		b.tmpLAIFooter.MaxLeaseIndex = b.liBase
+		preLen := len(p.encodedCommand)
+		footerLen := b.tmpLAIFooter.Size()
+		p.encodedCommand = p.encodedCommand[:preLen+footerLen]
+		if _, err := protoutil.MarshalTo(&b.tmpLAIFooter, p.encodedCommand[preLen:]); err != nil {
+			return err
+		}
+	}
+
 	if b.testing.dontCloseTimestamps {
 		return nil
 	}
