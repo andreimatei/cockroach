@@ -267,6 +267,11 @@ func (b *propBuf) AllocatedIdx() int {
 	// !!! return b.cnt.read().arrayLen()
 }
 
+// ClearAllocatedIdx resets the allocated index, emptying the buffer.
+func (b *propBuf) ClearAllocatedIdx() {
+	atomic.StoreInt64(&b.allocatedIdx, 0)
+}
+
 // LastAssignedLeaseIndexRLocked returns the last assigned lease index.
 func (b *propBuf) LastAssignedLeaseIndexRLocked() uint64 {
 	return b.liBase
@@ -487,6 +492,7 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 	// buffer. This ensures that we synchronize with all producers and other
 	// consumers.
 	used := b.AllocatedIdx()
+	b.ClearAllocatedIdx()
 	// Before returning, consider resizing the proposal buffer's array,
 	// depending on how much of it was used before the current flush.
 	defer b.arr.adjustSize(used)
