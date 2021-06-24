@@ -146,8 +146,8 @@ type propBuf struct {
 	evalTracker tracker.Tracker
 	full        sync.Cond
 
-	// !!! rename liBase to maxLAI
-	liBase uint64
+	// maxLAI represents the highest LAI that was assigned to a proposal.
+	maxLAI uint64
 	// !!! cnt    propBufCnt
 	// !!! accessed atomically
 	allocatedIdx int64
@@ -256,7 +256,7 @@ func (b *propBuf) Init(
 	b.clock = clock
 	b.evalTracker = tracker
 	b.settings = settings
-	b.liBase = p.leaseAppliedIndex()
+	b.maxLAI = p.leaseAppliedIndex()
 }
 
 // AllocatedIdx returns the highest index that was allocated. This generally
@@ -274,8 +274,8 @@ func (b *propBuf) ClearAllocatedIdx() {
 
 // LastAssignedLeaseIndexRLocked returns the last assigned lease index.
 func (b *propBuf) LastAssignedLeaseIndexRLocked() uint64 {
-	return b.liBase
-	// !!! return b.liBase + b.cnt.read().leaseIndexOffset()
+	return b.maxLAI
+	// !!! return b.maxLAI + b.cnt.read().leaseIndexOffset()
 }
 
 // Insert inserts a new command into the proposal buffer to be proposed to the
@@ -313,6 +313,7 @@ func (b *propBuf) Insert(ctx context.Context, p *ProposalData, tok TrackedReques
 	if err != nil {
 		return err
 	}
+	log.Infof(ctx, "!!! proposal got idx: %d", idx)
 
 	// !!!
 	//// Assign the command's maximum lease index.
@@ -320,7 +321,7 @@ func (b *propBuf) Insert(ctx context.Context, p *ProposalData, tok TrackedReques
 	//// closed timestamp. For now it's needed here because Insert needs to return
 	//// the MLAI for the benefit of the "old" closed timestamp tracker. When moving
 	//// to flush, make sure to not reassign it on reproposals.
-	//p.command.MaxLeaseIndex = b.liBase + res.leaseIndexOffset()
+	//p.command.MaxLeaseIndex = b.maxLAI + res.leaseIndexOffset()
 	//if filter := b.testing.leaseIndexFilter; filter != nil {
 	//	if override, err := filter(p); err != nil {
 	//		return 0, err
@@ -412,6 +413,7 @@ func (b *propBuf) handleCounterRequestRLocked(ctx context.Context, wLocked bool)
 				return 0, err
 			}
 		} else if idx == b.arr.len() {
+			log.Infof(ctx, "!!! flushing")
 			// The buffer is full and we were the first request to notice out of
 			// potentially many requests holding the shared lock and trying to
 			// insert concurrently. Eagerly attempt to flush the buffer before
@@ -598,6 +600,7 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 		}
 
 		// Raft processing bookkeeping.
+		log.Infof(ctx, "!!! registering proposal: MLAI: %d", p.command.MaxLeaseIndex)
 		b.p.registerProposalLocked(p)
 		// Exit the tracker.
 		p.tok.doneIfNotMovedLocked(ctx)
@@ -715,9 +718,10 @@ func (b *propBuf) assignClosedTimestampToProposalLocked(
 		// a lease request. Lease requests don't need unique max lease index values
 		// because their max lease indexes are ignored. See checkForcedErr.
 		if !p.Request.IsLeaseRequest() {
-			b.liBase++
+			b.maxLAI++
 		}
-		b.tmpLAIFooter.MaxLeaseIndex = b.liBase
+		b.tmpLAIFooter.MaxLeaseIndex = b.maxLAI
+		log.Infof(ctx, "!!! assigned MLAI: %d", b.maxLAI)
 		preLen := len(p.encodedCommand)
 		footerLen := b.tmpLAIFooter.Size()
 		p.encodedCommand = p.encodedCommand[:preLen+footerLen]
@@ -824,8 +828,8 @@ func (b *propBuf) assignClosedTimestampToProposalLocked(
 }
 
 func (b *propBuf) forwardLeaseIndexBaseLocked(v uint64) {
-	if b.liBase < v {
-		b.liBase = v
+	if b.maxLAI < v {
+		b.maxLAI = v
 	}
 }
 

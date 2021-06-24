@@ -12,6 +12,7 @@ package kvserver
 
 import (
 	"context"
+	"math/rand"
 	"sync"
 	"testing"
 	"time"
@@ -27,9 +28,11 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/protoutil"
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
+	"github.com/cockroachdb/errors"
 	"github.com/stretchr/testify/require"
 	"go.etcd.io/etcd/raft/v3"
 	"go.etcd.io/etcd/raft/v3/raftpb"
+	"golang.org/x/sync/errgroup"
 )
 
 // testProposer is a testing implementation of proposer.
@@ -287,32 +290,27 @@ func TestProposalBuffer(t *testing.T) {
 	require.Equal(t, num, b.evalTracker.Count())
 	require.Empty(t, r.consumeProposals())
 
-	// Insert another proposal. This causes the buffer to flush. Doing so
-	// results in a lease applied index being skipped, which is harmless.
-	// Remember that the lease request above did not receive a lease index.
-	// !!! is the part of the comment about skipping a lease index still true?
+	// Insert another proposal. This causes the buffer to flush.
 	pd := pc.newPutProposal(hlc.Timestamp{})
 	_, tok := b.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
 	err := b.Insert(ctx, pd, tok)
 	require.Nil(t, err)
-	// !!!
-	//require.Equal(t, expMlai, mlai)
-	//require.Equal(t, expMlai, pd.command.MaxLeaseIndex)
-	//require.Equal(t, expMlai, b.LastAssignedLeaseIndexRLocked())
 	require.Equal(t, 1, b.AllocatedIdx())
 	require.Equal(t, 2, p.enqueued)
 	require.Equal(t, num, p.registered)
-	require.Equal(t, uint64(num), b.liBase)
+	// We've flushed num requests, out of which one is a lease request (so that
+	// one did not increment the MLAI).
+	require.Equal(t, uint64(num)-1, b.maxLAI)
 	require.Equal(t, 2*propBufArrayMinSize, b.arr.len())
 	require.Equal(t, 1, b.evalTracker.Count())
 	proposals := r.consumeProposals()
 	require.Len(t, proposals, propBufArrayMinSize)
+	var lai uint64
 	for i, p := range proposals {
 		if i != leaseReqIdx {
-			require.Equal(t, i, p.MaxLeaseIndex)
-		} else {
-			require.Equal(t, 0, p.MaxLeaseIndex)
+			lai++
 		}
+		require.Equal(t, lai, p.MaxLeaseIndex)
 	}
 
 	// Increase the proposer's applied lease index and flush. The buffer's
@@ -322,7 +320,7 @@ func TestProposalBuffer(t *testing.T) {
 	require.Equal(t, 0, b.AllocatedIdx())
 	require.Equal(t, 2, p.enqueued)
 	require.Equal(t, num+1, p.registered)
-	require.Equal(t, p.lai, b.liBase)
+	require.Equal(t, p.lai, b.maxLAI)
 
 	// Flush the buffer repeatedly until its array shrinks. We've already
 	// flushed once above, so start iterating at 1.
@@ -333,83 +331,74 @@ func TestProposalBuffer(t *testing.T) {
 	require.Equal(t, propBufArrayMinSize, b.arr.len())
 }
 
-// !!!
-//// TestProposalBufferConcurrentWithDestroy tests the concurrency properties of
-//// the Raft proposal buffer.
-//func TestProposalBufferConcurrentWithDestroy(t *testing.T) {
-//	defer leaktest.AfterTest(t)()
-//	defer log.Scope(t).Close(t)
-//	ctx := context.Background()
-//
-//	r := &testProposerRaft{}
-//	p := testProposer{
-//		raftGroup: r,
-//	}
-//	var b propBuf
-//	var pc proposalCreator
-//	clock := hlc.NewClock(hlc.UnixNano, time.Nanosecond)
-//	b.Init(&p, tracker.NewLockfreeTracker(), clock, cluster.MakeTestingClusterSettings())
-//
-//	mlais := make(map[uint64]struct{})
-//	dsErr := errors.New("destroyed")
-//
-//	// Run 20 concurrent producers.
-//	var g errgroup.Group
-//	const concurrency = 20
-//	for i := 0; i < concurrency; i++ {
-//		g.Go(func() error {
-//			for {
-//				pd := pc.newPutProposal(hlc.Timestamp{})
-//				_, tok := b.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
-//				mlai, err := b.Insert(ctx, pd, tok)
-//				if err != nil {
-//					if errors.Is(err, dsErr) {
-//						return nil
-//					}
-//					return errors.Wrap(err, "Insert")
-//				}
-//				p.Lock()
-//				if _, ok := mlais[mlai]; ok {
-//					p.Unlock()
-//					return errors.New("max lease index collision")
-//				}
-//				mlais[mlai] = struct{}{}
-//				p.Unlock()
-//			}
-//		})
-//	}
-//
-//	// Run a concurrent consumer.
-//	g.Go(func() error {
-//		for {
-//			if stop, err := func() (bool, error) {
-//				p.Lock()
-//				defer p.Unlock()
-//				if !p.ds.IsAlive() {
-//					return true, nil
-//				}
-//				if err := b.flushLocked(ctx); err != nil {
-//					return true, errors.Wrap(err, "flushLocked")
-//				}
-//				lastProps := r.consumeLastProposals()
-//				return false, nil
-//			}(); stop {
-//				return err
-//			}
-//		}
-//	})
-//
-//	// Wait for a random duration before destroying.
-//	time.Sleep(time.Duration(rand.Intn(1000)) * time.Microsecond)
-//
-//	// Destroy the proposer. All producers and consumers should notice.
-//	p.Lock()
-//	p.ds.Set(dsErr, destroyReasonRemoved)
-//	p.Unlock()
-//
-//	require.Nil(t, g.Wait())
-//	t.Logf("%d successful proposals before destroy", len(mlais))
-//}
+// TestProposalBufferConcurrentWithDestroy tests the concurrency properties of
+// the Raft proposal buffer.
+func TestProposalBufferConcurrentWithDestroy(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	defer log.Scope(t).Close(t)
+	ctx := context.Background()
+
+	r := &testProposerRaft{}
+	p := testProposer{
+		raftGroup: r,
+	}
+	var b propBuf
+	var pc proposalCreator
+	clock := hlc.NewClock(hlc.UnixNano, time.Nanosecond)
+	b.Init(&p, tracker.NewLockfreeTracker(), clock, cluster.MakeTestingClusterSettings())
+
+	dsErr := errors.New("destroyed")
+
+	// Run 20 concurrent producers.
+	var g errgroup.Group
+	const concurrency = 20
+	for i := 0; i < concurrency; i++ {
+		g.Go(func() error {
+			for {
+				pd := pc.newPutProposal(hlc.Timestamp{})
+				_, tok := b.TrackEvaluatingRequest(ctx, hlc.MinTimestamp)
+				err := b.Insert(ctx, pd, tok)
+				if err != nil {
+					if errors.Is(err, dsErr) {
+						return nil
+					}
+					return errors.Wrap(err, "Insert")
+				}
+			}
+		})
+	}
+
+	// Run a concurrent consumer.
+	g.Go(func() error {
+		for {
+			if stop, err := func() (bool, error) {
+				p.Lock()
+				defer p.Unlock()
+				if !p.ds.IsAlive() {
+					return true, nil
+				}
+				if err := b.flushLocked(ctx); err != nil {
+					return true, errors.Wrap(err, "flushLocked")
+				}
+				return false, nil
+			}(); stop {
+				return err
+			}
+		}
+	})
+
+	// Wait for a random duration before destroying.
+	time.Sleep(time.Duration(rand.Intn(1000)) * time.Microsecond)
+
+	// Destroy the proposer. All producers and consumers should notice.
+	p.Lock()
+	p.ds.Set(dsErr, destroyReasonRemoved)
+	p.Unlock()
+
+	require.Nil(t, g.Wait())
+	t.Logf("%d successful proposals before destroy", len(r.consumeProposals()))
+}
+
 //
 //// TestProposalBufferRegistersAllOnProposalError tests that all proposals in the
 //// proposal buffer are registered with the proposer when the buffer is flushed,
