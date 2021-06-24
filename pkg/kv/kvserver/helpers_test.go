@@ -247,6 +247,7 @@ func (r *Replica) GetLastIndex() (uint64, error) {
 	return r.raftLastIndexLocked()
 }
 
+// !!! is this still used?
 func (r *Replica) LastAssignedLeaseIndex() uint64 {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

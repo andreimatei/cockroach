@@ -27,89 +27,6 @@ import (
 	"go.etcd.io/etcd/raft/v3/raftpb"
 )
 
-// !!!
-//// propBufCnt is a counter maintained by proposal buffer that tracks an index
-//// into the buffer's array and an offset from the buffer's base lease index.
-//// The counter is accessed atomically.
-////
-//// Bit layout (LSB to MSB):
-////  bits 0  - 31: index into array
-////  bits 32 - 63: lease index offset
-//type propBufCnt uint64
-//
-//// propBufCntReq is a request to atomically update the proposal buffer's
-//// counter. The bit layout of the request is similar to that of propBufCnt,
-//// except that the two 32-bit segments represent deltas instead of absolute
-//// values.
-////
-//// In practice, there are only two variants of requests. The first variant
-//// consists of requests that want to increment only the counter's array index
-//// by one. These are represented like:
-////
-////   0 0 0 ..[63 times].. 1
-////
-//// The second variant consists of requests that want to increment the counter's
-//// array index by one and want to increment the counter's lease index offset by
-//// one. These are represented like:
-////
-////   0 0 0 ..[31 times].. 1 0 0 0 ..[31 times].. 1
-////
-//// Representing requests like this allows them to be atomically added directly
-//// to the proposal buffer counter to reserve an array index and optionally
-//// reserve a lease index.
-//type propBufCntReq uint64
-//
-//// propBufCntRes is a response from updating or reading the proposal buffer's
-//// counter. It can be understood as a snapshot of the counter.
-//type propBufCntRes uint64
-//
-//// makePropBufCntReq creates a new proposal buffer request. The incLeaseIndex
-//// arg indicates whether the request would like a new maximum lease index or
-//// whether it would like the same maximum lease index as the previous request.
-//func makePropBufCntReq(incLeaseIndex bool) propBufCntReq {
-//	r := propBufCntReq(1)
-//	if incLeaseIndex {
-//		r |= (1 << 32)
-//	}
-//	return r
-//}
-//
-//// arrayLen returns the number of elements in the proposal buffer's array.
-//func (r propBufCntRes) arrayLen() int {
-//	return int(r & (1<<32 - 1))
-//}
-//
-//// arrayIndex returns the index into the proposal buffer that was reserved for
-//// the request. The returned index will be -1 if no index was reserved (e.g. by
-//// propBufCnt.read) and if the buffer is empty.
-//func (r propBufCntRes) arrayIndex() int {
-//	// NB: -1 because the array is 0-indexed.
-//	return r.arrayLen() - 1
-//}
-//
-//// leaseIndexOffset returns the offset from the proposal buffer's current lease
-//// index base that was reserved for the request's maximum lease index.
-//func (r propBufCntRes) leaseIndexOffset() uint64 {
-//	return uint64(r >> 32)
-//}
-//
-//// update accepts a proposal buffer request and applies it to the proposal
-//// buffer counter, returning the response.
-//func (c *propBufCnt) update(r propBufCntReq) propBufCntRes {
-//	return propBufCntRes(atomic.AddUint64((*uint64)(c), uint64(r)))
-//}
-//
-//// clear resets a proposal buffer counter to its zero value and returns the
-//// response returned to the last accepted request.
-//func (c *propBufCnt) clear() propBufCntRes {
-//	return propBufCntRes(atomic.SwapUint64((*uint64)(c), 0))
-//}
-//
-//// read reads from the proposal buffer counter.
-//func (c *propBufCnt) read() propBufCntRes {
-//	return propBufCntRes(atomic.LoadUint64((*uint64)(c)))
-//}
-
 // propBuf is a multi-producer, single-consumer buffer for Raft proposals on a
 // range. The buffer supports concurrent insertion of proposals.
 //
@@ -146,9 +63,6 @@ type propBuf struct {
 	evalTracker tracker.Tracker
 	full        sync.Cond
 
-	// maxLAI represents the highest LAI that was assigned to a proposal.
-	maxLAI uint64
-	// !!! cnt    propBufCnt
 	// !!! accessed atomically
 	allocatedIdx int64
 	arr          propBufArray
@@ -167,6 +81,9 @@ type propBuf struct {
 	// This field can be read under the proposer's read lock, and written to under
 	// the write lock.
 	assignedClosedTimestamp hlc.Timestamp
+	// assignedLAI represents the highest LAI that was assigned to a proposal.
+	// This is set at the same time as assignedClosedTimestamp.
+	assignedLAI uint64
 
 	// Buffers used to avoid allocations.
 	tmpLAIFooter             kvserverpb.MaxLeaseFooter
@@ -256,7 +173,7 @@ func (b *propBuf) Init(
 	b.clock = clock
 	b.evalTracker = tracker
 	b.settings = settings
-	b.maxLAI = p.leaseAppliedIndex()
+	b.assignedLAI = p.leaseAppliedIndex()
 }
 
 // AllocatedIdx returns the highest index that was allocated. This generally
@@ -272,10 +189,11 @@ func (b *propBuf) ClearAllocatedIdx() {
 	atomic.StoreInt64(&b.allocatedIdx, 0)
 }
 
+// !!! still used?
 // LastAssignedLeaseIndexRLocked returns the last assigned lease index.
 func (b *propBuf) LastAssignedLeaseIndexRLocked() uint64 {
-	return b.maxLAI
-	// !!! return b.maxLAI + b.cnt.read().leaseIndexOffset()
+	return b.assignedLAI
+	// !!! return b.assignedLAI + b.cnt.read().leaseIndexOffset()
 }
 
 // Insert inserts a new command into the proposal buffer to be proposed to the
@@ -321,7 +239,7 @@ func (b *propBuf) Insert(ctx context.Context, p *ProposalData, tok TrackedReques
 	//// closed timestamp. For now it's needed here because Insert needs to return
 	//// the MLAI for the benefit of the "old" closed timestamp tracker. When moving
 	//// to flush, make sure to not reassign it on reproposals.
-	//p.command.MaxLeaseIndex = b.maxLAI + res.leaseIndexOffset()
+	//p.command.MaxLeaseIndex = b.assignedLAI + res.leaseIndexOffset()
 	//if filter := b.testing.leaseIndexFilter; filter != nil {
 	//	if override, err := filter(p); err != nil {
 	//		return 0, err
@@ -483,13 +401,6 @@ func (b *propBuf) flushLocked(ctx context.Context) error {
 func (b *propBuf) FlushLockedWithRaftGroup(
 	ctx context.Context, raftGroup proposerRaft,
 ) (int, error) {
-	// Before returning, make sure to forward the lease index base to at least
-	// the proposer's currently applied lease index. This ensures that if the
-	// lease applied index advances outside of this proposer's control (i.e.
-	// other leaseholders commit some stuff and then we get the lease back),
-	// future proposals will be given sufficiently high max lease indexes.
-	defer b.forwardLeaseIndexBaseLocked(b.p.leaseAppliedIndex())
-
 	// We hold the write lock while reading from and flushing the proposal
 	// buffer. This ensures that we synchronize with all producers and other
 	// consumers.
@@ -620,7 +531,7 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 		// as to not modify the copy that's already stored in the local replica's
 		// raft entry cache.
 		if !reproposal {
-			err := b.assignClosedTimestampToProposalLocked(ctx, p, closedTSTarget)
+			err := b.assignClosedTimestampAndLAIToProposalLocked(ctx, p, closedTSTarget)
 			if err != nil {
 				firstErr = err
 				continue
@@ -696,18 +607,18 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 	return used, proposeBatch(raftGroup, b.p.replicaID(), ents)
 }
 
-// assignClosedTimestampToProposalLocked assigns a closed timestamp to be
-// carried by an outgoing proposal, modifying p.encodedCommand. closedTSTarget
-// is the timestamp that should be closed for this range according to the
-// range's closing policy. This function will look at the particularities of
-// the range and of the proposal and decide to close a different timestamp.
+// assignClosedTimestampAndLAIToProposalLocked assigns a closed timestamp and
+// LAI to be carried by an outgoing proposal, modifying p.encodedCommand.
+// closedTSTarget is the timestamp that should be closed for this range
+// according to the range's closing policy. This function will look at the
+// particularities of the range and of the proposal and decide to close a
+// different timestamp.
 //
 // This shouldn't be called for reproposals; we don't want to update the closed
-// timestamp they carry (we could, in principle, but we'd have to make a copy of
-// the encoded command as to not modify the copy that's already stored in the
-// local replica's raft entry cache).
-// !!! rename with LAI
-func (b *propBuf) assignClosedTimestampToProposalLocked(
+// timestamp and LAI they carry (we could, in principle, but we'd have to make a
+// copy of the encoded command as to not modify the copy that's already stored
+// in the local replica's raft entry cache).
+func (b *propBuf) assignClosedTimestampAndLAIToProposalLocked(
 	ctx context.Context, p *ProposalData, closedTSTarget hlc.Timestamp,
 ) error {
 	{
@@ -718,10 +629,10 @@ func (b *propBuf) assignClosedTimestampToProposalLocked(
 		// a lease request. Lease requests don't need unique max lease index values
 		// because their max lease indexes are ignored. See checkForcedErr.
 		if !p.Request.IsLeaseRequest() {
-			b.maxLAI++
+			b.assignedLAI++
 		}
-		b.tmpLAIFooter.MaxLeaseIndex = b.maxLAI
-		log.Infof(ctx, "!!! assigned MLAI: %d", b.maxLAI)
+		b.tmpLAIFooter.MaxLeaseIndex = b.assignedLAI
+		log.Infof(ctx, "!!! assigned MLAI: %d", b.assignedLAI)
 		preLen := len(p.encodedCommand)
 		footerLen := b.tmpLAIFooter.Size()
 		p.encodedCommand = p.encodedCommand[:preLen+footerLen]
@@ -827,9 +738,9 @@ func (b *propBuf) assignClosedTimestampToProposalLocked(
 	return err
 }
 
-func (b *propBuf) forwardLeaseIndexBaseLocked(v uint64) {
-	if b.maxLAI < v {
-		b.maxLAI = v
+func (b *propBuf) forwardAssignedLAILocked(v uint64) {
+	if b.assignedLAI < v {
+		b.assignedLAI = v
 	}
 }
 
@@ -873,14 +784,20 @@ func (b *propBuf) FlushLockedWithoutProposing(ctx context.Context) {
 }
 
 // OnLeaseChangeLocked is called when a new lease is applied to this range.
-// closedTS is the range's closed timestamp after the new lease was applied. The
-// closed timestamp tracked by the propBuf is updated accordingly.
-func (b *propBuf) OnLeaseChangeLocked(leaseOwned bool, closedTS hlc.Timestamp) {
+// appliedClosedTS is the range's closed timestamp after the new lease was
+// applied; the closed timestamp tracked by the propBuf is updated accordingly.
+// Similarly, appliedLAI is the highest LAI of an applied command; the propBuf
+// will propose commands with higher LAIs.
+func (b *propBuf) OnLeaseChangeLocked(
+	leaseOwned bool, appliedClosedTS hlc.Timestamp, appliedLAI uint64,
+) {
 	if leaseOwned {
-		b.forwardClosedTimestampLocked(closedTS)
+		b.forwardClosedTimestampLocked(appliedClosedTS)
+		b.forwardAssignedLAILocked(appliedLAI)
 	} else {
 		// Zero out to avoid any confusion.
 		b.assignedClosedTimestamp = hlc.Timestamp{}
+		b.assignedLAI = 0
 	}
 }
 
