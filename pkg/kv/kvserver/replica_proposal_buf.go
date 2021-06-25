@@ -451,7 +451,9 @@ func (b *propBuf) FlushLockedWithRaftGroup(
 		if p == nil {
 			// If we run into an error during proposal insertion, we may have reserved
 			// an array index without actually inserting a proposal.
-			continue
+			// !!! is this still possible?
+			// continue
+			panic("!!!")
 		}
 		buf[i] = nil // clear buffer
 		reproposal := !p.tok.stillTracked()
