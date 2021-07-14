@@ -24,10 +24,10 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/security"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
-	"github.com/cockroachdb/cockroach/pkg/storage"
 	"github.com/cockroachdb/cockroach/pkg/storage/cloud"
 	"github.com/cockroachdb/cockroach/pkg/storage/enginepb"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
+	"github.com/cockroachdb/cockroach/pkg/util/mon"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
 )
 
@@ -252,6 +252,6 @@ func (rec *SpanSetReplicaEvalContext) WatchForMerge(ctx context.Context) error {
 }
 
 // GetResponseMemoryAccount implements the batcheval.EvalContext interface.
-func (rec *SpanSetReplicaEvalContext) GetResponseMemoryAccount() storage.ResponseMemoryAccount {
+func (rec *SpanSetReplicaEvalContext) GetResponseMemoryAccount() *mon.BoundAccount {
 	return rec.i.GetResponseMemoryAccount()
 }

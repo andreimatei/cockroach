@@ -471,6 +471,10 @@ func (mm *BytesMonitor) Resource() Resource {
 //
 // See the comments in bytes_usage.go for a fuller picture of how these accounts
 // are used in CockroachDB.
+//
+// A BoundAccount instance is not thread-safe. A nil *BoundAccount pointer is a
+// no-op: all the operations succeed and it does not track its usage. A nil
+// *BoundAccount is thread-safe.
 type BoundAccount struct {
 	used int64
 	// reserved is a small buffer to amortize the cost of growing an account. It
@@ -486,12 +490,18 @@ func MakeStandaloneBudget(capacity int64) BoundAccount {
 }
 
 // Used returns the number of bytes currently allocated through this account.
-func (b BoundAccount) Used() int64 {
+func (b *BoundAccount) Used() int64 {
+	if b == nil {
+		return 0
+	}
 	return b.used
 }
 
 // Monitor returns the BytesMonitor to which this account is bound.
-func (b BoundAccount) Monitor() *BytesMonitor {
+func (b *BoundAccount) Monitor() *BytesMonitor {
+	if b == nil {
+		return nil
+	}
 	return b.mon
 }
 
@@ -508,6 +518,9 @@ func (mm *BytesMonitor) MakeBoundAccount() BoundAccount {
 // to the reserved buffer, which is subsequently released such that at most
 // poolAllocationSize is reserved.
 func (b *BoundAccount) Empty(ctx context.Context) {
+	if b == nil {
+		return
+	}
 	b.reserved += b.used
 	b.used = 0
 	if b.reserved > b.mon.poolAllocationSize {
@@ -519,6 +532,9 @@ func (b *BoundAccount) Empty(ctx context.Context) {
 // Clear releases all the cumulated allocations of an account at once and
 // primes it for reuse.
 func (b *BoundAccount) Clear(ctx context.Context) {
+	if b == nil {
+		return
+	}
 	if b.mon == nil {
 		// An account created by MakeStandaloneBudget is disconnected from any
 		// monitor -- "bytes out of the aether". This needs not be closed.
@@ -531,6 +547,9 @@ func (b *BoundAccount) Clear(ctx context.Context) {
 
 // Close releases all the cumulated allocations of an account at once.
 func (b *BoundAccount) Close(ctx context.Context) {
+	if b == nil {
+		return
+	}
 	if b.mon == nil {
 		// An account created by MakeStandaloneBudget is disconnected from any
 		// monitor -- "bytes out of the aether". This needs not be closed.
@@ -552,6 +571,9 @@ func (b *BoundAccount) Close(ctx context.Context) {
 // opposed to resizing one object among many in the account), ResizeTo() should
 // be used.
 func (b *BoundAccount) Resize(ctx context.Context, oldSz, newSz int64) error {
+	if b == nil {
+		return nil
+	}
 	delta := newSz - oldSz
 	switch {
 	case delta > 0:
@@ -564,6 +586,9 @@ func (b *BoundAccount) Resize(ctx context.Context, oldSz, newSz int64) error {
 
 // ResizeTo resizes (grows or shrinks) the account to a specified size.
 func (b *BoundAccount) ResizeTo(ctx context.Context, newSz int64) error {
+	if b == nil {
+		return nil
+	}
 	if newSz == b.used {
 		// Performance optimization to avoid an unnecessary dispatch.
 		return nil
@@ -573,6 +598,9 @@ func (b *BoundAccount) ResizeTo(ctx context.Context, newSz int64) error {
 
 // Grow is an accessor for b.mon.GrowAccount.
 func (b *BoundAccount) Grow(ctx context.Context, x int64) error {
+	if b == nil {
+		return nil
+	}
 	if b.reserved < x {
 		minExtra := b.mon.roundSize(x)
 		if err := b.mon.reserveBytes(ctx, minExtra); err != nil {
@@ -587,6 +615,9 @@ func (b *BoundAccount) Grow(ctx context.Context, x int64) error {
 
 // Shrink releases part of the cumulated allocations by the specified size.
 func (b *BoundAccount) Shrink(ctx context.Context, delta int64) {
+	if b == nil {
+		return
+	}
 	if b.used < delta {
 		logcrash.ReportOrPanic(ctx, &b.mon.settings.SV,
 			"%s: no bytes in account to release, current %d, free %d",

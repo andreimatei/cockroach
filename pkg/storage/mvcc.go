@@ -805,7 +805,7 @@ type MVCCGetOptions struct {
 	// The field is only set if Txn is also set.
 	LocalUncertaintyLimit hlc.Timestamp
 	// MemoryAccount is used for tracking memory allocations.
-	MemoryAccount ResponseMemoryAccount
+	MemoryAccount *mon.BoundAccount
 }
 
 func (opts *MVCCGetOptions) validate() error {
@@ -884,7 +884,6 @@ func mvccGet(
 	// key different than the start key. This is a bit of a hack.
 	*mvccScanner = pebbleMVCCScanner{
 		parent:           iter,
-		memAccount:       opts.MemoryAccount,
 		start:            key,
 		ts:               timestamp,
 		maxKeys:          1,
@@ -892,6 +891,7 @@ func mvccGet(
 		tombstones:       opts.Tombstones,
 		failOnMoreRecent: opts.FailOnMoreRecent,
 		keyBuf:           mvccScanner.keyBuf,
+		memAccount:       opts.MemoryAccount,
 	}
 
 	mvccScanner.init(opts.Txn, opts.LocalUncertaintyLimit)
@@ -2378,7 +2378,6 @@ func mvccScanToBytes(
 
 	*mvccScanner = pebbleMVCCScanner{
 		parent:           iter,
-		memAccount:       opts.MemoryAccount,
 		reverse:          opts.Reverse,
 		start:            key,
 		end:              endKey,
@@ -2390,6 +2389,7 @@ func mvccScanToBytes(
 		tombstones:       opts.Tombstones,
 		failOnMoreRecent: opts.FailOnMoreRecent,
 		keyBuf:           mvccScanner.keyBuf,
+		memAccount:       opts.MemoryAccount,
 	}
 
 	mvccScanner.init(opts.Txn, opts.LocalUncertaintyLimit)
@@ -2476,42 +2476,6 @@ func buildScanIntents(data []byte) ([]roachpb.Intent, error) {
 	return intents, nil
 }
 
-// ResponseMemoryAccount is used to track memory allocations when producing a
-// response from the MVCC layer. The Grow method is used to track memory added
-// to the response. The provider of this monitor knows when the memory is no
-// longer needed, as multiple responses are typically coalesced into a batch
-// response. So it is typical to not need to use Shrink, though it is provided
-// as a convenience.
-//
-// An empty initialized ResponseMemoryAccount is safe to use, and is utilized
-// when the call path does not wish to do memory accounting, or has not yet
-// been instrumented to do such accounting (so using
-// MVCC{Scan,Get}Options.MemoryAccount always "works"). This also avoids up to
-// two memory allocations on paths that don't do memory accounting -- to
-// construct a NewUnlimitedMonitor and a BoundAccount.
-type ResponseMemoryAccount struct {
-	B *mon.BoundAccount
-}
-
-// Grow grows the reserved memory by x bytes.
-func (b ResponseMemoryAccount) Grow(ctx context.Context, x int64) error {
-	if b.B == nil {
-		return nil
-	}
-	if err := b.B.Grow(ctx, x); err != nil {
-		return errors.Wrapf(err, "used bytes %d", b.B.Used())
-	}
-	return nil
-}
-
-// Shrink releases part of the cumulated allocations by the specified size.
-func (b ResponseMemoryAccount) Shrink(ctx context.Context, delta int64) {
-	if b.B == nil {
-		return
-	}
-	b.B.Shrink(ctx, delta)
-}
-
 // MVCCScanOptions bundles options for the MVCCScan family of functions.
 type MVCCScanOptions struct {
 	// See the documentation for MVCCScan for information on these parameters.
@@ -2565,7 +2529,7 @@ type MVCCScanOptions struct {
 	// The zero value indicates no limit.
 	MaxIntents int64
 	// MemoryAccount is used for tracking memory allocations.
-	MemoryAccount ResponseMemoryAccount
+	MemoryAccount *mon.BoundAccount
 }
 
 func (opts *MVCCScanOptions) validate() error {

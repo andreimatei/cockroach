@@ -22,11 +22,11 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/security"
 	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
-	"github.com/cockroachdb/cockroach/pkg/storage"
 	"github.com/cockroachdb/cockroach/pkg/storage/cloud"
 	"github.com/cockroachdb/cockroach/pkg/storage/enginepb"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
 	"github.com/cockroachdb/cockroach/pkg/util/limit"
+	"github.com/cockroachdb/cockroach/pkg/util/mon"
 	"github.com/cockroachdb/cockroach/pkg/util/uuid"
 	"golang.org/x/time/rate"
 )
@@ -132,7 +132,7 @@ type EvalContext interface {
 	// GetResponseMemoryAccount returns a memory account to be used when
 	// generating BatchResponses. Currently only used for MVCC scans, and only
 	// initialized to be a real account on those paths.
-	GetResponseMemoryAccount() storage.ResponseMemoryAccount
+	GetResponseMemoryAccount() *mon.BoundAccount
 }
 
 // MockEvalCtx is a dummy implementation of EvalContext for testing purposes.
@@ -156,7 +156,9 @@ type MockEvalCtx struct {
 // EvalContext returns the MockEvalCtx as an EvalContext. It will reflect future
 // modifications to the underlying MockEvalContext.
 func (m *MockEvalCtx) EvalContext() EvalContext {
-	return &mockEvalCtxImpl{m}
+	return &mockEvalCtxImpl{
+		MockEvalCtx: m,
+	}
 }
 
 type mockEvalCtxImpl struct {
@@ -263,6 +265,6 @@ func (m *mockEvalCtxImpl) RevokeLease(_ context.Context, seq roachpb.LeaseSequen
 func (m *mockEvalCtxImpl) WatchForMerge(ctx context.Context) error {
 	panic("unimplemented")
 }
-func (m *mockEvalCtxImpl) GetResponseMemoryAccount() storage.ResponseMemoryAccount {
-	return storage.ResponseMemoryAccount{}
+func (m *mockEvalCtxImpl) GetResponseMemoryAccount() *mon.BoundAccount {
+	return nil
 }

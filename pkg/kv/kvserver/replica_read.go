@@ -193,11 +193,11 @@ func (r *Replica) executeReadOnlyBatch(
 // a field instead of wrapping.
 type evalContextWithAccount struct {
 	batcheval.EvalContext
-	memMonitor storage.ResponseMemoryAccount
+	memAccount *mon.BoundAccount
 }
 
-func (e evalContextWithAccount) GetResponseMemoryAccount() storage.ResponseMemoryAccount {
-	return e.memMonitor
+func (e evalContextWithAccount) GetResponseMemoryAccount() *mon.BoundAccount {
+	return e.memAccount
 }
 
 // executeReadOnlyBatchWithServersideRefreshes invokes evaluateBatch and retries
@@ -237,9 +237,10 @@ func (r *Replica) executeReadOnlyBatchWithServersideRefreshes(
 		// for tests that do not have a monitor.
 		rootMonitor = r.store.getRootMemoryMonitorForKV()
 	}
-	var boundAccount mon.BoundAccount
+	var boundAccount *mon.BoundAccount
 	if rootMonitor != nil {
-		boundAccount = rootMonitor.MakeBoundAccount()
+		acc := rootMonitor.MakeBoundAccount()
+		boundAccount = &acc
 		// Memory is not actually released when this function returns, but at
 		// least the batch is fully evaluated. Ideally we would like to release
 		// after grpc has sent the response, but there are no interceptors at that
@@ -250,12 +251,13 @@ func (r *Replica) executeReadOnlyBatchWithServersideRefreshes(
 		// with cyclic references).
 		defer boundAccount.Close(ctx)
 		rec = evalContextWithAccount{
-			EvalContext: rec, memMonitor: storage.ResponseMemoryAccount{B: &boundAccount}}
+			EvalContext: rec,
+			memAccount:  boundAccount,
+		}
 	}
 
 	for retries := 0; ; retries++ {
 		if retries > 0 {
-			// It is safe to call Clear on an uninitialized BoundAccount.
 			boundAccount.Clear(ctx)
 			log.VEventf(ctx, 2, "server-side retry of batch")
 		}

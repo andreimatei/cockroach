@@ -21,6 +21,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/storage/enginepb"
 	"github.com/cockroachdb/cockroach/pkg/util/hlc"
+	"github.com/cockroachdb/cockroach/pkg/util/mon"
 	"github.com/cockroachdb/cockroach/pkg/util/protoutil"
 	"github.com/cockroachdb/errors"
 	"github.com/cockroachdb/pebble"
@@ -47,7 +48,7 @@ func (p *pebbleResults) clear() {
 // <valueLen:Uint32><keyLen:Uint32><Key><Value>
 // This function adds to repr in that format.
 func (p *pebbleResults) put(
-	ctx context.Context, key []byte, value []byte, monitor ResponseMemoryAccount,
+	ctx context.Context, key []byte, value []byte, memAccount *mon.BoundAccount,
 ) error {
 	// Key value lengths take up 8 bytes (2 x Uint32).
 	const kvLenSize = 8
@@ -79,7 +80,7 @@ func (p *pebbleResults) put(
 		if len(p.repr) > 0 {
 			p.bufs = append(p.bufs, p.repr)
 		}
-		if err := monitor.Grow(ctx, int64(newSize)); err != nil {
+		if err := memAccount.Grow(ctx, int64(newSize)); err != nil {
 			return err
 		}
 		p.repr = nonZeroingMakeByteSlice(newSize)[:0]
@@ -107,8 +108,9 @@ func (p *pebbleResults) finish() [][]byte {
 // Go port of mvccScanner in libroach/mvcc.h. Stores all variables relating to
 // one MVCCGet / MVCCScan call.
 type pebbleMVCCScanner struct {
-	parent     MVCCIterator
-	memAccount ResponseMemoryAccount
+	parent MVCCIterator
+	// memAccount is charged with the size of the scan results.
+	memAccount *mon.BoundAccount
 	reverse    bool
 	peeked     bool
 	// Iteration bounds. Does not contain MVCC timestamp.
