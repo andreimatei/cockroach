@@ -12,6 +12,7 @@ package kvserver
 
 import (
 	"context"
+	"sync"
 
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/batcheval"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvserver/batcheval/result"
@@ -196,6 +197,34 @@ type evalContextWithAccount struct {
 	memAccount *mon.BoundAccount
 }
 
+var evalContextWithAccountPool = sync.Pool{
+	New: func() interface{} {
+		return &evalContextWithAccount{}
+	},
+}
+
+// newEvalContextWithAccount creates a evalContextWithAccount with an account
+// bound to mon. It uses a sync.Pool.
+func newEvalContextWithAccount(
+	ctx context.Context, evalCtx batcheval.EvalContext, mon *mon.BytesMonitor,
+) *evalContextWithAccount {
+	ec := evalContextWithAccountPool.Get().(*evalContextWithAccount)
+	ec.EvalContext = evalCtx
+	if ec.memAccount != nil {
+		ec.memAccount.Init(ctx, mon)
+	} else {
+		acc := mon.MakeBoundAccount()
+		ec.memAccount = &acc
+	}
+	return ec
+}
+
+func (e *evalContextWithAccount) Close(ctx context.Context) {
+	e.memAccount.Close(ctx)
+	*e.memAccount = mon.BoundAccount{}
+	evalContextWithAccountPool.Put(e)
+}
+
 func (e evalContextWithAccount) GetResponseMemoryAccount() *mon.BoundAccount {
 	return e.memAccount
 }
@@ -213,7 +242,7 @@ func (r *Replica) executeReadOnlyBatchWithServersideRefreshes(
 ) (br *roachpb.BatchResponse, res result.Result, pErr *roachpb.Error) {
 	log.Event(ctx, "executing read-only batch")
 
-	var rootMonitor *mon.BytesMonitor
+	var kvMonitor *mon.BytesMonitor
 	// Only do memory allocation accounting if the request did not originate
 	// locally, or for a local request that has reserved no memory. Local
 	// requests (originating in DistSQL) do memory accounting before issuing the
@@ -233,27 +262,25 @@ func (r *Replica) executeReadOnlyBatchWithServersideRefreshes(
 	// place a limit equal to total/2).
 	if ba.AdmissionHeader.SourceLocation != roachpb.AdmissionHeader_LOCAL ||
 		ba.AdmissionHeader.NoMemoryReservedAtSource {
-		// rootMonitor will never be nil in production settings, but it can be nil
+		// kvMonitor will never be nil in production settings, but it can be nil
 		// for tests that do not have a monitor.
-		rootMonitor = r.store.getRootMemoryMonitorForKV()
+		kvMonitor = r.store.getRootMemoryMonitorForKV()
 	}
 	var boundAccount *mon.BoundAccount
-	if rootMonitor != nil {
-		acc := rootMonitor.MakeBoundAccount()
-		boundAccount = &acc
-		// Memory is not actually released when this function returns, but at
-		// least the batch is fully evaluated. Ideally we would like to release
-		// after grpc has sent the response, but there are no interceptors at that
-		// stage. The interceptors execute before the response is marshaled in
-		// Server.processUnaryRPC by calling sendResponse.
+	if kvMonitor != nil {
+		evalCtx := newEvalContextWithAccount(ctx, rec, kvMonitor)
+		boundAccount = evalCtx.memAccount
+		rec = evalCtx
+		// Closing evalCtx will also close boundAccount. Memory is not actually
+		// released when this function returns, but at least the batch is fully
+		// evaluated. Ideally we would like to release after grpc has sent the
+		// response, but there are no interceptors at that stage. The interceptors
+		// execute before the response is marshaled in Server.processUnaryRPC by
+		// calling sendResponse.
 		// We are intentionally not using finalizers because they delay GC and
 		// because they have had bugs in the past (and can prevent GC of objects
 		// with cyclic references).
-		defer boundAccount.Close(ctx)
-		rec = evalContextWithAccount{
-			EvalContext: rec,
-			memAccount:  boundAccount,
-		}
+		defer evalCtx.Close(ctx)
 	}
 
 	for retries := 0; ; retries++ {

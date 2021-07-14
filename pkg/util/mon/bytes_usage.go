@@ -489,6 +489,14 @@ func MakeStandaloneBudget(capacity int64) BoundAccount {
 	return BoundAccount{used: capacity}
 }
 
+// Init initializes a BoundAccount, binding it to mon.
+func (b *BoundAccount) Init(ctx context.Context, mon *BytesMonitor) {
+	if *b != (BoundAccount{}) {
+		log.Fatalf(ctx, "trying to re-initialize non-empty account")
+	}
+	b.mon = mon
+}
+
 // Used returns the number of bytes currently allocated through this account.
 func (b *BoundAccount) Used() int64 {
 	if b == nil {
@@ -511,7 +519,9 @@ func (b BoundAccount) allocated() int64 {
 
 // MakeBoundAccount creates a BoundAccount connected to the given monitor.
 func (mm *BytesMonitor) MakeBoundAccount() BoundAccount {
-	return BoundAccount{mon: mm}
+	acc := BoundAccount{}
+	acc.Init(context.TODO(), mm)
+	return acc
 }
 
 // Empty shrinks the account to use 0 bytes. Previously used memory is returned
