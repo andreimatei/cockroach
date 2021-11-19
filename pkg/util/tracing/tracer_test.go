@@ -214,7 +214,7 @@ func TestStartChildSpan(t *testing.T) {
 }
 
 func TestSterileSpan(t *testing.T) {
-	tr := NewTracerWithOpt(context.Background(), WithTestingKnobs(TracerTestingKnobs{ForceRealSpans: true}))
+	tr := NewTracerWithOpt(context.Background(), WithTracingDefault(DefaultOn))
 
 	// Check that a children of sterile spans are roots.
 	// Make the span verbose so that we can use its recording below to assert that
@@ -649,7 +649,7 @@ span: a
 // roots and are inserted into the registry.
 func TestRegistryOrphanSpansBecomeRoots(t *testing.T) {
 	ctx := context.Background()
-	tr := NewTracerWithOpt(ctx, WithTestingKnobs(TracerTestingKnobs{ForceRealSpans: true}))
+	tr := NewTracerWithOpt(ctx, WithTracingDefault(DefaultOn))
 	// s1 must be recording because, otherwise, the child spans are not linked to
 	// it.
 	s1 := tr.StartSpan("parent", WithRecording(RecordingStructured))
