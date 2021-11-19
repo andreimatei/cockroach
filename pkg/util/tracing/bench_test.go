@@ -102,8 +102,7 @@ func BenchmarkSpan_GetRecording(b *testing.B) {
 }
 
 func BenchmarkRecordingWithStructuredEvent(b *testing.B) {
-	tr := NewTracerWithOpt(context.Background(),
-		WithTestingKnobs(TracerTestingKnobs{ForceRealSpans: true}))
+	tr := NewTracerWithOpt(context.Background(), WithTracingDefault(DefaultOn))
 
 	ev := &types.Int32Value{Value: 5}
 	b.ReportAllocs()
@@ -119,9 +118,7 @@ func BenchmarkRecordingWithStructuredEvent(b *testing.B) {
 
 // BenchmarkSpanCreation creates traces with a couple of spans in them.
 func BenchmarkSpanCreation(b *testing.B) {
-	tr := NewTracerWithOpt(context.Background(), WithTestingKnobs(TracerTestingKnobs{
-		ForceRealSpans: true,
-	}))
+	tr := NewTracerWithOpt(context.Background(), WithTracingDefault(DefaultOn))
 	b.ReportAllocs()
 	const numChildren = 5
 	childNames := make([]string, numChildren)

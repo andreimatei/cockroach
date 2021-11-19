@@ -473,7 +473,7 @@ func TestStructureRecording(t *testing.T) {
 		t.Run(fmt.Sprintf("finish1=%t", finishCh1), func(t *testing.T) {
 			for _, finishCh2 := range []bool{true, false} {
 				t.Run(fmt.Sprintf("finish2=%t", finishCh2), func(t *testing.T) {
-					tr := NewTracerWithOpt(context.Background(), WithTestingKnobs(TracerTestingKnobs{ForceRealSpans: true}))
+					tr := NewTracerWithOpt(context.Background(), WithTracingDefault(DefaultOn))
 					sp := tr.StartSpan("root", WithRecording(RecordingStructured))
 					ch1 := tr.StartSpan("child", WithParent(sp))
 					ch2 := tr.StartSpan("grandchild", WithParent(ch1))
