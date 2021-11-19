@@ -137,6 +137,23 @@ var ZipkinCollector = settings.RegisterValidatedStringSetting(
 	},
 ).WithPublic()
 
+// DefaultTracingMode specifies whether span creation is enabled or disabled by
+// default, when other conditions that don't explicitly turn tracing on don't
+// apply.
+type DefaultTracingMode int
+
+const (
+	// DefaultFromEnv is equivalent to DefaultOff for not. It's reserved for
+	// future use.
+	DefaultFromEnv DefaultTracingMode = iota
+	// DefaultOff means that Spans will no be created unless there's a particular
+	// reason to create them.
+	DefaultOff
+	// DefaultOn means that Spans are always created. Open spans are accessible
+	// through the active spans registry.
+	DefaultOn
+)
+
 // Tracer implements tracing requests. It supports:
 //
 //  - forwarding events to x/net/trace instances
@@ -157,6 +174,8 @@ type Tracer struct {
 	// Preallocated noopSpan, used to avoid creating spans when we are not using
 	// x/net/trace or lightstep and we are not recording.
 	noopSpan *Span
+
+	tracingDefault DefaultTracingMode
 
 	// backardsCompatibilityWith211, if set, makes the Tracer
 	// work with 21.1 remote nodes.
@@ -294,9 +313,6 @@ func (r *spanRegistry) swap(parentID tracingpb.SpanID, children []*crdbSpan) {
 type TracerTestingKnobs struct {
 	// Clock allows the time source for spans to be controlled.
 	Clock timeutil.TimeSource
-	// ForceRealSpans, if set, forces the Tracer to create spans even when tracing
-	// is otherwise disabled.
-	ForceRealSpans bool
 	// UseNetTrace, if set, forces the Traces to always create spans which record
 	// to net.Trace objects.
 	UseNetTrace bool
@@ -328,13 +344,15 @@ func NewTracerWithOpt(ctx context.Context, opts ...TracerOption) *Tracer {
 		t.Configure(ctx, o.sv)
 	}
 	t.testing = o.knobs
+	t.tracingDefault = DefaultTracingMode(o.tracingDefault)
 	return t
 }
 
 // tracerOptions groups configuration for Tracer construction.
 type tracerOptions struct {
-	sv    *settings.Values
-	knobs TracerTestingKnobs
+	sv             *settings.Values
+	knobs          TracerTestingKnobs
+	tracingDefault tracingDefaultOpt
 }
 
 // TracerOption is implemented by the arguments to the Tracer constructor.
@@ -371,6 +389,18 @@ var _ TracerOption = knobsOpt{}
 // WithTestingKnobs configures the Tracer with the specified knobs.
 func WithTestingKnobs(knobs TracerTestingKnobs) TracerOption {
 	return knobsOpt{knobs: knobs}
+}
+
+type tracingDefaultOpt DefaultTracingMode
+
+var _ TracerOption = tracingDefaultOpt(DefaultFromEnv)
+
+func (o tracingDefaultOpt) apply(opt *tracerOptions) {
+	opt.tracingDefault = o
+}
+
+func WithTracingDefault(opt DefaultTracingMode) TracerOption {
+	return tracingDefaultOpt(opt)
 }
 
 // Configure sets up the Tracer according to the cluster settings (and keeps
@@ -584,8 +614,15 @@ func (t *Tracer) StartSpanCtx(
 // AlwaysTrace returns true if operations should be traced regardless of the
 // context.
 func (t *Tracer) AlwaysTrace() bool {
-	if t.testing.ForceRealSpans {
+	switch t.tracingDefault {
+	case DefaultFromEnv:
+		// TODO(andrei): Enable tracing on for tests once we get detection of
+		// use-after-Finish, so that tests shake bugs out.
+	case DefaultOn:
 		return true
+	case DefaultOff:
+	default:
+		panic(fmt.Sprintf("unrecognized tracing option: %v", t.tracingDefault))
 	}
 	otelTracer := t.getOtelTracer()
 	return t.useNetTrace() || otelTracer != nil
