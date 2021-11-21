@@ -22,6 +22,7 @@ import (
 	"unsafe"
 
 	"github.com/cockroachdb/cockroach/pkg/settings"
+	"github.com/cockroachdb/cockroach/pkg/util/buildutil"
 	"github.com/cockroachdb/cockroach/pkg/util/envutil"
 	"github.com/cockroachdb/cockroach/pkg/util/iterutil"
 	"github.com/cockroachdb/cockroach/pkg/util/netutil/addr"
@@ -137,14 +138,17 @@ var ZipkinCollector = settings.RegisterValidatedStringSetting(
 	},
 ).WithPublic()
 
+// enableTracingByDefault controls whether Tracers configured with
+// WithTracingDefault(DefaultFromEnv) generally create spans or not.
+var enableTracingByDefault = envutil.EnvOrDefaultBool("COCKROACH_REAL_SPANS", false) || buildutil.CrdbTestBuild
+
 // DefaultTracingMode specifies whether span creation is enabled or disabled by
 // default, when other conditions that don't explicitly turn tracing on don't
 // apply.
 type DefaultTracingMode int
 
 const (
-	// DefaultFromEnv is equivalent to DefaultOff for not. It's reserved for
-	// future use.
+	// DefaultFromEnv configures tracing according to enableTracingByDefault.
 	DefaultFromEnv DefaultTracingMode = iota
 	// DefaultOff means that Spans will no be created unless there's a particular
 	// reason to create them.
@@ -707,8 +711,9 @@ func (t *Tracer) StartSpanCtx(
 func (t *Tracer) AlwaysTrace() bool {
 	switch t.tracingDefault {
 	case DefaultFromEnv:
-		// TODO(andrei): Enable tracing on for tests once we get detection of
-		// use-after-Finish, so that tests shake bugs out.
+		if enableTracingByDefault {
+			return true
+		}
 	case DefaultOn:
 		return true
 	case DefaultOff:
