@@ -135,6 +135,13 @@ func (s *spanInner) Meta() SpanMeta {
 	}
 }
 
+func (s *spanInner) OperationName() string {
+	if s.isNoop() {
+		return "noop"
+	}
+	return s.crdb.operation
+}
+
 func (s *spanInner) SetTag(key string, value attribute.Value) *spanInner {
 	if s.isNoop() {
 		return s

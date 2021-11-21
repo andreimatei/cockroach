@@ -174,6 +174,9 @@ type parentOption Span
 // wait for the child to Finish(). If this expectation does not hold,
 // WithFollowsFrom should be added to the StartSpan invocation.
 func WithParent(sp *Span) SpanOption {
+	// Panic if the parent has already been finished, if configured to do so.
+	_ = sp.done()
+
 	// The sp.IsNoop() case is handled in StartSpan, not here, because we want to
 	// assert that the parent's Tracer is the same as the child's. In contrast, in
 	// the IsSterile() case, it is allowed for the "child" to be created with a
