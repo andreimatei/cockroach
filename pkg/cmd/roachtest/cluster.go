@@ -1827,6 +1827,9 @@ func (c *clusterImpl) StartE(ctx context.Context, opts ...option.Option) error {
 	}
 
 	// Crash on span use-after-finish.
+	if !argExists(args, "--env=COCKROACH_REAL_SPANS") {
+		args = append(args, "--env=COCKROACH_REAL_SPANS=1")
+	}
 	if !argExists(args, "--env=COCKROACH_CRASH_ON_SPAN_USE_AFTER_FINISH") {
 		args = append(args, "--env=COCKROACH_CRASH_ON_SPAN_USE_AFTER_FINISH=1")
 	}
