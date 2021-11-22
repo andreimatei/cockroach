@@ -30,6 +30,11 @@ import (
 // crdbSpan is a span for internal crdb usage. This is used to power SQL session
 // tracing.
 type crdbSpan struct {
+	// generation is accessed atomically without necessarily holding mu. This is
+	// so that parents can access the children's generations and vice-versa
+	// without deadlocks.
+	generation spanGeneration // accessed atomically
+
 	tracer *Tracer
 
 	traceID      tracingpb.TraceID // probabilistically unique
@@ -53,6 +58,13 @@ type crdbSpan struct {
 	// Locking rules: if locking both a parent and a child, the parent must be
 	// locked first. In practice, children don't take the parent's lock.
 	mu crdbSpanMu
+}
+
+type spanGeneration int64
+
+type crdbSpanPtr struct {
+	span       *crdbSpan
+	generation spanGeneration
 }
 
 type childRef struct {
@@ -147,6 +159,11 @@ type sizeLimitedBuffer struct {
 	limit int64 // in bytes
 }
 
+func (buf *sizeLimitedBuffer) Reset() {
+	buf.Buffer.Reset()
+	buf.size = 0
+}
+
 // finish marks the span as finished. Further operations on the span are not
 // allowed. Returns false if the span was already finished.
 //
@@ -157,8 +174,8 @@ type sizeLimitedBuffer struct {
 // is generally tolerated - and that's also why this method returns false when
 // called a second time.
 func (s *crdbSpan) finish() bool {
-	var children []*crdbSpan
-	var parent *crdbSpan
+	var children []crdbSpanPtr
+	var parent crdbSpanPtr
 	var needRegistryChange bool
 	{
 		s.mu.Lock()
@@ -183,24 +200,35 @@ func (s *crdbSpan) finish() bool {
 		// Shallow-copy the children so they can be processed outside the lock. No
 		// new children will be added from this point on, since we've set
 		// finished=true above.
-		children = make([]*crdbSpan, len(s.mu.openChildren))
+		children = make([]crdbSpanPtr, len(s.mu.openChildren))
 		for i, c := range s.mu.openChildren {
-			children[i] = c.crdbSpan
+			children[i] = crdbSpanPtr{
+				span:       c.crdbSpan,
+				generation: c.getGeneration(),
+			}
 		}
 
-		// We'll operate on the parent outside of the child's lock.
-		parent = s.mu.parent
+		// We'll operate on the parent outside of the child's lock. s.mu.parent is
+		// known to be a valid pointer right now, since a parent is not reused while
+		// children are pointing at it, but it might get reused after we drop our
+		// lock before.
+		parent = crdbSpanPtr{
+			span: s.mu.parent,
+		}
+		if s.mu.parent != nil {
+			parent.generation = s.mu.parent.getGeneration()
+		}
 
 		s.mu.Unlock()
 	}
 
-	if parent != nil {
-		parent.childFinished(s)
+	if parent.span != nil {
+		parent.span.childFinished(s, parent.generation)
 	}
 
 	// Deal with the orphaned children - make them roots.
 	for _, c := range children {
-		c.parentFinished()
+		c.span.parentFinished(c.generation)
 	}
 	if needRegistryChange {
 		// Atomically replace s in the registry with all of its still-open children.
@@ -625,9 +653,16 @@ func (s *crdbSpan) addChild(child *crdbSpan, collectChildRec bool) bool {
 //
 // This is only called if the respective child had been linked to the parent -
 // i.e. only if the parent was recording when the child started.
-func (s *crdbSpan) childFinished(child *crdbSpan) {
+func (s *crdbSpan) childFinished(child *crdbSpan, gen spanGeneration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// The parent might have gotten finished, or even reused, since the finishing
+	// child has read its pointer to the parent.
+	if s.mu.finished || s.getGeneration() != gen {
+		return
+	}
+
 	var childIdx int
 	found := false
 	for i, c := range s.mu.openChildren {
@@ -681,10 +716,10 @@ func (s *crdbSpan) childFinished(child *crdbSpan) {
 }
 
 // parentFinished makes s a root.
-func (s *crdbSpan) parentFinished() {
+func (s *crdbSpan) parentFinished(gen spanGeneration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.mu.finished {
+	if s.mu.finished || s.getGeneration() != gen {
 		return
 	}
 	s.mu.parent = nil
@@ -715,6 +750,14 @@ func (s *crdbSpan) withLock(f func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f()
+}
+
+func (s *crdbSpan) getGeneration() spanGeneration {
+	return spanGeneration(atomic.LoadInt64((*int64)(&s.generation)))
+}
+
+func (s *crdbSpan) incGeneration() {
+	atomic.AddInt64((*int64)(&s.generation), 1)
 }
 
 var sortPool = sync.Pool{

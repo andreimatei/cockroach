@@ -61,6 +61,9 @@ var debugUseAfterFinish = envutil.EnvOrDefaultBool("COCKROACH_DEBUG_SPAN_USE_AFT
 // and restarting its data collection (see Span.StartRecording), and this is
 // used extensively in SQL session tracing.
 type Span struct {
+	// helper is the allocation helper that this span is part of. Used to release
+	// back into a pool on Finish().
+	helper *helper
 	// Span itself is a very thin wrapper around spanInner whose only job is
 	// to guard spanInner against use-after-Finish.
 	i spanInner
@@ -112,17 +115,28 @@ func (sp *Span) Tracer() *Tracer {
 	return sp.i.Tracer()
 }
 
+func (sp *Span) String() string {
+	return fmt.Sprintf("span: %s rec: %d (%p)", sp.OperationName(), sp.RecordingType(), sp)
+}
+
 // Finish marks the Span as completed. The Span should not be used any more.
 // Finishing a nil *Span is a noop.
 func (sp *Span) Finish() {
+	if sp.finishInternal() {
+		releaseSpanToPool(sp)
+	}
+}
+
+func (sp *Span) finishInternal() bool {
 	if sp == nil || sp.IsNoop() || sp.done() {
-		return
+		return false
 	}
 	atomic.StoreInt32(&sp.finished, 1)
 	sp.i.Finish()
 	if sp.Tracer().DebugUseAfterFinish() {
 		sp.finishStack = string(debug.Stack())
 	}
+	return true
 }
 
 // FinishAndGetRecording finishes the span and gets a recording at the same
@@ -131,9 +145,13 @@ func (sp *Span) Finish() {
 // would appear to be unfinished in the recording (it's illegal to collect the
 // recording after the span finishes, except by using this method).
 func (sp *Span) FinishAndGetRecording(recType RecordingType) Recording {
-	sp.Finish()
+	realSpan := sp.finishInternal()
 	// Reach directly into sp.i to avoide the done() check in sp.GetRecording().
-	return sp.i.GetRecording(recType)
+	rec := sp.i.GetRecording(recType)
+	if realSpan {
+		releaseSpanToPool(sp)
+	}
+	return rec
 }
 
 // GetRecording retrieves the current recording, if the Span has recording
@@ -325,7 +343,7 @@ func (sm SpanMeta) Empty() bool {
 
 func (sm SpanMeta) String() string {
 	var s strings.Builder
-	s.WriteString(fmt.Sprintf("[spanID: %d, traceID: %d", sm.spanID, sm.traceID))
+	s.WriteString(fmt.Sprintf("[spanID: %d, traceID: %d rec: %d", sm.spanID, sm.traceID, sm.recordingType))
 	hasOtelSpan := sm.otelCtx.IsValid()
 	if hasOtelSpan {
 		s.WriteString(" hasOtel")
