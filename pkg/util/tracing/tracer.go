@@ -311,14 +311,14 @@ func (r *spanRegistry) testingAll() []*crdbSpan {
 // removing the parent from the registry, the children are accessible in the
 // registry through that parent; if we didn't do this swap when the parent is
 // removed, the children would not be part of the registry anymore.
-func (r *spanRegistry) swap(parentID tracingpb.SpanID, children []*crdbSpan) {
+func (r *spanRegistry) swap(parentID tracingpb.SpanID, children []crdbSpanPtr) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.removeSpanLocked(parentID)
 	for _, c := range children {
-		c.withLock(func() {
-			if !c.mu.finished {
-				r.addSpanLocked(c)
+		c.span.withLock(func() {
+			if !c.span.mu.finished && c.generation == c.span.getGeneration() {
+				r.addSpanLocked(c.span)
 			}
 		})
 	}
@@ -646,6 +646,47 @@ func (t *Tracer) StartSpan(operationName string, os ...SpanOption) *Span {
 	return sp
 }
 
+type helper struct {
+	span     Span
+	crdbSpan crdbSpan
+	// !!! octx     optimizedContext
+	// Pre-allocated buffers for the span.
+	tagsAlloc             [3]attribute.KeyValue
+	childrenAlloc         [4]childRef
+	structuredEventsAlloc [3]interface{}
+}
+
+var spanPool = sync.Pool{
+	New: func() interface{} {
+		h := new(helper)
+		h.span.helper = h
+		h.crdbSpan.generation = 1
+		h.crdbSpan.mu.tags = h.tagsAlloc[:]
+		h.crdbSpan.mu.openChildren = h.childrenAlloc[:0]
+		h.crdbSpan.mu.recording.logs = makeSizeLimitedBuffer(maxLogBytesPerSpan, nil /* scratch */)
+		h.crdbSpan.mu.recording.structured = makeSizeLimitedBuffer(maxStructuredBytesPerSpan, h.structuredEventsAlloc[:])
+		return h
+	},
+}
+
+func getHelper() *helper {
+	h := spanPool.Get().(*helper)
+	//fmt.Printf("!!! allocated span: %p\n", &h.span)
+	atomic.StoreInt32(&h.span.finished, 0)
+	if c := h.span.i.crdb; c != nil {
+		c.incGeneration()
+	}
+	return h
+}
+
+func releaseSpanToPool(s *Span) {
+	h := s.helper
+	if &s.helper.span != s {
+		panic("!!!")
+	}
+	spanPool.Put(h)
+}
+
 // StartSpanCtx starts a Span and returns it alongside a wrapping Context
 // derived from the supplied Context. Any log tags found in the supplied
 // Context are propagated into the Span; this behavior can be modified by
@@ -781,41 +822,27 @@ func (t *Tracer) startSpanGeneric(
 	spanID := tracingpb.SpanID(randutil.FastInt63())
 	goroutineID := uint64(goid.Get())
 
-	// Now allocate the main *Span and contained crdbSpan.
-	// Allocate these together to save on individual allocs.
-	//
-	// NB: at the time of writing, it's not possible to start a Span
-	// that *only* contains `ot` or `netTr`. This is just an artifact
-	// of the history of this code and may change in the future.
-	helper := struct {
-		span     Span
-		crdbSpan crdbSpan
-		octx     optimizedContext
-		// Pre-allocated buffers for the span.
-		tagsAlloc             [3]attribute.KeyValue
-		childrenAlloc         [4]childRef
-		structuredEventsAlloc [3]interface{}
-	}{}
-
-	helper.crdbSpan = crdbSpan{
-		tracer:       t,
-		traceID:      traceID,
-		spanID:       spanID,
-		goroutineID:  goroutineID,
-		startTime:    startTime,
-		parentSpanID: opts.parentSpanID(),
-		logTags:      opts.LogTags,
-		mu: crdbSpanMu{
-			duration: -1, // unfinished
-			tags:     helper.tagsAlloc[:0],
-		},
-	}
-	helper.crdbSpan.operation = opName
-	helper.crdbSpan.mu.recording.logs = makeSizeLimitedBuffer(maxLogBytesPerSpan, nil /* scratch */)
-	helper.crdbSpan.mu.recording.structured = makeSizeLimitedBuffer(maxStructuredBytesPerSpan, helper.structuredEventsAlloc[:])
-	helper.crdbSpan.mu.openChildren = helper.childrenAlloc[:0]
+	helper := getHelper()
+	c := &helper.crdbSpan
+	c.tracer = t
+	c.traceID = traceID
+	c.spanID = spanID
+	c.operation = opName
+	c.goroutineID = goroutineID
+	c.startTime = startTime
+	c.parentSpanID = opts.parentSpanID()
+	c.logTags = opts.LogTags
+	c.mu.finished = false
+	c.mu.duration = -1 // unfinished
+	c.mu.tags = c.mu.tags[:0]
+	c.mu.recording.logs.Reset()
+	c.mu.recording.structured.Reset()
+	c.mu.openChildren = c.mu.openChildren[:0]
+	c.mu.recording.recordingType.swap(RecordingOff)
+	c.mu.recording.finishedChildren = c.mu.recording.finishedChildren[:0]
+	c.mu.recording.dropped = false
 	if opts.SpanKind != oteltrace.SpanKindUnspecified {
-		helper.crdbSpan.setTagLocked(spanKindTagKey, attribute.StringValue(opts.SpanKind.String()))
+		c.setTagLocked(spanKindTagKey, attribute.StringValue(opts.SpanKind.String()))
 	}
 	helper.span.i = spanInner{
 		tracer:   t,
@@ -838,9 +865,12 @@ func (t *Tracer) startSpanGeneric(
 			if !opts.Parent.i.crdb.addChild(s.i.crdb, !opts.parentDoesNotCollectRecording) {
 				// The parent has already finished. Clear it so the would-be child looks
 				// like a root and we fall through adding it to the registry below.
+				// !!! I should crash here if use-after-finish crash is enabled
 				opts.Parent = nil
 				s.i.crdb.mu.parent = nil
 			}
+		} else {
+			c.mu.parent = nil
 		}
 		s.i.crdb.enableRecording(opts.recordingType())
 	}
@@ -854,7 +884,8 @@ func (t *Tracer) startSpanGeneric(
 		t.activeSpansRegistry.addSpan(s.i.crdb)
 	}
 
-	return maybeWrapCtx(ctx, &helper.octx, s)
+	// !!! return maybeWrapCtx(ctx, &helper.octx, s)
+	return maybeWrapCtx2(ctx, s)
 }
 
 // Carrier is what's used to capture the serialized data. Each carrier is
