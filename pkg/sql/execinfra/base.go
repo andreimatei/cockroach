@@ -252,7 +252,11 @@ func DrainAndForwardMetadata(ctx context.Context, src RowSource, dst RowReceiver
 // GetTraceData returns the trace data.
 func GetTraceData(ctx context.Context) []tracingpb.RecordedSpan {
 	if sp := tracing.SpanFromContext(ctx); sp != nil {
-		return sp.GetRecording(tracing.RecordingVerbose)
+		recType := sp.RecordingType()
+		if recType == tracing.RecordingOff {
+			return nil
+		}
+		return sp.GetRecording(recType)
 	}
 	return nil
 }
@@ -260,7 +264,11 @@ func GetTraceData(ctx context.Context) []tracingpb.RecordedSpan {
 // GetTraceDataAsMetadata returns the trace data as execinfrapb.ProducerMetadata
 // object.
 func GetTraceDataAsMetadata(span *tracing.Span) *execinfrapb.ProducerMetadata {
-	if trace := span.GetRecording(tracing.RecordingVerbose); len(trace) > 0 {
+	recType := span.RecordingType()
+	if recType == tracing.RecordingOff {
+		return nil
+	}
+	if trace := span.GetRecording(recType); len(trace) > 0 {
 		meta := execinfrapb.GetProducerMeta()
 		meta.TraceData = trace
 		return meta
