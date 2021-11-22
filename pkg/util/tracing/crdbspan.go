@@ -174,8 +174,7 @@ func (s *crdbSpan) finish() bool {
 		// children (they'll need to be added to the registry).
 		needRegistryChange = s.mu.parent == nil || len(s.mu.openChildren) > 0
 
-		finishTime := timeutil.Now()
-		duration := finishTime.Sub(s.startTime)
+		duration := timeutil.Since(s.startTime)
 		if duration == 0 {
 			duration = time.Nanosecond
 		}
