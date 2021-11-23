@@ -181,7 +181,9 @@ func (s *crdbSpan) finish() bool {
 		}
 		s.mu.duration = duration
 
-		// Shallow-copy the children so they can be processed outside the lock.
+		// Shallow-copy the children so they can be processed outside the lock. No
+		// new children will be added from this point on, since we've set
+		// finished=true above.
 		children = make([]*crdbSpan, len(s.mu.openChildren))
 		for i, c := range s.mu.openChildren {
 			children[i] = c.crdbSpan
@@ -598,15 +600,21 @@ func (s *crdbSpan) getRecordingNoChildrenLocked(
 	return rs
 }
 
-func (s *crdbSpan) addChild(child *crdbSpan, collectChildRec bool) {
+// addChild registers a child with s. Returns false if s has already been
+// finished.
+func (s *crdbSpan) addChild(child *crdbSpan, collectChildRec bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.mu.finished {
+		return false
+	}
 	if len(s.mu.openChildren) < maxChildrenPerSpan {
 		s.mu.openChildren = append(
 			s.mu.openChildren,
 			childRef{crdbSpan: child, collectRecording: collectChildRec},
 		)
 	}
+	return true
 }
 
 // childFinished is called when a child is Finish()ed. Depending on the
