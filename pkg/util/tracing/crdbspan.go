@@ -574,12 +574,18 @@ func (s *crdbSpan) getRecordingNoChildrenLocked(
 	return rs
 }
 
-func (s *crdbSpan) addChild(child *crdbSpan) {
+// addChild registers a child with s. Returns false if s has already been
+// finished.
+func (s *crdbSpan) addChild(child *crdbSpan) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.mu.finished {
+		return false
+	}
 	if len(s.mu.openChildren) < maxChildrenPerSpan {
 		s.mu.openChildren = append(s.mu.openChildren, child)
 	}
+	return true
 }
 
 // childFinished is called when a child is Finish()ed. Depending on the

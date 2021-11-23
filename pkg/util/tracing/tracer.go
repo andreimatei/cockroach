@@ -731,7 +731,14 @@ func (t *Tracer) startSpanGeneric(
 		// collect the child's recording.
 		if opts.Parent != nil && opts.Parent.i.crdb != nil {
 			s.i.crdb.mu.parent = opts.Parent.i.crdb
-			opts.Parent.i.crdb.addChild(s.i.crdb)
+			// NOTE: if addChild returns true, we've essentially published this new
+			// child span to the world. Further uses of it require taking locks.
+			if !opts.Parent.i.crdb.addChild(s.i.crdb) {
+				// The parent has already finished. Clear it so the would-be child looks
+				// like a root and we fall through adding it to the registry below.
+				opts.Parent = nil
+				s.i.crdb.mu.parent = nil
+			}
 		}
 		s.i.crdb.enableRecording(opts.recordingType())
 	}
