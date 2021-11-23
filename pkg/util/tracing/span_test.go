@@ -31,7 +31,7 @@ import (
 )
 
 func TestStartSpan(t *testing.T) {
-	tr := NewTracer()
+	tr := NewTracerWithOpt(context.Background(), WithTracingDefault(DefaultOff))
 	sp := tr.StartSpan("test")
 	defer sp.Finish()
 	require.Equal(t, "noop", sp.OperationName())
