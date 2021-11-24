@@ -950,6 +950,7 @@ func (n *Node) Batch(
 	// carry the associated log tags forward as doing so makes adding additional
 	// log tags more expensive and makes local calls differ from remote calls.
 	ctx = n.storeCfg.AmbientCtx.ResetAndAnnotateCtx(ctx)
+	//log.Infof(ctx, "!!! node got batch RPC: %s", args)
 
 	tenantID, ok := roachpb.TenantFromContext(ctx)
 	if !ok {

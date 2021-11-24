@@ -13,6 +13,8 @@ package bench
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"math/rand"
 	"reflect"
@@ -410,6 +412,63 @@ func BenchmarkXXX(b *testing.B) {
 	}
 }
 
+func BenchmarkXXX2(b *testing.B) {
+	b.ReportAllocs()
+	x := uint64(987654)
+	var buf1 [8]byte
+	buf2 := make([]byte, 100)
+	for i := 0; i < b.N; i++ {
+		binary.BigEndian.PutUint64(buf1[:], x)
+		hex.Encode(buf2, buf1[:])
+	}
+}
+
+func TestXXX(t *testing.T) {
+	ctx := context.Background()
+	tr := tracing.NewTracerWithOpt(ctx)
+	tc := testcluster.StartTestCluster(t, 3,
+		base.TestClusterArgs{
+			ReplicationMode: base.ReplicationAuto,
+			ServerArgs: base.TestServerArgs{
+				UseDatabase: "bench",
+				Tracer:      tr,
+			},
+		})
+	defer tc.Stopper().Stop(ctx)
+	db := sqlutils.MakeRoundRobinSQLRunner(tc.Conns[0], tc.Conns[1], tc.Conns[2])
+	db.Exec(t, `create database bench; CREATE TABLE bench.scan (k INT PRIMARY KEY)`)
+
+	var buf bytes.Buffer
+	const count = 1
+	buf.WriteString(`INSERT INTO bench.scan VALUES `)
+	for i := 0; i < count; i++ {
+		if i > 0 {
+			buf.WriteString(", ")
+		}
+		fmt.Fprintf(&buf, "(%d)", i)
+	}
+	db.Exec(t, buf.String())
+
+	query := `SELECT * FROM bench.scan`
+	const limit = 1
+	if limit != 0 {
+		query = fmt.Sprintf(`%s LIMIT %d`, query, limit)
+	}
+
+	log.Infof(ctx, "!!! test: query 1")
+	rows := db.Query(t, query)
+	rows.Close()
+	log.Infof(ctx, "!!! test: query 2")
+	rows = db.Query(t, query)
+	rows.Close()
+	log.Infof(ctx, "!!! test: query 3")
+	rows = db.Query(t, query)
+	rows.Close()
+	log.Infof(ctx, "!!! test: done")
+
+	rows.Close()
+}
+
 // BenchmarkTracing measures the overhead of tracing and sampled statements. It also
 // reports the memory utilization.
 func BenchmarkTracing(b *testing.B) {
@@ -673,6 +732,7 @@ func runBenchmarkScan(b *testing.B, db *sqlutils.SQLRunner, count int, limit int
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		//fmt.Printf("!!! test: query: %d\n", i)
 		rows := db.Query(b, query)
 		n := 0
 		for rows.Next() {

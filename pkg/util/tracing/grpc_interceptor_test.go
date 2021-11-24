@@ -175,6 +175,7 @@ func TestGRPCInterceptors(t *testing.T) {
 		{
 			name: "StreamStream",
 			do: func(ctx context.Context) (*types.Any, error) {
+				c.UnaryUnary()
 				sc, err := c.StreamStream(ctx)
 				if err != nil {
 					return nil, err

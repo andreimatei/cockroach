@@ -261,6 +261,7 @@ func ClientInterceptor(tracer *Tracer, init func(*Span)) grpc.UnaryClientInterce
 		)
 		init(clientSpan)
 		defer clientSpan.Finish()
+		//fmt.Printf("!!! RPC\n")
 		ctx = injectSpanMeta(ctx, tracer, clientSpan)
 		err := invoker(ctx, method, req, resp, cc, opts...)
 		if err != nil {
@@ -309,6 +310,7 @@ func StreamClientInterceptor(tracer *Tracer, init func(*Span)) grpc.StreamClient
 			WithClientSpanKind,
 		)
 		init(clientSpan)
+		//fmt.Printf("!!! RPC streaming\n")
 		ctx = injectSpanMeta(ctx, tracer, clientSpan)
 		cs, err := streamer(ctx, desc, cc, method, opts...)
 		if err != nil {

@@ -11,7 +11,10 @@
 package tracing
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"strconv"
@@ -1032,22 +1035,30 @@ func (t *Tracer) InjectMetaInto3(sm SpanMeta, carrier Carrier) {
 		return
 	}
 
-	var b strings.Builder
-	b.Grow(100)
-	b.WriteString(fieldNameTraceID)
-	b.WriteRune(':')
-	b.WriteString(strconv.FormatUint(uint64(sm.traceID), 16))
+	//var b strings.Builder
+	//b.Grow(100)
+	//b.WriteString(fieldNameTraceID)
+	//b.WriteRune(':')
+	//b.WriteString(strconv.FormatUint(uint64(sm.traceID), 16))
+	//
+	//b.WriteRune(',')
+	//b.WriteString(fieldNameSpanID)
+	//b.WriteRune(':')
+	//b.WriteString(strconv.FormatUint(uint64(sm.spanID), 16))
+	//
+	//b.WriteRune(',')
+	//b.WriteString(fieldNameRecordingType)
+	//b.WriteRune(':')
+	//b.WriteString(sm.recordingType.ToCarrierValue())
+	//carrier.Set(fieldNameCombined, b.String())
 
-	b.WriteRune(',')
-	b.WriteString(fieldNameSpanID)
-	b.WriteRune(':')
-	b.WriteString(strconv.FormatUint(uint64(sm.spanID), 16))
-
-	b.WriteRune(',')
-	b.WriteString(fieldNameRecordingType)
-	b.WriteRune(':')
-	b.WriteString(sm.recordingType.ToCarrierValue())
-	carrier.Set(fieldNameCombined, b.String())
+	buf := make([]byte, 0, 100)
+	b := bytes.NewBuffer(buf)
+	binary.Write(b, binary.BigEndian, sm.traceID)
+	buf2 := make([]byte, 0, 100)
+	b2 := bytes.NewBuffer(buf2)
+	enc := base64.NewEncoder(base64.StdEncoding, b2)
+	enc.Write(b.Bytes())
 
 	if compatMode && sm.recordingType == RecordingVerbose {
 		carrier.Set(fieldNameDeprecatedVerboseTracing, "1")
