@@ -197,17 +197,30 @@ func (ss *tracingServerStream) Context() context.Context {
 //
 // See #17177.
 func spanInclusionFuncForClient(parent *Span) bool {
+	// !!! return false
 	return parent != nil && !parent.IsNoop()
 }
 
 func injectSpanMeta(ctx context.Context, tracer *Tracer, clientSpan *Span) context.Context {
+	// !!!
 	md, ok := metadata.FromOutgoingContext(ctx)
 	if !ok {
 		md = metadata.New(nil)
 	} else {
 		md = md.Copy()
 	}
-	tracer.InjectMetaInto(clientSpan.Meta(), metadataCarrier{md})
+
+	// !!! tracer.InjectMetaInto(clientSpan.Meta(), metadataCarrier{md})
+	//x, ok := tracer.InjectMetaInto2(clientSpan.Meta())
+	//if !ok {
+	//	return ctx
+	//}
+	//return metadata.AppendToOutgoingContext(ctx,
+	//	fieldNameTraceID, x.traceID,
+	//	fieldNameSpanID, x.spanID,
+	//	fieldNameRecordingType, x.recType)
+	tracer.InjectMetaInto3(clientSpan.Meta(), metadataCarrier{md})
+
 	return metadata.NewOutgoingContext(ctx, md)
 }
 

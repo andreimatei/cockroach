@@ -83,6 +83,8 @@ const (
 	// compatibility with 21.2.
 	fieldNameDeprecatedVerboseTracing = "crdb-baggage-sb"
 
+	fieldNameCombined = "crdb-combined"
+
 	spanKindTagKey = "span.kind"
 )
 
@@ -957,10 +959,105 @@ func (t *Tracer) InjectMetaInto(sm SpanMeta, carrier Carrier) {
 	}
 }
 
+type metaXXX struct {
+	traceID, spanID, recType string
+}
+
+func (t *Tracer) InjectMetaInto2(sm SpanMeta) (metaXXX, bool) {
+	if sm.Empty() {
+		// Fast path when tracing is disabled. ExtractMetaFrom will accept an
+		// empty map as a noop context.
+		return metaXXX{}, false
+	}
+	// If the span has been marked as not wanting children, we don't propagate any
+	// information about it through the carrier (the point of propagating span
+	// info is to create a child from it).
+	if sm.sterile {
+		return metaXXX{}, false
+	}
+
+	//if sm.otelCtx.TraceID().IsValid() {
+	//	carrier.Set(fieldNameOtelTraceID, sm.otelCtx.TraceID().String())
+	//	carrier.Set(fieldNameOtelSpanID, sm.otelCtx.SpanID().String())
+	//}
+
+	//compatMode := atomic.LoadInt64(&t.backwardsCompatibilityWith211) == 1
+	//
+	//// For compatibility with 21.1, we don't want to propagate the traceID when
+	//// we're not recording. A 21.1 node interprets a traceID as wanting structured
+	//// recording (or verbose recording if fieldNameDeprecatedVerboseTracing is also
+	//// set).
+	//if compatMode && sm.recordingType == RecordingOff {
+	//	return
+	//}
+
+	var x metaXXX
+
+	x.traceID = strconv.FormatUint(uint64(sm.traceID), 16)
+	x.spanID = strconv.FormatUint(uint64(sm.spanID), 16)
+	x.recType = sm.recordingType.ToCarrierValue()
+
+	return x, true
+
+	//if compatMode && sm.recordingType == RecordingVerbose {
+	//	carrier.Set(fieldNameDeprecatedVerboseTracing, "1")
+	//}
+}
+
+func (t *Tracer) InjectMetaInto3(sm SpanMeta, carrier Carrier) {
+	if sm.Empty() {
+		// Fast path when tracing is disabled. ExtractMetaFrom will accept an
+		// empty map as a noop context.
+		return
+	}
+	// If the span has been marked as not wanting children, we don't propagate any
+	// information about it through the carrier (the point of propagating span
+	// info is to create a child from it).
+	if sm.sterile {
+		return
+	}
+
+	if sm.otelCtx.TraceID().IsValid() {
+		carrier.Set(fieldNameOtelTraceID, sm.otelCtx.TraceID().String())
+		carrier.Set(fieldNameOtelSpanID, sm.otelCtx.SpanID().String())
+	}
+
+	compatMode := atomic.LoadInt64(&t.backwardsCompatibilityWith211) == 1
+
+	// For compatibility with 21.1, we don't want to propagate the traceID when
+	// we're not recording. A 21.1 node interprets a traceID as wanting structured
+	// recording (or verbose recording if fieldNameDeprecatedVerboseTracing is also
+	// set).
+	if compatMode && sm.recordingType == RecordingOff {
+		return
+	}
+
+	var b strings.Builder
+	b.Grow(100)
+	b.WriteString(fieldNameTraceID)
+	b.WriteRune(':')
+	b.WriteString(strconv.FormatUint(uint64(sm.traceID), 16))
+
+	b.WriteRune(',')
+	b.WriteString(fieldNameSpanID)
+	b.WriteRune(':')
+	b.WriteString(strconv.FormatUint(uint64(sm.spanID), 16))
+
+	b.WriteRune(',')
+	b.WriteString(fieldNameRecordingType)
+	b.WriteRune(':')
+	b.WriteString(sm.recordingType.ToCarrierValue())
+	carrier.Set(fieldNameCombined, b.String())
+
+	if compatMode && sm.recordingType == RecordingVerbose {
+		carrier.Set(fieldNameDeprecatedVerboseTracing, "1")
+	}
+}
+
 var noopSpanMeta = SpanMeta{}
 
 // ExtractMetaFrom is used to deserialize a span metadata (if any) from the
-// given Carrier. This, alongside InjectMetaFrom, can be used to carry span
+// given Carrier. This, alongside InjectMetaInto, can be used to carry span
 // metadata across process boundaries. See serializationFormat for more details.
 func (t *Tracer) ExtractMetaFrom(carrier Carrier) (SpanMeta, error) {
 	var traceID tracingpb.TraceID
@@ -1018,6 +1115,20 @@ func (t *Tracer) ExtractMetaFrom(carrier Carrier) (SpanMeta, error) {
 			return noopSpanMeta, err
 		}
 	case metadataCarrier:
+		combined := c.Get(fieldNameCombined)
+		if len(combined) > 0 {
+			split := strings.Split(combined[0], ",")
+			for _, s := range split {
+				switch {
+				case strings.HasPrefix(s, fieldNameTraceID):
+					iterFn(fieldNameTraceID, s[len(fieldNameTraceID)+1:])
+				case strings.HasPrefix(s, fieldNameSpanID):
+					iterFn(fieldNameSpanID, s[len(fieldNameSpanID)+1:])
+				case strings.HasPrefix(s, fieldNameRecordingType):
+					iterFn(fieldNameRecordingType, s[len(fieldNameRecordingType)+1:])
+				}
+			}
+		}
 		if err := c.ForEach(iterFn); err != nil {
 			return noopSpanMeta, err
 		}

@@ -403,6 +403,13 @@ func BenchmarkSQL(b *testing.B) {
 	})
 }
 
+func BenchmarkXXX(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		strings.Split("a:1,b:2,c:3", ",")
+	}
+}
+
 // BenchmarkTracing measures the overhead of tracing and sampled statements. It also
 // reports the memory utilization.
 func BenchmarkTracing(b *testing.B) {
