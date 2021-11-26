@@ -54,10 +54,10 @@ func (w metadataCarrier) ForEach(fn func(key, val string) error) error {
 	return nil
 }
 
-func extractSpanMeta(ctx context.Context, tracer *Tracer) (SpanMeta, error) {
+func ExtractSpanMetaFromGRPCCtx(ctx context.Context, tracer *Tracer) (SpanMeta, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		md = metadata.New(nil)
+		return SpanMeta{}, nil
 	}
 	return tracer.ExtractMetaFrom(metadataCarrier{md})
 }
@@ -85,6 +85,15 @@ func setGRPCErrorTag(sp *Span, err error) {
 	}
 }
 
+const batchMethodName = "/cockroach.roachpb.Internal/Batch"
+const setupFlowMethodName = "/cockroach.sql.distsqlrun.DistSQL/SetupFlow"
+const flowStreamMethodName = "/cockroach.sql.distsqlrun.DistSQL/FlowStream"
+
+func methodExcludedFromTracing(method string) bool {
+	return method == batchMethodName || method == setupFlowMethodName ||
+		method == flowStreamMethodName
+}
+
 // ServerInterceptor returns a grpc.UnaryServerInterceptor suitable
 // for use in a grpc.NewServer call.
 //
@@ -107,7 +116,12 @@ func ServerInterceptor(tracer *Tracer) grpc.UnaryServerInterceptor {
 		info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler,
 	) (resp interface{}, err error) {
-		spanMeta, err := extractSpanMeta(ctx, tracer)
+		// fmt.Printf("!!! server interceptor: %T\n", req)
+		if methodExcludedFromTracing(info.FullMethod) {
+			return handler(ctx, req)
+		}
+
+		spanMeta, err := ExtractSpanMetaFromGRPCCtx(ctx, tracer)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +164,10 @@ func ServerInterceptor(tracer *Tracer) grpc.UnaryServerInterceptor {
 // application-specific gRPC handler(s) to access.
 func StreamServerInterceptor(tracer *Tracer) grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		spanMeta, err := extractSpanMeta(ss.Context(), tracer)
+		if methodExcludedFromTracing(info.FullMethod) {
+			return handler(srv, ss)
+		}
+		spanMeta, err := ExtractSpanMetaFromGRPCCtx(ss.Context(), tracer)
 		if err != nil {
 			return err
 		}
@@ -211,6 +228,8 @@ func injectSpanMeta(ctx context.Context, tracer *Tracer, clientSpan *Span) conte
 	return metadata.NewOutgoingContext(ctx, md)
 }
 
+type InjectorsMap map[string]func(clientSpan SpanMeta, req interface{})
+
 // ClientInterceptor returns a grpc.UnaryClientInterceptor suitable
 // for use in a grpc.Dial call.
 //
@@ -237,10 +256,12 @@ func ClientInterceptor(tracer *Tracer, init func(*Span)) grpc.UnaryClientInterce
 		invoker grpc.UnaryInvoker,
 		opts ...grpc.CallOption,
 	) error {
+		// fmt.Printf("!!! client: %s\n", method)
 		parent := SpanFromContext(ctx)
 		if !spanInclusionFuncForClient(parent) {
 			return invoker(ctx, method, req, resp, cc, opts...)
 		}
+
 		clientSpan := tracer.StartSpan(
 			method,
 			WithParentAndAutoCollection(parent),
@@ -248,8 +269,14 @@ func ClientInterceptor(tracer *Tracer, init func(*Span)) grpc.UnaryClientInterce
 		)
 		init(clientSpan)
 		defer clientSpan.Finish()
-		ctx = injectSpanMeta(ctx, tracer, clientSpan)
-		err := invoker(ctx, method, req, resp, cc, opts...)
+
+		if !methodExcludedFromTracing(method) {
+			ctx = injectSpanMeta(ctx, tracer, clientSpan)
+		}
+		var err error
+		if invoker != nil {
+			err = invoker(ctx, method, req, resp, cc, opts...)
+		}
 		if err != nil {
 			setGRPCErrorTag(clientSpan, err)
 			clientSpan.Recordf("error: %s", err)
@@ -285,6 +312,7 @@ func StreamClientInterceptor(tracer *Tracer, init func(*Span)) grpc.StreamClient
 		streamer grpc.Streamer,
 		opts ...grpc.CallOption,
 	) (grpc.ClientStream, error) {
+		// fmt.Printf("!!! stream client: %s\n", method)
 		parent := SpanFromContext(ctx)
 		if !spanInclusionFuncForClient(parent) {
 			return streamer(ctx, desc, cc, method, opts...)
@@ -296,7 +324,10 @@ func StreamClientInterceptor(tracer *Tracer, init func(*Span)) grpc.StreamClient
 			WithClientSpanKind,
 		)
 		init(clientSpan)
-		ctx = injectSpanMeta(ctx, tracer, clientSpan)
+
+		if !methodExcludedFromTracing(method) {
+			ctx = injectSpanMeta(ctx, tracer, clientSpan)
+		}
 		cs, err := streamer(ctx, desc, cc, method, opts...)
 		if err != nil {
 			clientSpan.Recordf("error: %s", err)

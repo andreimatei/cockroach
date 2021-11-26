@@ -569,6 +569,7 @@ func (ds *ServerImpl) SetupFlow(
 	ctx context.Context, req *execinfrapb.SetupFlowRequest,
 ) (*execinfrapb.SimpleResponse, error) {
 	log.VEventf(ctx, 1, "received SetupFlow request from n%v for flow %v", req.Flow.Gateway, req.Flow.FlowID)
+	// !!! setup rpc span
 	parentSpan := tracing.SpanFromContext(ctx)
 
 	// Note: the passed context will be canceled when this RPC completes, so we
