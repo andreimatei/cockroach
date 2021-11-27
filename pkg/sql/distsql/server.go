@@ -581,7 +581,7 @@ func (ds *ServerImpl) setupSpanForIncomingRPC(
 		// It's not expected to have a span in the context since the gRPC server
 		// interceptor that generally opens spans exempts this particular RPC.
 		return tr.StartSpanCtx(ctx, tracing.SetupFlowMethodName,
-			tracing.WithParentAndAutoCollection(parentSpan),
+			tracing.WithParent(parentSpan),
 			tracing.WithServerSpanKind)
 	}
 
@@ -598,7 +598,7 @@ func (ds *ServerImpl) setupSpanForIncomingRPC(
 		}
 	}
 	return tr.StartSpanCtx(ctx, tracing.SetupFlowMethodName,
-		tracing.WithParentAndManualCollection(remoteParent),
+		tracing.WithRemoteParent(remoteParent),
 		tracing.WithServerSpanKind)
 }
 

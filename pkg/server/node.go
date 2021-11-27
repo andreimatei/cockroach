@@ -1035,13 +1035,13 @@ func (n *Node) setupSpanForIncomingRPC(
 			}
 
 			ctx, newSpan = tr.StartSpanCtx(ctx, tracing.BatchMethodName,
-				tracing.WithParentAndManualCollection(remoteParent),
+				tracing.WithRemoteParent(remoteParent),
 				tracing.WithServerSpanKind)
 		} else {
 			// It's unexpected to find a span in the context for a non-local request.
 			// Let's create a span for the RPC anyway.
 			ctx, newSpan = tr.StartSpanCtx(ctx, tracing.BatchMethodName,
-				tracing.WithParentAndAutoCollection(parentSpan),
+				tracing.WithParent(parentSpan),
 				tracing.WithServerSpanKind)
 		}
 	}
