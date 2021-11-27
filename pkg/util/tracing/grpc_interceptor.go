@@ -85,12 +85,13 @@ func setGRPCErrorTag(sp *Span, err error) {
 	}
 }
 
-const batchMethodName = "/cockroach.roachpb.Internal/Batch"
-const setupFlowMethodName = "/cockroach.sql.distsqlrun.DistSQL/SetupFlow"
+const BatchMethodName = "/cockroach.roachpb.Internal/Batch"
+const SetupFlowMethodName = "/cockroach.sql.distsqlrun.DistSQL/SetupFlow"
 const flowStreamMethodName = "/cockroach.sql.distsqlrun.DistSQL/FlowStream"
 
 func methodExcludedFromTracing(method string) bool {
-	return method == batchMethodName || method == setupFlowMethodName ||
+	// !!! include hte info as meta until the version is bumped on outgoing RPCs for backwards compat
+	return method == BatchMethodName || method == SetupFlowMethodName ||
 		method == flowStreamMethodName
 }
 
@@ -244,7 +245,9 @@ type InjectorsMap map[string]func(clientSpan SpanMeta, req interface{})
 // metadata; they will also look in the context.Context for an active
 // in-process parent Span and establish a ChildOf relationship if such a parent
 // Span could be found.
-func ClientInterceptor(tracer *Tracer, init func(*Span)) grpc.UnaryClientInterceptor {
+func ClientInterceptor(
+	tracer *Tracer, init func(*Span), compatibilityMode func(ctx context.Context) bool,
+) grpc.UnaryClientInterceptor {
 	if init == nil {
 		init = func(*Span) {}
 	}
@@ -270,7 +273,9 @@ func ClientInterceptor(tracer *Tracer, init func(*Span)) grpc.UnaryClientInterce
 		init(clientSpan)
 		defer clientSpan.Finish()
 
-		if !methodExcludedFromTracing(method) {
+		// For most RPCs we pass along tracing info as gRPC metadata. Some select
+		// RPCs carry the tracing in the request protos, which is more efficient.
+		if compatibilityMode(ctx) || !methodExcludedFromTracing(method) {
 			ctx = injectSpanMeta(ctx, tracer, clientSpan)
 		}
 		var err error

@@ -1006,9 +1006,7 @@ func (n *Node) setupSpanForIncomingRPC(
 ) (context.Context, func(context.Context, *roachpb.BatchResponse)) {
 	// The operation name matches the one that the gRPC interceptor would have
 	// opened for us if we hadn't exempted this RPC from the usual treatment.
-	const opName = "/cockroach.roachpb.Internal/Batch"
 	tr := n.storeCfg.AmbientCtx.Tracer
-	// newSpan is set if we end up creating a new span.
 	var newSpan *tracing.Span
 	parentSpan := tracing.SpanFromContext(ctx)
 	localRequest := grpcutil.IsLocalRequestContext(ctx)
@@ -1017,46 +1015,38 @@ func (n *Node) setupSpanForIncomingRPC(
 	needRecordingCollection := !localRequest && parentSpan == nil
 	if localRequest {
 		// This is a local request which circumvented gRPC. Start a span now.
-		ctx, newSpan = tracing.EnsureChildSpan(ctx, tr, opName, tracing.WithServerSpanKind)
+		ctx, newSpan = tracing.EnsureChildSpan(ctx, tr, tracing.BatchMethodName, tracing.WithServerSpanKind)
 	} else {
 		// We don't expect a span in the context at this point. In particular, the
 		// gRPC interceptor that generally opens spans for other RPCs should have
 		// omitted doing that for this particular RPC.
 		if parentSpan == nil {
+			var remoteParent tracing.SpanMeta
 			if !ba.TraceInfo.Empty() {
-				ctx, newSpan = n.storeCfg.AmbientCtx.Tracer.StartSpanCtx(
-					ctx, opName,
-					tracing.WithParentAndManualCollection(tracing.SpanMetaFromProto(ba.TraceInfo)),
-					tracing.WithServerSpanKind,
-				)
+				remoteParent = tracing.SpanMetaFromProto(ba.TraceInfo)
 			} else {
 				// For backwards compatibility with 21.2, if tracing info was passed as
 				// gRPC metadata, we use it.
-				meta, err := tracing.ExtractSpanMetaFromGRPCCtx(ctx, n.storeCfg.AmbientCtx.Tracer)
+				var err error
+				remoteParent, err = tracing.ExtractSpanMetaFromGRPCCtx(ctx, tr)
 				if err != nil {
-					log.Warningf(ctx, "error extracing tracing info from gRPC: %s", err)
+					log.Warningf(ctx, "error extracting tracing info from gRPC: %s", err)
 				}
-				ctx, newSpan = n.storeCfg.AmbientCtx.Tracer.StartSpanCtx(
-					ctx, opName,
-					tracing.WithParentAndManualCollection(meta),
-					tracing.WithServerSpanKind,
-				)
 			}
+
+			ctx, newSpan = tr.StartSpanCtx(ctx, tracing.BatchMethodName,
+				tracing.WithParentAndManualCollection(remoteParent),
+				tracing.WithServerSpanKind)
 		} else {
 			// It's unexpected to find a span in the context for a non-local request.
 			// Let's create a span for the RPC anyway.
-			ctx, newSpan = n.storeCfg.AmbientCtx.Tracer.StartSpanCtx(
-				ctx, opName,
-				tracing.WithParentAndManualCollection(parentSpan.Meta()),
-				tracing.WithServerSpanKind,
-			)
+			ctx, newSpan = tr.StartSpanCtx(ctx, tracing.BatchMethodName,
+				tracing.WithParentAndAutoCollection(parentSpan),
+				tracing.WithServerSpanKind)
 		}
 	}
 
 	finishSpan := func(ctx context.Context, br *roachpb.BatchResponse) {
-		if newSpan == nil {
-			return
-		}
 		newSpan.Finish()
 		if br == nil {
 			// If we don't have a response, there's nothing to attach a trace to.
