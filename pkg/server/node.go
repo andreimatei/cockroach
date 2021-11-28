@@ -1047,6 +1047,10 @@ func (n *Node) setupSpanForIncomingRPC(
 	}
 
 	finishSpan := func(ctx context.Context, br *roachpb.BatchResponse) {
+		var rec tracing.Recording
+		if needRecordingCollection && br != nil {
+			rec = newSpan.GetRecording(newSpan.RecordingType())
+		}
 		newSpan.Finish()
 		if br == nil {
 			// If we don't have a response, there's nothing to attach a trace to.
@@ -1055,7 +1059,7 @@ func (n *Node) setupSpanForIncomingRPC(
 		}
 
 		if needRecordingCollection {
-			if rec := newSpan.GetRecording(newSpan.RecordingType()); rec != nil {
+			if rec != nil {
 				// Decide if the trace for this RPC, if any, will need to be redacted. It
 				// needs to be redacted if the response goes to a tenant. In case the request
 				// is local, then the trace might eventually go to a tenant (and tenID might
