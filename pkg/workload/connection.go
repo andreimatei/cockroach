@@ -13,7 +13,6 @@ package workload
 import (
 	"fmt"
 	"net/url"
-	"runtime"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -34,7 +33,7 @@ func NewConnFlags(genFlags *Flags) *ConnFlags {
 	c.FlagSet = pflag.NewFlagSet(`conn`, pflag.ContinueOnError)
 	c.StringVar(&c.DBOverride, `db`, ``,
 		`Override for the SQL database to use. If empty, defaults to the generator name`)
-	c.IntVar(&c.Concurrency, `concurrency`, 2*runtime.GOMAXPROCS(0),
+	c.IntVar(&c.Concurrency, `concurrency`, 1, // !!! 2*runtime.GOMAXPROCS(0),
 		`Number of concurrent workers`)
 	c.StringVar(&c.Method, `method`, `prepare`, `SQL issue method (prepare, noprepare, simple)`)
 	genFlags.AddFlagSet(c.FlagSet)

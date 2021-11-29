@@ -116,7 +116,7 @@ var kvMeta = workload.Meta{
 			`Maximum amount of raw data written with each insertion`)
 		g.flags.Int64Var(&g.cycleLength, `cycle-length`, math.MaxInt64,
 			`Number of keys repeatedly accessed by each writer through upserts.`)
-		g.flags.IntVar(&g.readPercent, `read-percent`, 0,
+		g.flags.IntVar(&g.readPercent, `read-percent`, 95, // !!! was 0
 			`Percent (0-100) of operations that are reads of existing keys.`)
 		g.flags.IntVar(&g.spanPercent, `span-percent`, 0,
 			`Percent (0-100) of operations that are spanning queries of all ranges.`)

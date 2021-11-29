@@ -13,16 +13,22 @@ package bench
 import (
 	"bytes"
 	"context"
+	"database/sql/driver"
+	"errors"
 	"fmt"
 	"math/rand"
+	"net/url"
 	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/base"
+	"github.com/cockroachdb/cockroach/pkg/security"
 	"github.com/cockroachdb/cockroach/pkg/testutils/serverutils"
 	"github.com/cockroachdb/cockroach/pkg/testutils/skip"
 	"github.com/cockroachdb/cockroach/pkg/testutils/sqlutils"
@@ -30,9 +36,16 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/randutil"
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
+	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/cockroachdb/cockroach/pkg/util/tracing"
+	"github.com/cockroachdb/cockroach/pkg/workload"
+	"github.com/cockroachdb/cockroach/pkg/workload/histogram"
+	_ "github.com/cockroachdb/cockroach/pkg/workload/kv"
+	"github.com/cockroachdb/cockroach/pkg/workload/workloadsql"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
+	"github.com/stretchr/testify/require"
+	"golang.org/x/time/rate"
 )
 
 func runBenchmarkSelect1(b *testing.B, db *sqlutils.SQLRunner) {
@@ -401,6 +414,230 @@ func BenchmarkSQL(b *testing.B) {
 			})
 		}
 	})
+}
+
+// BenchmarkTracing measures the overhead of tracing and sampled statements. It also
+// reports the memory utilization.
+func TestKV(t *testing.T) {
+	defer log.Scope(t).Close(t)
+	ctx := context.Background()
+
+	//tc := testcluster.StartTestCluster(t, 3,
+	//	base.TestClusterArgs{
+	//		ReplicationMode: base.ReplicationAuto,
+	//		//ServerArgs: base.TestServerArgs{
+	//		//	UseDatabase: "bench",
+	//		//	Tracer:      tr,
+	//		//},
+	//	})
+	//defer tc.Stopper().Stop(ctx)
+	//urls := []string{tc.Servers[0].ServingSQLAddr(), tc.Servers[1].ServingSQLAddr(), tc.Servers[2].ServingSQLAddr()}
+
+	ts, db, _ := serverutils.StartServer(t, base.TestServerArgs{
+		UseDatabase: "kv",
+	})
+	pgURL, cleanup := sqlutils.PGUrl(
+		t, ts.ServingSQLAddr(), "bench" /* prefix */, url.User(security.RootUser))
+	defer cleanup()
+	urls := []string{pgURL.String() + "&dbname=kv"}
+	log.Infof(context.TODO(), "!!! url: %s", urls[0])
+
+	meta, err := workload.Get("kv")
+	require.NoError(t, err)
+
+	gen := meta.New()
+	o, ok := gen.(workload.Opser)
+	require.True(t, ok)
+
+	_, err = db.Exec(`CREATE DATABASE ` + gen.Meta().Name)
+	require.NoError(t, err)
+
+	var l workloadsql.InsertsDataLoader
+	_, err = workloadsql.Setup(ctx, db, gen, l)
+	require.NoError(t, err)
+
+	reg := histogram.NewRegistry(time.Second, gen.Meta().Name)
+	ops, err := o.Ops(ctx, urls, reg)
+	require.NoError(t, err)
+
+	start := timeutil.Now()
+
+	workersCtx, cancelWorkers := context.WithCancel(ctx)
+	defer cancelWorkers()
+	var wg sync.WaitGroup
+	wg.Add(len(ops.WorkerFns))
+	errCh := make(chan error)
+	for i, workFn := range ops.WorkerFns {
+		go func(i int, workFn func(context.Context) error) {
+			workerRun(workersCtx, errCh, &wg, nil /* limiter */, workFn)
+		}(i, workFn)
+	}
+
+	everySecond := log.Every(time.Second)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	formatter := textFormatter{}
+
+	done := time.After(30 * time.Second)
+
+	for {
+		select {
+		case err := <-errCh:
+			if everySecond.ShouldLog() {
+				log.Errorf(ctx, "%v", err)
+			}
+			panic(err)
+
+		case <-ticker.C:
+			startElapsed := timeutil.Since(start)
+			reg.Tick(func(t histogram.Tick) {
+				formatter.outputTick(startElapsed, t)
+			})
+
+		case <-done:
+			cancelWorkers()
+			if ops.Close != nil {
+				ops.Close(ctx)
+			}
+
+			startElapsed := timeutil.Since(start)
+			resultTick := histogram.Tick{Name: ops.ResultHist}
+			reg.Tick(func(t histogram.Tick) {
+				formatter.outputTotal(startElapsed, t)
+				if ops.ResultHist == `` || ops.ResultHist == t.Name {
+					if resultTick.Cumulative == nil {
+						resultTick.Now = t.Now
+						resultTick.Cumulative = t.Cumulative
+					} else {
+						resultTick.Cumulative.Merge(t.Cumulative)
+					}
+				}
+			})
+			formatter.outputResult(startElapsed, resultTick)
+
+			if h, ok := gen.(workload.Hookser); ok {
+				if h.Hooks().PostRun != nil {
+					if err := h.Hooks().PostRun(startElapsed); err != nil {
+						fmt.Printf("failed post-run hook: %v\n", err)
+					}
+				}
+			}
+			return
+		}
+	}
+	log.Infof(context.TODO(), "!!! test done")
+}
+
+// textFormatter produces output meant for quick parsing by humans. The
+// data is printed as fixed-width columns. Summary rows
+// are printed at the end.
+type textFormatter struct {
+	i      int
+	numErr int
+}
+
+func (f *textFormatter) rampDone() {
+	f.i = 0
+}
+
+func (f *textFormatter) outputError(_ error) {
+	f.numErr++
+}
+
+func (f *textFormatter) outputTick(startElapsed time.Duration, t histogram.Tick) {
+	if f.i%20 == 0 {
+		fmt.Println("_elapsed___errors__ops/sec(inst)___ops/sec(cum)__p50(ms)__p95(ms)__p99(ms)_pMax(ms)")
+	}
+	f.i++
+	fmt.Printf("%7.1fs %8d %14.1f %14.1f %8.1f %8.1f %8.1f %8.1f %s\n",
+		startElapsed.Seconds(),
+		f.numErr,
+		float64(t.Hist.TotalCount())/t.Elapsed.Seconds(),
+		float64(t.Cumulative.TotalCount())/startElapsed.Seconds(),
+		time.Duration(t.Hist.ValueAtQuantile(50)).Seconds()*1000,
+		time.Duration(t.Hist.ValueAtQuantile(95)).Seconds()*1000,
+		time.Duration(t.Hist.ValueAtQuantile(99)).Seconds()*1000,
+		time.Duration(t.Hist.ValueAtQuantile(100)).Seconds()*1000,
+		t.Name,
+	)
+}
+
+const totalHeader = "\n_elapsed___errors_____ops(total)___ops/sec(cum)__avg(ms)__p50(ms)__p95(ms)__p99(ms)_pMax(ms)"
+
+func (f *textFormatter) outputTotal(startElapsed time.Duration, t histogram.Tick) {
+	f.outputFinal(startElapsed, t, "__total")
+}
+
+func (f *textFormatter) outputResult(startElapsed time.Duration, t histogram.Tick) {
+	f.outputFinal(startElapsed, t, "__result")
+}
+
+func (f *textFormatter) outputFinal(
+	startElapsed time.Duration, t histogram.Tick, titleSuffix string,
+) {
+	fmt.Println(totalHeader + titleSuffix)
+	if t.Cumulative == nil {
+		return
+	}
+	if t.Cumulative.TotalCount() == 0 {
+		return
+	}
+	fmt.Printf("%7.1fs %8d %14d %14.1f %8.1f %8.1f %8.1f %8.1f %8.1f  %s\n",
+		startElapsed.Seconds(),
+		f.numErr,
+		t.Cumulative.TotalCount(),
+		float64(t.Cumulative.TotalCount())/startElapsed.Seconds(),
+		time.Duration(t.Cumulative.Mean()).Seconds()*1000,
+		time.Duration(t.Cumulative.ValueAtQuantile(50)).Seconds()*1000,
+		time.Duration(t.Cumulative.ValueAtQuantile(95)).Seconds()*1000,
+		time.Duration(t.Cumulative.ValueAtQuantile(99)).Seconds()*1000,
+		time.Duration(t.Cumulative.ValueAtQuantile(100)).Seconds()*1000,
+		t.Name,
+	)
+}
+
+var numOps uint64
+
+func workerRun(
+	ctx context.Context,
+	errCh chan<- error,
+	wg *sync.WaitGroup,
+	limiter *rate.Limiter,
+	workFn func(context.Context) error,
+) {
+	if wg != nil {
+		defer wg.Done()
+	}
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		// Limit how quickly the load generator sends requests based on --max-rate.
+		if limiter != nil {
+			if err := limiter.Wait(ctx); err != nil {
+				return
+			}
+		}
+
+		if err := workFn(ctx); err != nil {
+			if ctx.Err() != nil && (errors.Is(err, ctx.Err()) || errors.Is(err, driver.ErrBadConn)) {
+				// lib/pq may return either the `context canceled` error or a
+				// `bad connection` error when performing an operation with a context
+				// that has been canceled. See https://github.com/lib/pq/pull/1000
+				return
+			}
+			errCh <- err
+			//if !*countErrors {
+			//	// Continue to the next iteration of the infinite loop only if
+			//	// we are not counting the errors.
+			//	continue
+			//}
+		}
+
+		atomic.AddUint64(&numOps, 1)
+	}
 }
 
 // BenchmarkTracing measures the overhead of tracing and sampled statements. It also
