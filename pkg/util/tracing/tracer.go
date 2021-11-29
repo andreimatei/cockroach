@@ -769,15 +769,15 @@ func (t *Tracer) startSpanGeneric(
 	}
 
 	if opts.LogTags == nil {
-		opts.LogTags = logtags.FromContext(ctx)
-	}
-
-	if opts.LogTags == nil && opts.Parent != nil {
-		// If no log tags are specified in the options, use the parent
-		// span's, if any. This behavior is the reason logTags are
-		// fundamentally different from tags, which are strictly per span,
-		// for better or worse.
-		opts.LogTags = opts.Parent.i.crdb.logTags
+		if opts.Parent != nil {
+			// If no log tags are specified in the options, use the parent
+			// span's, if any. This behavior is the reason logTags are
+			// fundamentally different from tags, which are strictly per span,
+			// for better or worse.
+			opts.LogTags = opts.Parent.i.crdb.logTags
+		} else {
+			opts.LogTags = logtags.FromContext(ctx)
+		}
 	}
 
 	startTime := time.Now()
