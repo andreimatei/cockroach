@@ -881,7 +881,7 @@ func (t *Tracer) startSpanGeneric(
 	// NB: (opts.Parent != nil && opts.Parent.i.crdb == nil) is not possible at
 	// the moment, but let's not rely on that.
 	if opts.Parent == nil || opts.Parent.i.crdb == nil {
-		t.activeSpansRegistry.addSpan(s.i.crdb)
+		// !!! t.activeSpansRegistry.addSpan(s.i.crdb)
 	}
 
 	// !!! return maybeWrapCtx(ctx, &helper.octx, s)

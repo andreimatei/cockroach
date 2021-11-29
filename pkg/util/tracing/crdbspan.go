@@ -231,8 +231,9 @@ func (s *crdbSpan) finish() bool {
 		c.span.parentFinished(c.generation)
 	}
 	if needRegistryChange {
-		// Atomically replace s in the registry with all of its still-open children.
-		s.tracer.activeSpansRegistry.swap(s.spanID, children)
+		// !!!
+		//	// Atomically replace s in the registry with all of its still-open children.
+		//	s.tracer.activeSpansRegistry.swap(s.spanID, children)
 	}
 
 	return true
