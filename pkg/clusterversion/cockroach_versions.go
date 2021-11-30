@@ -292,6 +292,15 @@ const (
 	// WriteAtRequestTimestamp and DisallowConflicts parameters.
 	MVCCAddSSTable
 
+	// SelectRPCsTakeTracingInfoInband switches the way tracing works for a couple
+	// of common RPCs. Tracing information for these select RPCs is no longer
+	// marshalled from the client to the server as gRPC metadata, and the gRPC
+	// server interceptor is no longer in charge of transparently creating server
+	// spans. Instead, trace information is carried by the respective request
+	// protos (the client is responsible for filling it in explicitly), and the
+	// server-side handler is responsible for opening a span manually.
+	SelectRPCsTakeTracingInfoInband
+
 	// *************************************************
 	// Step (1): Add new versions here.
 	// Do not add new versions to a patch release.
@@ -503,6 +512,10 @@ var versionsSingleton = keyedVersions{
 	{
 		Key:     MVCCAddSSTable,
 		Version: roachpb.Version{Major: 21, Minor: 2, Internal: 16},
+	},
+	{
+		Key:     SelectRPCsTakeTracingInfoInband,
+		Version: roachpb.Version{Major: 21, Minor: 2, Internal: 18},
 	},
 
 	// *************************************************

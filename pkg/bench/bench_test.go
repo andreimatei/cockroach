@@ -659,7 +659,9 @@ func runBenchmarkScan(b *testing.B, db *sqlutils.SQLRunner, count int, limit int
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
+		//log.Infof(context.TODO(), "!!! test sending query")
 		rows := db.Query(b, query)
+		//log.Infof(context.TODO(), "!!! test sending query... done")
 		n := 0
 		for rows.Next() {
 			n++

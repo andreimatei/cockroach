@@ -232,3 +232,74 @@ func TestGRPCInterceptors(t *testing.T) {
 		})
 	})
 }
+
+func BenchmarkClientInterceptor(b *testing.B) {
+	s := stop.NewStopper()
+	defer s.Stop(context.Background())
+	tr := tracing.NewTracerWithOpt(context.Background(), tracing.WithTestingKnobs(tracing.TracerTestingKnobs{
+		ForceRealSpans: true,
+	}))
+	//srv := grpc.NewServer(
+	//	grpc.UnaryInterceptor(tracing.ServerInterceptor(tr)),
+	//	grpc.StreamInterceptor(tracing.StreamServerInterceptor(tr)),
+	//)
+	//impl := &grpcutils.TestServerImpl{
+	//	UU: func(ctx context.Context, any *types.Any) (*types.Any, error) {
+	//		return nil, nil
+	//	},
+	//	US: func(_ *types.Any, server grpcutils.GRPCTest_UnaryStreamServer) error {
+	//		return nil
+	//	},
+	//	SU: func(server grpcutils.GRPCTest_StreamUnaryServer) error {
+	//		return nil
+	//	},
+	//	SS: func(server grpcutils.GRPCTest_StreamStreamServer) error {
+	//		return nil
+	//	},
+	//}
+	//grpcutils.RegisterGRPCTestServer(srv, impl)
+	//defer srv.GracefulStop()
+	//ln, err := net.Listen(util.TestAddr.Network(), util.TestAddr.String())
+	//require.NoError(t, err)
+	//require.NoError(t, s.RunAsyncTask(context.Background(), "serve", func(ctx context.Context) {
+	//	if err := srv.Serve(ln); err != nil {
+	//		t.Error(err)
+	//	}
+	//}))
+	//conn, err := grpc.DialContext(context.Background(), ln.Addr().String(),
+	//	grpc.WithInsecure(),
+	//	grpc.WithUnaryInterceptor(tracing.ClientInterceptor(tr, nil /* init */)),
+	//	grpc.WithStreamInterceptor(tracing.StreamClientInterceptor(tr, nil /* init */)),
+	//)
+	//require.NoError(t, err)
+	//defer func() {
+	//	_ = conn.Close() // nolint:grpcconnclose
+	//}()
+
+	//c := grpcutils.NewGRPCTestClient(conn)
+	//unusedAny, err := types.MarshalAny(&types.Empty{})
+	//require.NoError(b, err)
+
+	ctx, sp := tr.StartSpanCtx(context.Background(), "root")
+	defer sp.Finish()
+
+	ui := tracing.ClientInterceptor(tr, nil /* init */)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ui(ctx, "my_method", nil, nil, nil, nil)
+
+		//_, err := c.UnaryUnary(ctx, unusedAny)
+		//require.NoError(b, err)
+
+		//exp := fmt.Sprintf(`
+		//		span: root
+		//			span: /cockroach.testutils.grpcutils.GRPCTest/%[1]s
+		//				tags: span.kind=client
+		//			span: /cockroach.testutils.grpcutils.GRPCTest/%[1]s
+		//				tags: span.kind=server
+		//				event: structured=magic-value`, UnaryUnary)
+		//require.NoError(b, tracing.CheckRecordedSpans(finalRecs, exp))
+	}
+}
