@@ -122,18 +122,35 @@ func BenchmarkSpanCreation(b *testing.B) {
 	tr := NewTracerWithOpt(context.Background(), WithTestingKnobs(TracerTestingKnobs{
 		ForceRealSpans: true,
 	}))
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		sps := make([]*Span, 0, 10)
-		ctx, sp := tr.StartSpanCtx(context.Background(), "root")
-		sps = append(sps, sp)
-		for j := 0; j < 5; j++ {
-			var sp *Span
-			ctx, sp = EnsureChildSpan(ctx, tr, "child")
-			sps = append(sps, sp)
-		}
-		for j := len(sps) - 1; j >= 0; j-- {
-			sps[j].Finish()
-		}
+	const numChildren = 5
+	childNames := make([]string, numChildren)
+	for i := 0; i < numChildren; i++ {
+		childNames[i] = fmt.Sprintf("child%d", i)
+	}
+
+	for _, detachedChild := range []bool{false, true} {
+		b.Run(fmt.Sprintf("detached-child=%t", detachedChild), func(b *testing.B) {
+			b.RunParallel(func(pb *testing.PB) {
+				b.ReportAllocs()
+				sps := make([]*Span, 0, 10)
+				for pb.Next() {
+					sps = sps[:0]
+					ctx, sp := tr.StartSpanCtx(context.Background(), "root")
+					sps = append(sps, sp)
+					for j := 0; j < numChildren; j++ {
+						var sp *Span
+						if !detachedChild {
+							ctx, sp = EnsureChildSpan(ctx, tr, childNames[j])
+						} else {
+							ctx, sp = EnsureForkSpan(ctx, tr, childNames[j])
+						}
+						sps = append(sps, sp)
+					}
+					for j := len(sps) - 1; j >= 0; j-- {
+						sps[j].Finish()
+					}
+				}
+			})
+		})
 	}
 }
