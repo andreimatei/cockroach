@@ -37,6 +37,10 @@ func ExampleWithErrCancel() {
 	cancel1(errors.New("explody"))
 	fmt.Println("ctx1 also canceled:")
 	fmt.Println(Err(ctx1))
+	// Note that Err(ctx2) changes from "context canceled" to "explody". That is
+	// unfortunate, but we don't have enough control to prevent it; we cannot tell
+	// whether ctx2 or ctx1 was canceled first, so we prefer to go with the rich
+	// error from ctx1.
 	fmt.Println(Err(ctx2))
 	fmt.Println(Err(ctx3))
 
@@ -53,7 +57,7 @@ func ExampleWithErrCancel() {
 	// ctx1 also canceled:
 	// explody
 	// explody
-	// explody
+	// boom
 }
 
 type ctxs struct {
@@ -102,38 +106,40 @@ func TestWithErrCancel(t *testing.T) {
 			require.Equal(t, context.Canceled, Err(c.ctx2))
 			require.Equal(t, context.Canceled, Err(c.ctx3))
 		}},
-		{name: "cancel1", do: func(t *testing.T, c ctxs) {
+		{name: "cancel11", do: func(t *testing.T, c ctxs) { // !!! remove
 			// ctx1 is an extended context, so it does nice things.
 			c.cancel1(err1)
-			require.Equal(t, context.Canceled, c.ctx1.Err())
-			require.Equal(t, context.Canceled, c.ctx2.Err())
-			require.Equal(t, context.Canceled, c.ctx3.Err())
+			require.True(t, errors.Is(c.ctx1.Err(), context.Canceled))
+			require.True(t, errors.Is(c.ctx2.Err(), context.Canceled))
+			require.True(t, errors.Is(c.ctx3.Err(), context.Canceled))
 			require.True(t, errors.Is(Err(c.ctx1), err1))
 			require.True(t, errors.Is(Err(c.ctx2), err1))
-			require.True(t, errors.Is(Err(c.ctx3), err1)) // vanilla context
+			require.True(t, errors.Is(Err(c.ctx3), err1))
 		}},
 		{name: "cancel2", do: func(t *testing.T, c ctxs) {
 			// ctx2 is an extended context, so it does nice things.
 			c.cancel2(err2)
 			require.Nil(t, c.ctx1.Err())
-			require.Equal(t, context.Canceled, c.ctx2.Err())
-			require.Equal(t, context.Canceled, c.ctx3.Err())
+			require.True(t, errors.Is(c.ctx2.Err(), context.Canceled))
+			require.True(t, errors.Is(c.ctx3.Err(), context.Canceled))
 			require.Nil(t, Err(c.ctx1))
 			require.True(t, errors.Is(Err(c.ctx2), err2))
 			require.True(t, errors.Is(Err(c.ctx3), err2)) // vanilla context
 		}},
 		{name: "cancel123", do: func(t *testing.T, c ctxs) {
-			// When multiple rich contexts are canceled, we get the topmost
-			// nice error back.
+			// When multiple contexts are canceled, the one canceled first matters.
 			c.cancel0()
 			c.cancel1(err1)
 			c.cancel2(err2)
-			require.Equal(t, context.Canceled, c.ctx1.Err())
-			require.Equal(t, context.Canceled, c.ctx2.Err())
-			require.Equal(t, context.Canceled, c.ctx3.Err())
-			require.True(t, errors.Is(Err(c.ctx1), err1))
-			require.True(t, errors.Is(Err(c.ctx2), err1))
-			require.True(t, errors.Is(Err(c.ctx3), err1)) // vanilla context
+			require.True(t, errors.Is(c.ctx1.Err(), context.Canceled))
+			require.True(t, errors.Is(c.ctx2.Err(), context.Canceled))
+			require.True(t, errors.Is(c.ctx3.Err(), context.Canceled))
+			// !!! require.Equal(t, context.Canceled, Err(c.ctx1))
+			require.True(t, errors.Is(Err(c.ctx1), context.Canceled))
+			require.False(t, errors.Is(Err(c.ctx2), err1))
+			require.False(t, errors.Is(Err(c.ctx2), err2))
+			require.False(t, errors.Is(Err(c.ctx3), err1)) // vanilla context
+			require.False(t, errors.Is(Err(c.ctx3), err2)) // vanilla context
 		}},
 	}
 	for _, tt := range tests {
@@ -141,6 +147,33 @@ func TestWithErrCancel(t *testing.T) {
 			tt.do(t, mkCtxChain())
 		})
 	}
+}
+
+type boomError struct{}
+
+func (boomError) Error() string {
+	return "boom"
+}
+
+func TestWithErr(t *testing.T) {
+	t.Run("cancel with arbitrary error", func(t *testing.T) {
+		ctx, cancel := WithErrCancel(context.Background())
+		cancel(boomError{})
+		err := ctx.Err()
+		require.True(t, errors.Is(err, boomError{}))
+		require.True(t, errors.As(err, &CtxCanceledError{}))
+		require.True(t, errors.Is(err, context.Canceled))
+	})
+
+	t.Run("cancel NormalFinish", func(t *testing.T) {
+		ctx, cancel := WithErrCancel(context.Background())
+		cancel(NormalFinish)
+		err := ctx.Err()
+		require.Regexp(t, "context canceled", err)
+		require.Equal(t, NormalFinish, err)
+		require.True(t, errors.As(err, &CtxCanceledError{}))
+		require.True(t, errors.Is(err, context.Canceled))
+	})
 }
 
 func TestWithErrCancelStack(t *testing.T) {
