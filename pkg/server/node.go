@@ -1002,7 +1002,6 @@ func (n *Node) incrementBatchCounters(ba *roachpb.BatchRequest) {
 func (n *Node) Batch(
 	ctx context.Context, args *roachpb.BatchRequest,
 ) (*roachpb.BatchResponse, error) {
-
 	n.incrementBatchCounters(args)
 
 	// NB: Node.Batch is called directly for "local" calls. We don't want to
@@ -1155,6 +1154,7 @@ func setupSpanForIncomingRPC(
 			tracing.WithParent(parentSpan),
 			tracing.WithServerSpanKind)
 	}
+	newSpan.SetLazyTag("ba", ba)
 
 	return ctx, spanForRequest{
 		needRecording: needRecordingCollection,

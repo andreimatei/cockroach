@@ -728,10 +728,6 @@ func (s *crdbSpan) getRecordingNoChildrenLocked(
 				addTag(remappedKey, tag.ValueStr())
 			})
 		}
-		for _, kv := range s.mu.tags {
-			// We encode the tag values as strings.
-			addTag(string(kv.Key), kv.Value.Emit())
-		}
 		for _, kv := range s.mu.lazyTags {
 			switch v := kv.Value.(type) {
 			case LazyTag:
