@@ -574,7 +574,7 @@ func serveHTTPToggleTrace(
 		if sp.TraceID() != traceID {
 			return nil
 		}
-		sp.SetVerbose(true) // NB: SetVerbose propagates to the children, recursively.
+		sp.SetRecordingType(tracing.RecordingVerbose) // NB: SetRecordingType propagates to the children, recursively.
 		return nil
 	})
 }
