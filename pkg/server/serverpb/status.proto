@@ -20,6 +20,7 @@ import "roachpb/data.proto";
 import "roachpb/index_usage_stats.proto";
 import "roachpb/metadata.proto";
 import "server/diagnostics/diagnosticspb/diagnostics.proto";
+import "util/tracing/tracingpb/recorded_span.proto";
 import "server/status/statuspb/status.proto";
 import "sql/contentionpb/contention.proto";
 import "sql/execinfrapb/api.proto";
@@ -1665,6 +1666,16 @@ message TableIndexStatsResponse {
   google.protobuf.Timestamp last_reset = 2 [(gogoproto.stdtime) = true];
 }
 
+// !!!
+message ToggleTraceRecordingRequest {
+  uint64 trace_id = 1 [(gogoproto.nullable) = false, (gogoproto.customname) = "TraceID", (gogoproto.customtype) = "github.com/cockroachdb/cockroach/pkg/util/tracing/tracingpb.TraceID"];
+  uint64 span_id = 2 [(gogoproto.nullable) = false, (gogoproto.customname) = "SpanID", (gogoproto.customtype) = "github.com/cockroachdb/cockroach/pkg/util/tracing/tracingpb.SpanID"];
+  bool record = 3;
+  bool verbose = 4;
+}
+
+message ToggleTraceRecordingResponse{}
+
 // Request object for issuing a index usage stats reset request.
 message ResetIndexUsageStatsRequest {
   string node_id = 1 [(gogoproto.customname) = "NodeID"];
@@ -2146,6 +2157,14 @@ service Status {
   rpc TransactionContentionEvents(TransactionContentionEventsRequest) returns (TransactionContentionEventsResponse) {
     option (google.api.http) = {
       get: "/_status/transactioncontentionevents"
+    };
+  }
+
+  // !!!
+  rpc ToggleTraceRecording(ToggleTraceRecordingRequest) returns (ToggleTraceRecordingResponse) {
+    option (google.api.http) = {
+      post: "/_status/toggletracerecording"
+      body: "*"
     };
   }
 }
