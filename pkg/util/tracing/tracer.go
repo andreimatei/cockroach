@@ -164,7 +164,8 @@ var ZipkinCollector = settings.RegisterValidatedStringSetting(
 
 // enableTracingByDefault controls whether Tracers configured with
 // WithTracingMode(TracingModeFromEnv) generally create spans or not.
-var enableTracingByDefault = envutil.EnvOrDefaultBool("COCKROACH_REAL_SPANS", false) || buildutil.CrdbTestBuild
+// !!! var enableTracingByDefault = envutil.EnvOrDefaultBool("COCKROACH_REAL_SPANS", false) || buildutil.CrdbTestBuild
+var enableTracingByDefault = true
 
 // panicOnUseAfterFinish, if set, causes use of a span after Finish() to panic
 // if detected.
@@ -182,8 +183,9 @@ var debugUseAfterFinish = envutil.EnvOrDefaultBool("COCKROACH_DEBUG_SPAN_USE_AFT
 // the span mutexes end up being reused and locked repeatedly in random order on
 // the same goroutine. This erroneously looks like a potential deadlock to the
 // detector.
-var reuseSpans = (buildutil.CrdbTestBuild && !syncutil.DeadlockEnabled) ||
-	envutil.EnvOrDefaultBool("COCKROACH_REUSE_TRACING_SPANS", false)
+// !!! var reuseSpans = (buildutil.CrdbTestBuild && !syncutil.DeadlockEnabled) ||
+//	envutil.EnvOrDefaultBool("COCKROACH_REUSE_TRACING_SPANS", false)
+var reuseSpans = true
 
 // detectSpanRefLeaks enables the detection of Span reference leaks - i.e.
 // failures to decrement a Span's reference count. If detection is enabled, such
