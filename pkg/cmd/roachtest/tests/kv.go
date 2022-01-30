@@ -108,7 +108,7 @@ func registerKV(r registry.Registry) {
 
 			splits := " --splits=" + strconv.Itoa(computeNumSplits(opts))
 			if opts.duration == 0 {
-				opts.duration = 30 * time.Minute
+				opts.duration = 10 * time.Minute // !!! was 30
 			}
 			duration := " --duration=" + ifLocal(c, "10s", opts.duration.String())
 			var readPercent string
