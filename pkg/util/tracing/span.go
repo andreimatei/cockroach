@@ -274,6 +274,14 @@ func (sp *Span) FinishAndGetRecording(recType RecordingType) Recording {
 	return rec
 }
 
+func (sp *Span) FinishAndGetNaturalRecording() Recording {
+	recType := sp.RecordingType()
+	if recType == RecordingOff {
+		return nil
+	}
+	return sp.FinishAndGetRecording(recType)
+}
+
 // GetRecording retrieves the current recording, if the Span has recording
 // enabled. This can be called while spans that are part of the recording are
 // still open; it can run concurrently with operations on those spans.
@@ -301,6 +309,17 @@ func (sp *Span) GetRecording(recType RecordingType) Recording {
 		return nil
 	}
 	return sp.i.GetRecording(recType, false /* finishing */)
+}
+
+func (sp *Span) GetRecordingIfRecording() Recording {
+	if sp.detectUseAfterFinish() {
+		return nil
+	}
+	recType := sp.RecordingType()
+	if recType == RecordingOff {
+		return nil
+	}
+	return sp.GetRecording(recType)
 }
 
 // ImportRemoteSpans adds RecordedSpan data to the recording of the given Span;

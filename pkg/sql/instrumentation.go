@@ -260,9 +260,9 @@ func (ih *instrumentationHelper) Finish(
 	// Note that in case of implicit transactions, the trace contains the auto-commit too.
 	var trace tracing.Recording
 	if ih.shouldFinishSpan {
-		trace = ih.sp.FinishAndGetRecording(ih.sp.RecordingType())
+		trace = ih.sp.FinishAndGetNaturalRecording()
 	} else {
-		trace = ih.sp.GetRecording(ih.sp.RecordingType())
+		trace = ih.sp.GetRecordingIfRecording()
 	}
 
 	if ih.withStatementTrace != nil {

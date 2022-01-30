@@ -814,3 +814,16 @@ func TestSpanFinishRaces(t *testing.T) {
 		}
 	}
 }
+
+func TestXXX(t *testing.T) {
+	ctx := context.Background()
+	tr := NewTracerWithOpt(ctx,
+		WithSpanReusePercent(100),
+		WithTracingMode(TracingModeActiveSpansRegistry))
+	sp := tr.StartSpan("test")
+	sp2 := tr.StartSpan("child", WithParent(sp))
+	defer sp2.Finish()
+	sp.Record("xxx")
+	rec := sp.FinishAndGetRecording(RecordingVerbose)
+	fmt.Printf("!!! rec: %v\n", rec)
+}
