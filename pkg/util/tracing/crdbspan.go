@@ -203,6 +203,7 @@ func (s *crdbSpan) finish() bool {
 
 	var parent spanRef
 	var hasParent bool
+	var needContinuation bool
 	{
 		s.mu.Lock()
 		if s.mu.finished {
@@ -235,10 +236,18 @@ func (s *crdbSpan) finish() bool {
 		// re-acquiring the lock, as a performance optimization.
 		parent = s.mu.parent.move()
 		hasParent = !parent.empty()
+
+		// If the span is not part of the registry now, it never will be. So, we'll
+		// need to remove it from the registry only if it currently does not have a
+		// parent. We'll also need to manipulate the registry if there are open
+		// children (they'll need to be added to the registry).
+		needContinuation = !hasParent || len(s.mu.openChildren) > 0
+
 		if hasParent {
 			s.mu.finishing = true
 			s.mu.Unlock()
 		}
+
 	}
 
 	// Operate on the parent outside the child (our current receiver) lock.
@@ -250,6 +259,14 @@ func (s *crdbSpan) finish() bool {
 		// that possibility.
 		parent.Span.i.crdb.childFinished(s)
 		parent.release()
+	}
+
+	if !needContinuation {
+		s.mu.finishing = false
+		if !hasParent {
+			s.mu.Unlock()
+		}
+		return true
 	}
 
 	// Operate on children.
