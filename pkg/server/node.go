@@ -1059,21 +1059,22 @@ func (n *Node) setupSpanForIncomingRPC(
 		// This is a local request which circumvented gRPC. Start a span now.
 		ctx, newSpan = tracing.EnsureChildSpan(ctx, tr, tracing.BatchMethodName, tracing.WithServerSpanKind)
 	} else if parentSpan == nil {
-		var remoteParent tracing.SpanMeta
-		if !ba.TraceInfo.Empty() {
-			remoteParent = tracing.SpanMetaFromProto(ba.TraceInfo)
-		} else {
-			// For backwards compatibility with 21.2, if tracing info was passed as
-			// gRPC metadata, we use it.
-			var err error
-			remoteParent, err = tracing.ExtractSpanMetaFromGRPCCtx(ctx, tr)
-			if err != nil {
-				log.Warningf(ctx, "error extracting tracing info from gRPC: %s", err)
-			}
-		}
+		// !!!
+		//var remoteParent tracing.SpanMeta
+		//if !ba.TraceInfo.Empty() {
+		//	remoteParent = tracing.SpanMetaFromProto(ba.TraceInfo)
+		//} else {
+		//	// For backwards compatibility with 21.2, if tracing info was passed as
+		//	// gRPC metadata, we use it.
+		//	var err error
+		//	remoteParent, err = tracing.ExtractSpanMetaFromGRPCCtx(ctx, tr)
+		//	if err != nil {
+		//		log.Warningf(ctx, "error extracting tracing info from gRPC: %s", err)
+		//	}
+		//}
 
 		ctx, newSpan = tr.StartSpanCtx(ctx, tracing.BatchMethodName,
-			tracing.WithRemoteParent(remoteParent),
+			// !!! tracing.WithRemoteParent(remoteParent),
 			tracing.WithServerSpanKind)
 	} else {
 		// It's unexpected to find a span in the context for a non-local request.

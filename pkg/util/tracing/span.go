@@ -564,9 +564,10 @@ func (sp *Span) reset(
 			tags: h.tagsAlloc[:0],
 		}
 
-		if kind != oteltrace.SpanKindUnspecified {
-			c.setTagLocked(spanKindTagKey, attribute.StringValue(kind.String()))
-		}
+		// !!!
+		//if kind != oteltrace.SpanKindUnspecified {
+		//	c.setTagLocked(spanKindTagKey, attribute.StringValue(kind.String()))
+		//}
 		c.mu.Unlock()
 	}
 
