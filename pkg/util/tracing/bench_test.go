@@ -75,6 +75,19 @@ func BenchmarkTracer_StartSpanCtx(b *testing.B) {
 
 }
 
+func BenchmarkXXX(b *testing.B) {
+	ctx := context.Background()
+	tr := NewTracerWithOpt(ctx,
+		WithTracingMode(TracingModeActiveSpansRegistry),
+		WithSpanReusePercent(100))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		sp := tr.StartSpan("xxx")
+		sp.Finish()
+	}
+}
+
 // BenchmarkSpan_GetRecording microbenchmarks GetRecording.
 func BenchmarkSpan_GetRecording(b *testing.B) {
 	ctx := context.Background()

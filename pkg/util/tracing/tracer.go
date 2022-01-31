@@ -386,6 +386,7 @@ func (r *SpanRegistry) removeSpanLocked(id tracingpb.SpanID) {
 }
 
 func (r *SpanRegistry) addSpan(s *crdbSpan) {
+	return // !!!
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.addSpanLocked(s)
@@ -462,6 +463,7 @@ func (r *SpanRegistry) testingAll() []*crdbSpan {
 // concurrently with this call. swap takes ownership of the spanRefs, and will
 // release() them.
 func (r *SpanRegistry) swap(parentID tracingpb.SpanID, children []spanRef) {
+	return // !!!
 	r.mu.Lock()
 	r.removeSpanLocked(parentID)
 	for _, c := range children {
@@ -934,13 +936,13 @@ func (t *Tracer) releaseSpanToPool(sp *Span) {
 	// Nobody is supposed to have a reference to the span at this point, but let's
 	// take the lock anyway to protect against buggy clients accessing the span
 	// after Finish().
-	c.mu.Lock()
+	// !!! c.mu.Lock()
 	c.mu.openChildren = nil
 	c.mu.recording.finishedChildren = nil
 	c.mu.tags = nil
 	c.mu.recording.logs.Discard()
 	c.mu.recording.structured.Discard()
-	c.mu.Unlock()
+	// !!! c.mu.Unlock()
 
 	// Zero out the spanAllocHelper buffers to make the elements inside the
 	// arrays, if any, available for GC.
