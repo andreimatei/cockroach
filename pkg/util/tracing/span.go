@@ -535,7 +535,7 @@ func (sp *Span) reset(
 		// Nobody is supposed to have a reference to the span at this point, but let's
 		// take the lock anyway to protect against buggy clients accessing the span
 		// after Finish().
-		c.mu.Lock()
+		// !!! c.mu.Lock()
 		if len(c.mu.openChildren) != 0 {
 			panic(fmt.Sprintf("unexpected children in span being reset: %v", c.mu.openChildren))
 		}
@@ -568,7 +568,7 @@ func (sp *Span) reset(
 		//if kind != oteltrace.SpanKindUnspecified {
 		//	c.setTagLocked(spanKindTagKey, attribute.StringValue(kind.String()))
 		//}
-		c.mu.Unlock()
+		// !!! c.mu.Unlock()
 	}
 
 	// We only mark the span as not finished at the end so that accesses to the
