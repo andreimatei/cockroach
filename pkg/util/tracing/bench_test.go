@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/cockroachdb/cockroach/pkg/testutils/skip"
@@ -82,7 +83,19 @@ func TestSizeXXX(t *testing.T) {
 	var c crdbSpan
 
 	fmt.Printf("recordingState: %d. cMu: %d. c: %d.", unsafe.Sizeof(rs), unsafe.Sizeof(cMu), unsafe.Sizeof(c))
+
+	t1 := cputicks()
+	fmt.Printf("cputicks: %d\n", t1)
+	for i := 0; i < 10; i++ {
+		time.Sleep(time.Second)
+		t2 := cputicks()
+		fmt.Printf("after sleep: %d. delta: %d\n", t2, t2-t1)
+		t1 = t2
+	}
 }
+
+//go:linkname cputicks runtime.cputicks
+func cputicks() int64
 
 func BenchmarkXXX(b *testing.B) {
 	ctx := context.Background()
