@@ -1071,7 +1071,8 @@ child operation: %s, tracer created at:
 		opts.LogTags = opts.Parent.i.crdb.logTags
 	}
 
-	startTime := time.Now()
+	// !!! startTime := time.Now()
+	startTime := time.Time{}
 
 	// First, create any external spans that we may need (OpenTelemetry, net/trace).
 	// We do this early so that they are available when we construct the main Span,
