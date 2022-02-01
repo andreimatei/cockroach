@@ -872,8 +872,9 @@ func (ex *connExecutor) reportSessionDataChanges(fn func() error) error {
 }
 
 func (ex *connExecutor) commitSQLTransactionInternal(ctx context.Context) error {
-	ctx, sp := tracing.EnsureChildSpan(ctx, ex.server.cfg.AmbientCtx.Tracer, "commit sql txn")
-	defer sp.Finish()
+	// !!! skip this span. Consider creating it when the txn is not read-only - see txnCommitter for its determination.
+	//ctx, sp := tracing.EnsureChildSpan(ctx, ex.server.cfg.AmbientCtx.Tracer, "commit sql txn")
+	//defer sp.Finish()
 
 	if err := ex.createJobs(ctx); err != nil {
 		return err
