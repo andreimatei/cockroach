@@ -838,6 +838,10 @@ func ProcessorSpan(ctx context.Context, name string) (context.Context, *tracing.
 	if sp == nil {
 		return ctx, nil
 	}
+	// !!!
+	if sp.RecordingType() == tracing.RecordingOff {
+		return ctx, nil
+	}
 	return sp.Tracer().StartSpanCtx(ctx, name,
 		tracing.WithParent(sp), tracing.WithDetachedRecording())
 }
