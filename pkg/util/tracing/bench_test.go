@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"unsafe"
 
 	"github.com/cockroachdb/cockroach/pkg/testutils/skip"
 	"github.com/cockroachdb/logtags"
@@ -73,6 +74,14 @@ func BenchmarkTracer_StartSpanCtx(b *testing.B) {
 		})
 	}
 
+}
+
+func TestSizeXXX(t *testing.T) {
+	var rs recordingState
+	var cMu crdbSpanMu
+	var c crdbSpan
+
+	fmt.Printf("recordingState: %d. cMu: %d. c: %d.", unsafe.Sizeof(rs), unsafe.Sizeof(cMu), unsafe.Sizeof(c))
 }
 
 func BenchmarkXXX(b *testing.B) {
