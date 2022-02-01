@@ -110,7 +110,7 @@ func (s *spanInner) Meta() SpanMeta {
 
 	if s.crdb != nil {
 		traceID, spanID = s.crdb.traceID, s.crdb.spanID
-		recordingType = s.crdb.mu.recording.recordingType.load()
+		recordingType = s.crdb.mu.recordingType.load()
 		sterile = s.isSterile()
 	}
 

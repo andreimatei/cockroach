@@ -898,6 +898,7 @@ func (t *Tracer) newSpan(
 	otelSpan oteltrace.Span,
 	netTr trace.Trace,
 	sterile bool,
+	recType RecordingType,
 ) *Span {
 	if t.testing.MaintainAllocationCounters {
 		atomic.AddInt32(&t.spansCreated, 1)
@@ -906,7 +907,7 @@ func (t *Tracer) newSpan(
 	h.span.reset(
 		traceID, spanID, operation, goroutineID,
 		startTime, logTags, kind,
-		otelSpan, netTr, sterile)
+		otelSpan, netTr, sterile, recType)
 	return &h.span
 }
 
@@ -938,10 +939,12 @@ func (t *Tracer) releaseSpanToPool(sp *Span) {
 	// after Finish().
 	// !!! c.mu.Lock()
 	c.mu.openChildren = nil
-	c.mu.recording.finishedChildren = nil
 	c.mu.tags = nil
-	c.mu.recording.logs.Discard()
-	c.mu.recording.structured.Discard()
+	if c.mu.recording != nil {
+		c.mu.recording.finishedChildren = nil
+		c.mu.recording.logs.Discard()
+		c.mu.recording.structured.Discard()
+	}
 	// !!! c.mu.Unlock()
 
 	// Zero out the spanAllocHelper buffers to make the elements inside the
@@ -1112,9 +1115,9 @@ child operation: %s, tracer created at:
 	s := t.newSpan(
 		traceID, spanID, opName, uint64(goid.Get()),
 		startTime, opts.LogTags, opts.SpanKind,
-		otelSpan, netTr, opts.Sterile)
+		otelSpan, netTr, opts.Sterile, opts.recordingType())
 
-	s.i.crdb.enableRecording(opts.recordingType())
+	// !!! s.i.crdb.enableRecording(opts.recordingType())
 
 	var localRoot bool
 	{

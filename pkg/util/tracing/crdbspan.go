@@ -108,7 +108,11 @@ type crdbSpanMu struct {
 	// The spans are not maintained in a particular order.
 	openChildren []childRef
 
-	recording recordingState
+	// recordingType is the recording type of the ongoing recording, if any.
+	// Its 'load' method may be called without holding the surrounding mutex,
+	// but its 'swap' method requires the mutex.
+	recordingType atomicRecordingType
+	recording     *recordingState
 
 	// tags are only captured when recording. These are tags that have been
 	// added to this Span, and will be appended to the tags in logTags when
@@ -120,11 +124,6 @@ type crdbSpanMu struct {
 }
 
 type recordingState struct {
-	// recordingType is the recording type of the ongoing recording, if any.
-	// Its 'load' method may be called without holding the surrounding mutex,
-	// but its 'swap' method requires the mutex.
-	recordingType atomicRecordingType
-
 	logs sizeLimitedBuffer // of *tracingpb.LogRecords
 	// structured accumulates StructuredRecord's. It will contain the events
 	// recorded on this span, and also the ones recorded on children that
@@ -314,7 +313,7 @@ func (s *crdbSpan) recordingType() RecordingType {
 	if s == nil {
 		return RecordingOff
 	}
-	return s.mu.recording.recordingType.load()
+	return s.mu.recordingType.load()
 }
 
 // enableRecording start recording on the Span. From now on, log events and
@@ -326,7 +325,13 @@ func (s *crdbSpan) enableRecording(recType RecordingType) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.mu.recording.recordingType.swap(recType)
+	if s.mu.recording == nil {
+		s.mu.recording = &recordingState{
+			logs:       makeSizeLimitedBuffer(maxLogBytesPerSpan, nil /* scratch */),
+			structured: makeSizeLimitedBuffer(maxStructuredBytesPerSpan, nil /* scratch */),
+		}
+	}
+	s.mu.recordingType.swap(recType)
 }
 
 func (s *crdbSpan) disableRecording() {
@@ -335,7 +340,7 @@ func (s *crdbSpan) disableRecording() {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.mu.recording.recordingType.swap(RecordingOff)
+	s.mu.recordingType.swap(RecordingOff)
 }
 
 // TraceID is part of the RegistrySpan interface.
@@ -387,9 +392,15 @@ func (s *crdbSpan) getVerboseRecording(includeDetachedChildren bool, finishing b
 	s.mu.Lock()
 	// The capacity here is approximate since we don't know how many
 	// grandchildren there are.
-	result := make(Recording, 0, 1+len(s.mu.openChildren)+len(s.mu.recording.finishedChildren))
+	sizeHint := 1 + len(s.mu.openChildren)
+	if s.mu.recording != nil {
+		sizeHint += len(s.mu.recording.finishedChildren)
+	}
+	result := make(Recording, 0, sizeHint)
 	result = append(result, s.getRecordingNoChildrenLocked(RecordingVerbose, finishing))
-	result = append(result, s.mu.recording.finishedChildren...)
+	if s.mu.recording != nil {
+		result = append(result, s.mu.recording.finishedChildren...)
+	}
 
 	for _, child := range s.mu.openChildren {
 		if child.collectRecording || includeDetachedChildren {
@@ -421,9 +432,11 @@ func (s *crdbSpan) getStructuredRecording(includeDetachedChildren bool) Recordin
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	buffer := make([]*tracingpb.StructuredRecord, 0, 3)
-	for _, c := range s.mu.recording.finishedChildren {
-		for i := range c.StructuredRecords {
-			buffer = append(buffer, &c.StructuredRecords[i])
+	if s.mu.recording != nil {
+		for _, c := range s.mu.recording.finishedChildren {
+			for i := range c.StructuredRecords {
+				buffer = append(buffer, &c.StructuredRecords[i])
+			}
 		}
 	}
 	for _, c := range s.mu.openChildren {
@@ -433,7 +446,7 @@ func (s *crdbSpan) getStructuredRecording(includeDetachedChildren bool) Recordin
 		}
 	}
 
-	if len(buffer) == 0 && s.mu.recording.structured.Len() == 0 {
+	if len(buffer) == 0 && (s.mu.recording == nil || s.mu.recording.structured.Len() == 0) {
 		// Optimize out the allocations below.
 		return nil
 	}
@@ -475,6 +488,9 @@ func (s *crdbSpan) recordFinishedChildren(children []tracingpb.RecordedSpan) {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.mu.recording == nil {
+		return
+	}
 	s.recordFinishedChildrenLocked(children)
 }
 
@@ -609,6 +625,7 @@ func (s *crdbSpan) getStructuredEventsRecursively(
 ) []*tracingpb.StructuredRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	buffer = s.getStructuredEventsLocked(buffer)
 	for _, c := range s.mu.openChildren {
 		if c.collectRecording || includeDetachedChildren {
@@ -616,9 +633,11 @@ func (s *crdbSpan) getStructuredEventsRecursively(
 			buffer = sp.getStructuredEventsRecursively(buffer, includeDetachedChildren)
 		}
 	}
-	for _, c := range s.mu.recording.finishedChildren {
-		for i := range c.StructuredRecords {
-			buffer = append(buffer, &c.StructuredRecords[i])
+	if s.mu.recording != nil {
+		for _, c := range s.mu.recording.finishedChildren {
+			for i := range c.StructuredRecords {
+				buffer = append(buffer, &c.StructuredRecords[i])
+			}
 		}
 	}
 	return buffer
@@ -627,6 +646,9 @@ func (s *crdbSpan) getStructuredEventsRecursively(
 func (s *crdbSpan) getStructuredEventsLocked(
 	buffer []*tracingpb.StructuredRecord,
 ) []*tracingpb.StructuredRecord {
+	if s.mu.recording == nil {
+		return buffer
+	}
 	numEvents := s.mu.recording.structured.Len()
 	for i := 0; i < numEvents; i++ {
 		event := s.mu.recording.structured.Get(i).(*tracingpb.StructuredRecord)
@@ -667,6 +689,10 @@ func (s *crdbSpan) getRecordingNoChildrenLocked(
 		rs.Finished = false
 	} else {
 		rs.Finished = true
+	}
+
+	if s.mu.recording == nil {
+		return rs
 	}
 
 	addTag := func(k, v string) {

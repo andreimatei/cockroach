@@ -476,6 +476,7 @@ func (sp *Span) reset(
 	otelSpan oteltrace.Span,
 	netTr trace.Trace,
 	sterile bool,
+	recType RecordingType,
 ) {
 	if sp.i.crdb == nil {
 		// We assume that spans being reset have come from the sync.Pool.
@@ -542,14 +543,16 @@ func (sp *Span) reset(
 		if len(c.mu.tags) != 0 {
 			panic(fmt.Sprintf("unexpected tags in span being reset: %v", c.mu.tags))
 		}
-		if len(c.mu.recording.finishedChildren) != 0 {
-			panic(fmt.Sprintf("unexpected finished children in span being reset: %v", c.mu.recording.finishedChildren))
-		}
-		if c.mu.recording.structured.Len() != 0 {
-			panic("unexpected structured recording in span being reset")
-		}
-		if c.mu.recording.logs.Len() != 0 {
-			panic("unexpected logs in span being reset")
+		if c.mu.recording != nil {
+			if len(c.mu.recording.finishedChildren) != 0 {
+				panic(fmt.Sprintf("unexpected finished children in span being reset: %v", c.mu.recording.finishedChildren))
+			}
+			if c.mu.recording.structured.Len() != 0 {
+				panic("unexpected structured recording in span being reset")
+			}
+			if c.mu.recording.logs.Len() != 0 {
+				panic("unexpected logs in span being reset")
+			}
 		}
 
 		h := sp.helper
@@ -557,12 +560,22 @@ func (sp *Span) reset(
 			duration:     -1, // unfinished
 			openChildren: h.childrenAlloc[:0],
 			goroutineID:  goroutineID,
-			recording: recordingState{
-				logs:       makeSizeLimitedBuffer(maxLogBytesPerSpan, nil /* scratch */),
-				structured: makeSizeLimitedBuffer(maxStructuredBytesPerSpan, h.structuredEventsAlloc[:]),
-			},
+			recording:    nil,
+			//recording: recordingState{
+			//	logs:       makeSizeLimitedBuffer(maxLogBytesPerSpan, nil /* scratch */),
+			//	structured: makeSizeLimitedBuffer(maxStructuredBytesPerSpan, h.structuredEventsAlloc[:]),
+			//},
 			tags: h.tagsAlloc[:0],
 		}
+
+		if recType != RecordingOff {
+			// !!! save the recordingState allocation through the helper
+			c.mu.crdbSpanMu.recording = &recordingState{
+				logs:       makeSizeLimitedBuffer(maxLogBytesPerSpan, nil /* scratch */),
+				structured: makeSizeLimitedBuffer(maxStructuredBytesPerSpan, h.structuredEventsAlloc[:]),
+			}
+		}
+		c.mu.crdbSpanMu.recordingType.swap(recType)
 
 		// !!!
 		//if kind != oteltrace.SpanKindUnspecified {
