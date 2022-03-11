@@ -4844,6 +4844,7 @@ Support status: [reserved](#support-status)
 
 SetTraceRecordingType sets the recording mode of all or some of the spans
 in a trace.
+!!! move to admin.proto ?
 
 Support status: [reserved](#support-status)
 
@@ -6762,7 +6763,7 @@ Support status: [reserved](#support-status)
 
 ## ListTracingSnapshots
 
-`GET /_admin/v1/snapshots`
+`GET /_admin/v1/trace_snapshots`
 
 ListTracingSnapshots retrieves the list of snapshots of the Active Spans
 Registry that the node currently has in memory. A new snapshot can be
@@ -6818,7 +6819,7 @@ Support status: [reserved](#support-status)
 
 ## TakeTracingSnapshot
 
-`POST /_admin/v1/snapshots`
+`POST /_admin/v1/trace_snapshots`
 
 TakeTracingSnapshot captures a new snapshot of the Active Spans Registry.
 The new snapshot is returned, and also made available through
@@ -6874,7 +6875,7 @@ Support status: [reserved](#support-status)
 
 ## GetTracingSnapshot
 
-`GET /_admin/v1/snapshots/{snapshot_id}`
+`GET /_admin/v1/trace_snapshots/{snapshot_id}`
 
 GetTracingSnapshot returns a trace snapshot previously generated through
 TakeTracingSnapshots.
@@ -6990,7 +6991,7 @@ Support status: [reserved](#support-status)
 
 ## GetTrace
 
-`POST /_admin/v1/traces/{trace_id}`
+`POST /_admin/v1/traces`
 
 GetTrace returns the trace with a specified ID. Depending on the request,
 the trace is returned either from a snapshot that was previously taken, or
@@ -7010,7 +7011,7 @@ Support status: [reserved](#support-status)
 | ----- | ---- | ----- | ----------- | -------------- |
 | snapshot_id | [int64](#cockroach.server.serverpb.GetTraceRequest-int64) |  | If a snapshot is specified, the trace information is returned from that snapshot. If a snapshot is not specified, information about currently opened spans is returned from the active spans registry. | [reserved](#support-status) |
 | trace_id | [uint64](#cockroach.server.serverpb.GetTraceRequest-uint64) |  |  | [reserved](#support-status) |
-| rec_mode | [string](#cockroach.server.serverpb.GetTraceRequest-string) |  |  | [reserved](#support-status) |
+| recording_type | [cockroach.util.tracing.tracingpb.RecordingMode](#cockroach.server.serverpb.GetTraceRequest-cockroach.util.tracing.tracingpb.RecordingMode) |  |  | [reserved](#support-status) |
 
 
 
@@ -7029,10 +7030,9 @@ Support status: [reserved](#support-status)
 | Field | Type | Label | Description | Support status |
 | ----- | ---- | ----- | ----------- | -------------- |
 | snapshot_id | [int64](#cockroach.server.serverpb.GetTraceResponse-int64) |  |  | [reserved](#support-status) |
-| live | [bool](#cockroach.server.serverpb.GetTraceResponse-bool) |  |  | [reserved](#support-status) |
+| live | [bool](#cockroach.server.serverpb.GetTraceResponse-bool) |  | !!! needed ? | [reserved](#support-status) |
 | trace_id | [uint64](#cockroach.server.serverpb.GetTraceResponse-uint64) |  |  | [reserved](#support-status) |
-| rec_mode | [string](#cockroach.server.serverpb.GetTraceResponse-string) |  |  | [reserved](#support-status) |
-| still_exists | [bool](#cockroach.server.serverpb.GetTraceResponse-bool) |  |  | [reserved](#support-status) |
+| still_exists | [bool](#cockroach.server.serverpb.GetTraceResponse-bool) |  | !!! util.tracing.tracingpb.RecordingMode recording_type = 4;<br><br>!!! comment | [reserved](#support-status) |
 | recording | [string](#cockroach.server.serverpb.GetTraceResponse-string) |  |  | [reserved](#support-status) |
 
 

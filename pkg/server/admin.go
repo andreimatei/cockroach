@@ -3503,8 +3503,8 @@ func (s *adminServer) GetTrace(
 	var recording tracing.Recording
 	var snapshotID tracing.SnapshotID
 
-	traceID := tracingpb.TraceID(req.TraceId)
-	snapID := req.SnapshotId
+	traceID := tracingpb.TraceID(req.TraceID)
+	snapID := req.SnapshotID
 	if snapID != 0 {
 		snapshotID = tracing.SnapshotID(snapID)
 		snapshot, err := s.server.cfg.Tracer.GetSnapshot(snapshotID)
@@ -3522,7 +3522,7 @@ func (s *adminServer) GetTrace(
 	// Look for the trace in the registry to see if it's present and read its
 	// recording mode. If we were asked to display the current trace (as opposed
 	// to the trace saved in a snapshot), we also collect the recording.
-	recType := tracing.RecordingTypeFromCarrierValue(req.RecMode)
+	// !!! recType := tracing.RecordingTypeFromProto(req.RecordingType)
 	traceStillExists := false
 	if err := s.server.cfg.Tracer.SpanRegistry().VisitSpans(func(sp tracing.RegistrySpan) error {
 		if sp.TraceID() != traceID {
@@ -3532,7 +3532,8 @@ func (s *adminServer) GetTrace(
 		if recording == nil {
 			recording = sp.GetFullRecording(tracing.RecordingVerbose)
 		}
-		sp.SetRecordingType(recType)
+		// !!! why are we setting this?
+		// sp.SetRecordingType(recType)
 		return iterutil.StopIteration()
 	}); err != nil {
 		return nil, err
@@ -3543,10 +3544,10 @@ func (s *adminServer) GetTrace(
 	}
 
 	return &serverpb.GetTraceResponse{
-		SnapshotId:  snapID,
-		Live:        snapID == 0,
-		TraceId:     uint64(traceID),
-		RecMode:     recType.ToCarrierValue(),
+		SnapshotID: snapID,
+		Live:       snapID == 0,
+		TraceID:    uint64(traceID),
+		// !!! RecordingType: recType.ToCarrierValue(),
 		StillExists: traceStillExists,
 		Recording:   recording.String(),
 	}, nil

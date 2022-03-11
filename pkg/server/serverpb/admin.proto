@@ -13,6 +13,7 @@ package cockroach.server.serverpb;
 option go_package = "serverpb";
 
 import "config/zonepb/zone.proto";
+import "util/tracing/tracingpb/tracing.proto";
 import "jobs/jobspb/jobs.proto";
 import "server/serverpb/status.proto";
 import "storage/enginepb/mvcc.proto";
@@ -1051,7 +1052,7 @@ service Admin {
   // captured with TakeTracingSnapshots.
   rpc ListTracingSnapshots(ListTracingSnapshotsRequest) returns (ListTracingSnapshotsResponse) {
     option (google.api.http) = {
-      get: "/_admin/v1/snapshots"
+      get: "/_admin/v1/trace_snapshots"
     };
   }
 
@@ -1060,7 +1061,7 @@ service Admin {
   // ListTracingSnapshots.
   rpc TakeTracingSnapshot(TakeTracingSnapshotRequest) returns (TakeTracingSnapshotResponse) {
     option (google.api.http) = {
-      post: "/_admin/v1/snapshots"
+      post: "/_admin/v1/trace_snapshots"
     };
   }
 
@@ -1068,7 +1069,7 @@ service Admin {
   // TakeTracingSnapshots.
   rpc GetTracingSnapshot(GetTracingSnapshotRequest) returns (GetTracingSnapshotResponse) {
     option (google.api.http) = {
-      get: "/_admin/v1/snapshots/{snapshot_id}"
+      get: "/_admin/v1/trace_snapshots/{snapshot_id}"
     };
   }
 
@@ -1077,10 +1078,12 @@ service Admin {
   // directly from the active spans registry.
   rpc GetTrace(GetTraceRequest) returns (GetTraceResponse) {
     option (google.api.http) = {
-      post: "/_admin/v1/snapshots/{snapshot_id}/traces/{trace_id}"
-      additional_bindings {
-        post: "/_admin/v1/traces/{trace_id}"
-      }
+      post: "/_admin/v1/traces"
+      //post: "/_admin/v1/snapshots/{snapshot_id}/traces/{trace_id}"
+      body: "*"
+//      additional_bindings {
+//        post: "/_admin/v1/traces/{trace_id}"
+//      }
     };
   }
 }
@@ -1114,18 +1117,18 @@ message GetTraceRequest {
   // If a snapshot is specified, the trace information is returned from that
   // snapshot. If a snapshot is not specified, information about currently
   // opened spans is returned from the active spans registry.
-  int64 snapshot_id = 1 [(gogoproto.nullable) = true];
-  uint64 trace_id = 2;
-  string rec_mode = 3;
+  int64 snapshot_id = 1 [(gogoproto.nullable) = true, (gogoproto.customname) = "SnapshotID"];
+  uint64 trace_id = 2 [(gogoproto.customname) = "TraceID"];
+  util.tracing.tracingpb.RecordingMode recording_type = 3;
 }
 
 message GetTraceResponse {
-  int64 snapshot_id = 1 [(gogoproto.nullable) = true];
-  bool live = 2;
-  uint64 trace_id = 3;
-  string rec_mode = 4;
-  bool still_exists = 5;
-  string recording = 6;
+  int64 snapshot_id = 1 [(gogoproto.nullable) = true, (gogoproto.customname) = "SnapshotID"];
+  bool live = 2;  // !!! needed ?
+  uint64 trace_id = 3 [(gogoproto.customname) = "TraceID"];
+  // !!! util.tracing.tracingpb.RecordingMode recording_type = 4;
+  bool still_exists = 4;  // !!! comment
+  string recording = 5;
 }
 
 message Snapshot {

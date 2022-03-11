@@ -85,6 +85,20 @@ func RecordingTypeFromCarrierValue(val string) RecordingType {
 	}
 }
 
+func RecordingTypeFromProto(val tracingpb.RecordingMode) RecordingType {
+	switch val {
+	case tracingpb.RecordingMode_OFF:
+		return RecordingOff
+	case tracingpb.RecordingMode_VERBOSE:
+		return RecordingVerbose
+	case tracingpb.RecordingMode_STRUCTURED:
+		return RecordingStructured
+	default:
+		// Unrecognized.
+		return RecordingVerbose
+	}
+}
+
 type traceLogData struct {
 	logRecord
 	depth int

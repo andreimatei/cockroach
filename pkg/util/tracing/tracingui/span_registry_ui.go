@@ -122,6 +122,8 @@ func getSnapshotHandler(snapID string, tr *tracing.Tracer, w http.ResponseWriter
 	returnJSON(w, pd)
 }
 
+// ProcessSnapshot massages a trace snapshot to prepare it for presentation in
+// the UI.
 func ProcessSnapshot(snapshot tracing.SpansSnapshot) *ProcessedSnapshot {
 	// Flatten the recordings.
 	spans := make([]tracingpb.RecordedSpan, 0, len(snapshot.Traces)*3)
@@ -189,8 +191,8 @@ type pageData struct {
 	SpansList    ProcessedSnapshot      `json:"spans_list"`
 }
 
-// ProcessSnapshot represents a snapshot of open tracing spans plus stack traces
-// for all the goroutines.
+// ProcessedSnapshot represents a snapshot of open tracing spans plus stack
+// traces for all the goroutines.
 type ProcessedSnapshot struct {
 	Spans []processedSpan `json:"spans"`
 	// Stacks contains stack traces for the goroutines referenced by the Spans
@@ -441,6 +443,7 @@ type processedSpan struct {
 	Tags                          []ProcessedTag
 }
 
+// ProcessedTag is a span tag that was processed and expanded by processTag.
 type ProcessedTag struct {
 	Key, Val string
 	Caption  string

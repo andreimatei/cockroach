@@ -880,7 +880,7 @@ export function listTracingSnapshots(
 ): Promise<ListTracingSnapshotsResponseMessage> {
   return timeoutFetch(
     serverpb.ListTracingSnapshotsResponse,
-    `${API_PREFIX}/snapshots`,
+    `${API_PREFIX}/trace_snapshots`,
     null,
     timeout,
   );
@@ -892,7 +892,7 @@ export function takeTracingSnapshot(
   const req = new TakeTracingSnapshotRequest();
   return timeoutFetch(
     serverpb.TakeTracingSnapshotResponse,
-    `${API_PREFIX}/snapshots`,
+    `${API_PREFIX}/trace_snapshots`,
     req as any,
     timeout,
   );
@@ -904,7 +904,7 @@ export function getTracingSnapshot(
 ): Promise<GetTracingSnapshotResponseMessage> {
   return timeoutFetch(
     serverpb.GetTracingSnapshotResponse,
-    `${API_PREFIX}/snapshots/${req.snapshot_id}`,
+    `${API_PREFIX}/trace_snapshots/${req.snapshot_id}`,
     null,
     timeout,
   );
@@ -916,7 +916,7 @@ export function getTraceForSnapshot(
 ): Promise<GetTraceRequestMessage> {
   return timeoutFetch(
     serverpb.GetTraceResponse,
-    `${API_PREFIX}/snapshots/${req.snapshot_id}/traces/${req.trace_id}`,
+    `${API_PREFIX}/traces`,
     req as any,
     timeout,
   );
@@ -928,7 +928,7 @@ export function getLiveTrace(
 ): Promise<GetTraceRequestMessage> {
   return timeoutFetch(
     serverpb.GetTraceResponse,
-    `${API_PREFIX}/traces/${req.trace_id}`,
+    `${API_PREFIX}/traces`,
     req as any,
     timeout,
   );
