@@ -25,23 +25,13 @@ var RootCmd = &cobra.Command{
 	Long: `The Observability Service ingests monitoring and observability data 
 from one or more CockroachDB clusters.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("in root command: %s\n", crdbHTTPAddr)
-
 		certs, err := loadCerts(uiCertPath, uiCertKeyPath, caCertPath)
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		proxy := NewReverseHTTPProxy(crdbHTTPAddr, certs.CAPool)
-		//if certs.UICert != nil {
-		//	err = http.ListenAndServeTLS(httpAddr, uiCertPath, uiCertKeyPath, proxy)
-		//}
-		//if err != nil {
-		//	log.Println("Error:", err)
-		//}
-
-		ch := proxy.RunAsync(context.Background(), certs, httpAddr)
-		// !!! ReverseHttpsProxy(8082, "https://localhost:8080", "/home/andrei/cert/cert.pem", "/home/andrei/cert/key.pem")
+		proxy := NewReverseHTTPProxy(httpAddr, crdbHttpURL, certs.CAPool)
+		ch := proxy.RunAsync(context.Background(), certs)
 		<-ch
 
 	},
@@ -50,7 +40,7 @@ from one or more CockroachDB clusters.`,
 // Flags.
 var (
 	httpAddr                  string
-	crdbHTTPAddr              string
+	crdbHttpURL               string
 	caCertPath                string
 	uiCertPath, uiCertKeyPath string
 )
@@ -62,10 +52,10 @@ func main() {
 		"localhost:8081",
 		"The address on which to listen for HTTP requests.")
 	RootCmd.PersistentFlags().StringVar(
-		&crdbHTTPAddr,
-		"crdb-http-addr",
+		&crdbHttpURL,
+		"crdb-http-url",
 		"http://localhost:8080",
-		"The address to which HTTP requests are proxied.")
+		"The base URL to which HTTP requests are proxied.")
 	RootCmd.PersistentFlags().StringVar(
 		&caCertPath,
 		"ca-cert",
@@ -117,8 +107,10 @@ func loadCerts(uiCert, uiKey, caCert string) (Certificates, error) {
 		if err != nil {
 			return Certificates{}, errors.Wrap(err, "error reading CA cert")
 		}
-		block, rest := pem.Decode(data) // !!! what if there's more than one block
-		log.Printf("!!! rest: %d", len(rest))
+		block, rest := pem.Decode(data)
+		if len(rest) != 0 {
+			log.Fatal("More than one certificate present in %s. Not sure how to deal with that.", caCert)
+		}
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {
 			return Certificates{}, errors.Wrap(err, "error parsing CA cert")
@@ -134,9 +126,7 @@ type ReverseHTTPProxy struct {
 	proxy      *httputil.ReverseProxy
 }
 
-func (p *ReverseHTTPProxy) RunAsync(
-	ctx context.Context, certs Certificates, listenAddr string,
-) <-chan struct{} {
+func (p *ReverseHTTPProxy) RunAsync(ctx context.Context, certs Certificates) <-chan struct{} {
 	ch := make(chan struct{})
 
 	go func() {
@@ -144,7 +134,7 @@ func (p *ReverseHTTPProxy) RunAsync(
 		var err error
 		if certs.UICert != nil {
 			go func() {
-				if err := http.ListenAndServe(listenAddr, http.HandlerFunc(redirectTLS)); err != nil {
+				if err := http.ListenAndServe(p.listenAddr, http.HandlerFunc(redirectTLS)); err != nil {
 					log.Print(err)
 				}
 			}()
@@ -164,23 +154,21 @@ func (p *ReverseHTTPProxy) RunAsync(
 	return ch
 }
 
-func NewReverseHTTPProxy(dst string, caCerts *x509.CertPool) ReverseHTTPProxy {
-	url, err := url.Parse(dst)
+func NewReverseHTTPProxy(
+	listenAddr string, crdbURL string, caCerts *x509.CertPool,
+) ReverseHTTPProxy {
+	url, err := url.Parse(crdbURL)
 	if err != nil {
-		log.Fatal("invalid CRDB UI target: %s", dst)
+		log.Fatal("Invalid CRDB UI target: %s.", crdbURL)
 	}
 	if caCerts != nil && url.Scheme != "https" {
-		log.Fatal("HTTPS is required for CRDB target")
+		log.Fatal("HTTPS is required for CRDB target when --ca-cert is specified.")
 	}
 
 	proxy := httputil.NewSingleHostReverseProxy(url)
 	if caCerts != nil {
+		// Accept only the specified roots.
 		proxy.Transport = &http.Transport{
-			// !!!
-			//DialContext: (&net.Dialer{
-			//	Timeout:   10 * time.Second,
-			//	KeepAlive: 10 * time.Second,
-			//}).DialContext,
 			TLSClientConfig: &tls.Config{
 				RootCAs: caCerts,
 			},
@@ -188,7 +176,7 @@ func NewReverseHTTPProxy(dst string, caCerts *x509.CertPool) ReverseHTTPProxy {
 		}
 	}
 	return ReverseHTTPProxy{
-		listenAddr: "", // !!!
+		listenAddr: listenAddr,
 		proxy:      proxy,
 	}
 }
@@ -196,45 +184,3 @@ func NewReverseHTTPProxy(dst string, caCerts *x509.CertPool) ReverseHTTPProxy {
 func redirectTLS(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "https://IPAddr:443"+r.RequestURI, http.StatusMovedPermanently)
 }
-
-//func ReverseHTTPProxy(port int, dst string, cert *tls.Certificate) {
-//	u, e := url.Parse(dst)
-//	if e != nil {
-//		log.Fatal("Bad destination.")
-//	}
-//	h := httputil.NewSingleHostReverseProxy(u)
-//	// !!!
-//	//if your certificate signed by yourself,you need use this bypass secure verify
-//	var InsecureTransport http.RoundTripper = &http.Transport{
-//		DialContext: (&net.Dialer{
-//			Timeout:   30 * time.Second,
-//			KeepAlive: 30 * time.Second,
-//		}).DialContext,
-//		TLSClientConfig: &tls.Config{
-//			RootCAs:            nil,
-//			InsecureSkipVerify: true,
-//		},
-//		TLSHandshakeTimeout: 10 * time.Second,
-//	}
-//	h.Transport = InsecureTransport
-//	log.Println("listening for https")
-//}
-
-//func newReverseProxy() *httputil.ReverseProxy {
-//	targetQuery := target.RawQuery
-//	director := func(req *http.Request) {
-//		req.URL.Scheme = target.Scheme
-//		req.URL.Host = target.Host
-//		req.URL.Path, req.URL.RawPath = joinURLPath(target, req.URL)
-//		if targetQuery == "" || req.URL.RawQuery == "" {
-//			req.URL.RawQuery = targetQuery + req.URL.RawQuery
-//		} else {
-//			req.URL.RawQuery = targetQuery + "&" + req.URL.RawQuery
-//		}
-//		if _, ok := req.Header["User-Agent"]; !ok {
-//			// explicitly disable User-Agent so it's not set to default value
-//			req.Header.Set("User-Agent", "")
-//		}
-//	}
-//	return &ReverseProxy{Director: director}
-//}
