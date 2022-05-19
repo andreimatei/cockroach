@@ -173,6 +173,7 @@ func (p *ReverseHTTPProxy) RunAsync(certs Certificates) <-chan struct{} {
 			log.Fatal(err)
 		}
 		defer listener.Close()
+		fmt.Printf("Listening for HTTP requests on %s.\n", p.listenAddr)
 
 		if certs.UICert != nil {
 			// We're configured to serve HTTPS. We'll also listen for HTTP requests, and redirect them
@@ -185,7 +186,8 @@ func (p *ReverseHTTPProxy) RunAsync(certs Certificates) <-chan struct{} {
 			// Redirect HTTP to HTTPS.
 			redirectHandler := http.NewServeMux()
 			redirectHandler.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-				// TODO(andrei): Consider dealing with HSTS headers.
+				// TODO(andrei): Consider dealing with HSTS headers. Probably drop HSTS
+				// headers coming from CRDB, and set our own headers.
 				http.Redirect(w, r, "https://"+r.Host+r.RequestURI, http.StatusTemporaryRedirect)
 			})
 			redirectServer := http.Server{Handler: redirectHandler}
