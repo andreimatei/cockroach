@@ -145,7 +145,7 @@ func (m *ManualTime) advanceToLocked(now time.Time) {
 	}
 }
 
-func (m *ManualTime) add(mt *manualTimer) {
+func (m *ManualTime) addTimer(mt *manualTimer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -237,7 +237,7 @@ func (m *manualTimer) Reset(duration time.Duration) {
 	m.Stop()
 	m.at = m.m.Now().Add(duration)
 	m.ch = make(chan time.Time, 1)
-	m.m.add(m)
+	m.m.addTimer(m)
 }
 
 func (m *manualTimer) Stop() bool {
