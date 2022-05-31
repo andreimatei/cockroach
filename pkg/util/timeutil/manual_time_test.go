@@ -11,10 +11,12 @@
 package timeutil_test
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/util/leaktest"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/stretchr/testify/require"
 )
@@ -165,4 +167,39 @@ func TestManualTime(t *testing.T) {
 		ensureNoSend(t, t1.Ch())
 		ensureNoSend(t, t2.Ch())
 	})
+}
+
+func TestManualTimeHybrid(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	ctx := context.Background()
+
+	m := timeutil.NewManualTime(timeutil.Now().Add(-time.Second))
+	m.StartTicking()
+	log.Infof(ctx, "%s - %s", timeutil.Now(), m.Now())
+	time.Sleep(time.Second)
+	log.Infof(ctx, "%s - %s", timeutil.Now(), m.Now())
+	m.Pause()
+	time.Sleep(3 * time.Second)
+	log.Infof(ctx, "%s - %s", timeutil.Now(), m.Now())
+	m.StartTicking()
+	time.Sleep(time.Second)
+	log.Infof(ctx, "%s - %s", timeutil.Now(), m.Now())
+}
+
+func TestManualTimeHybrid2(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	ctx := context.Background()
+
+	m, cleanup := timeutil.NewHybridManualTime()
+	defer cleanup()
+	log.Infof(ctx, "start: %s", m.Now())
+	tt := m.NewTimer()
+	tt.Reset(time.Second)
+	<-tt.Ch()
+	log.Infof(ctx, "timer: %s", m.Now())
+	tt.Reset(time.Second)
+	<-tt.Ch()
+	log.Infof(ctx, "timer 2: %s", m.Now())
+	tt.Reset(time.Second)
+	tt.Stop()
 }
