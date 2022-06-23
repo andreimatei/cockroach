@@ -3422,10 +3422,10 @@ def go_deps():
         name = "com_github_golang_glog",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/golang/glog",
-        sha256 = "677f7912d32cb417cfb59cbab9b9e924224a53679aa384b0526df2eda96d8775",
-        strip_prefix = "github.com/golang/glog@v0.0.0-20210429001901-424d2337a529",
+        sha256 = "ae8dfead198447a555409e4e942bd4aae2210b18bc90ff8f032ab09a9940e8f8",
+        strip_prefix = "github.com/golang/glog@v1.0.0",
         urls = [
-            "https://storage.googleapis.com/cockroach-godeps/gomod/github.com/golang/glog/com_github_golang_glog-v0.0.0-20210429001901-424d2337a529.zip",
+            "https://storage.googleapis.com/cockroach-godeps/gomod/github.com/golang/glog/com_github_golang_glog-v1.0.0.zip",
         ],
     )
     go_repository(
@@ -3855,6 +3855,20 @@ def go_deps():
         strip_prefix = "github.com/grpc-ecosystem/grpc-gateway@v1.16.0",
         urls = [
             "https://storage.googleapis.com/cockroach-godeps/gomod/github.com/grpc-ecosystem/grpc-gateway/com_github_grpc_ecosystem_grpc_gateway-v1.16.0.zip",
+        ],
+    )
+    go_repository(
+        name = "com_github_grpc_ecosystem_grpc_gateway_v2",
+        build_file_proto_mode = "disable_global",
+        importpath = "github.com/grpc-ecosystem/grpc-gateway/v2",
+        patch_args = ["-p1"],
+        patches = [
+            "@com_github_cockroachdb_cockroach//build/patches:com_github_grpc_ecosystem_grpc_gateway_v2.patch",
+        ],
+        sha256 = "dd1e971d2586cd909c2715b10d9edf7c9f3daff3b7af004f3d8a5c40c6ab17d8",
+        strip_prefix = "github.com/grpc-ecosystem/grpc-gateway/v2@v2.7.0",
+        urls = [
+            "https://storage.googleapis.com/cockroach-godeps/gomod/github.com/grpc-ecosystem/grpc-gateway/v2/com_github_grpc_ecosystem_grpc_gateway_v2-v2.7.0.zip",
         ],
     )
     go_repository(
@@ -9081,14 +9095,10 @@ def go_deps():
         name = "io_opentelemetry_go_proto_otlp",
         build_file_proto_mode = "disable_global",
         importpath = "go.opentelemetry.io/proto/otlp",
-        patch_args = ["-p1"],
-        patches = [
-            "@com_github_cockroachdb_cockroach//build/patches:io_opentelemetry_go_proto_otlp.patch",
-        ],
-        sha256 = "1a91376c923da07bee23439e8430c32736f6330532df85d3bd1ada90305097d7",
-        strip_prefix = "go.opentelemetry.io/proto/otlp@v0.9.0",
+        sha256 = "7b44e7963b0145e8ff0bf4c2c923992f7aa471e44f264405639ca77264d3acd1",
+        strip_prefix = "go.opentelemetry.io/proto/otlp@v0.18.0",
         urls = [
-            "https://storage.googleapis.com/cockroach-godeps/gomod/go.opentelemetry.io/proto/otlp/io_opentelemetry_go_proto_otlp-v0.9.0.zip",
+            "https://storage.googleapis.com/cockroach-godeps/gomod/go.opentelemetry.io/proto/otlp/io_opentelemetry_go_proto_otlp-v0.18.0.zip",
         ],
     )
     go_repository(
