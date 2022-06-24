@@ -40,6 +40,12 @@ exports_files([
 # gazelle:resolve go github.com/grpc-ecosystem/grpc-gateway/runtime @com_github_grpc_ecosystem_grpc_gateway//runtime:go_default_library
 # gazelle:resolve go github.com/grpc-ecosystem/grpc-gateway/utilities @com_github_grpc_ecosystem_grpc_gateway//utilities:go_default_library
 # gazelle:resolve go github.com/grpc-ecosystem/grpc-gateway/internal @com_github_grpc_ecosystem_grpc_gateway//internal
+
+# gazelle:resolve proto proto opentelemetry/proto/resource/v1/resource.proto //pkg/obsservice/obspb/opentelemetry/proto/resource/v1:v1_proto
+# gazelle:resolve proto go opentelemetry/proto/resource/v1/resource.proto //pkg/obsservice/obspb/opentelemetry/proto/resource/v1:v1_go_proto
+# gazelle:resolve proto proto opentelemetry/proto/common/v1/common.proto //pkg/obsservice/obspb/opentelemetry/proto/common/v1:v1_proto
+# gazelle:resolve proto go opentelemetry/proto/common/v1/common.proto //pkg/obsservice/obspb/opentelemetry/proto/common/v1:v1_go_proto
+
 # gazelle:resolve proto proto errorspb/errors.proto @com_github_cockroachdb_errors//errorspb:errorspb_proto
 # gazelle:resolve proto go errorspb/errors.proto @com_github_cockroachdb_errors//errorspb
 # gazelle:resolve proto proto etcd/raft/v3/raftpb/raft.proto @io_etcd_go_etcd_raft_v3//raftpb:raftpb_proto
