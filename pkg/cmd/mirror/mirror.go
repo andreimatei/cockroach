@@ -244,7 +244,7 @@ func dumpPatchArgsForRepo(repoName string) error {
 }
 
 func buildFileProtoModeForRepo(repoName string) string {
-	if repoName == "com_github_prometheus_client_model" {
+	if repoName == "com_github_prometheus_client_model" || repoName == "com_github_open_telemetry_opentelemetry_proto" {
 		return "package"
 	}
 	return "disable_global"

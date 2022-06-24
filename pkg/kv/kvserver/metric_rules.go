@@ -57,6 +57,8 @@ func CreateAndAddRules(ctx context.Context, ruleRegistry *metric.RuleRegistry) {
 func createAndRegisterUnavailableRangesRule(
 	ctx context.Context, ruleRegistry *metric.RuleRegistry,
 ) {
+	// !!!
+	_ = metric.XXX{}
 	expr := "(sum by(instance, cluster) (ranges_unavailable)) > 0"
 	var annotations []metric.LabelPair
 	annotations = append(annotations, metric.LabelPair{

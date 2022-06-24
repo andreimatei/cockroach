@@ -15,6 +15,11 @@ option go_package = "metric";
 
 import "gogoproto/gogo.proto";
 import "io/prometheus/client/metrics.proto";
+import "opentelemetry/proto/common/v1/common.proto";
+
+message XXX {
+  optional opentelemetry.proto.common.v1.KeyValue x = 1;
+}
 
 // metric.LabelPair is a proxy for io.prometheus.client.LabelPair.
 // io.prometheus.client.LabelPair doesn't support gogoproto.marshaler
