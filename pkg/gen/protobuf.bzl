@@ -28,6 +28,7 @@ PROTOBUF_SRCS = [
   "//pkg/kv/kvserver/protectedts/ptstorage:ptstorage_go_proto",
   "//pkg/kv/kvserver/readsummary/rspb:rspb_go_proto",
   "//pkg/kv/kvserver:kvserver_go_proto",
+  "//pkg/obsservice/obspb:obs_go_proto",
   "//pkg/roachpb:roachpb_go_proto",
   "//pkg/rpc:rpc_go_proto",
   "//pkg/server/diagnostics/diagnosticspb:diagnosticspb_go_proto",

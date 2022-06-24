@@ -3422,11 +3422,9 @@ def go_deps():
         name = "com_github_golang_glog",
         build_file_proto_mode = "disable_global",
         importpath = "github.com/golang/glog",
-        sha256 = "677f7912d32cb417cfb59cbab9b9e924224a53679aa384b0526df2eda96d8775",
-        strip_prefix = "github.com/golang/glog@v0.0.0-20210429001901-424d2337a529",
-        urls = [
-            "https://storage.googleapis.com/cockroach-godeps/gomod/github.com/golang/glog/com_github_golang_glog-v0.0.0-20210429001901-424d2337a529.zip",
-        ],
+        # TODO: mirror this repo (to fix, run `./dev generate bazel --mirror`)
+        sum = "h1:nfP3RFugxnNRyKgeWd4oI1nYvXpxrx8ck8ZrcizshdQ=",
+        version = "v1.0.0",
     )
     go_repository(
         name = "com_github_golang_groupcache",
@@ -3856,6 +3854,14 @@ def go_deps():
         urls = [
             "https://storage.googleapis.com/cockroach-godeps/gomod/github.com/grpc-ecosystem/grpc-gateway/com_github_grpc_ecosystem_grpc_gateway-v1.16.0.zip",
         ],
+    )
+    go_repository(
+        name = "com_github_grpc_ecosystem_grpc_gateway_v2",
+        build_file_proto_mode = "disable_global",
+        importpath = "github.com/grpc-ecosystem/grpc-gateway/v2",
+        # TODO: mirror this repo (to fix, run `./dev generate bazel --mirror`)
+        sum = "h1:BZHcxBETFHIdVyhyEfOvn/RdU/QGdLI4y34qQGjGWO0=",
+        version = "v2.7.0",
     )
     go_repository(
         name = "com_github_hailocab_go_hostpool",
@@ -9085,11 +9091,9 @@ def go_deps():
         patches = [
             "@com_github_cockroachdb_cockroach//build/patches:io_opentelemetry_go_proto_otlp.patch",
         ],
-        sha256 = "1a91376c923da07bee23439e8430c32736f6330532df85d3bd1ada90305097d7",
-        strip_prefix = "go.opentelemetry.io/proto/otlp@v0.9.0",
-        urls = [
-            "https://storage.googleapis.com/cockroach-godeps/gomod/go.opentelemetry.io/proto/otlp/io_opentelemetry_go_proto_otlp-v0.9.0.zip",
-        ],
+        # TODO: mirror this repo (to fix, run `./dev generate bazel --mirror`)
+        sum = "h1:W5hyXNComRa23tGpKwG+FRAc4rfF6ZUg1JReK+QHS80=",
+        version = "v0.18.0",
     )
     go_repository(
         name = "io_rsc_binaryregexp",
