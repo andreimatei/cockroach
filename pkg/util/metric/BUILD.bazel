@@ -75,7 +75,7 @@ go_proto_library(
     visibility = ["//visibility:public"],
     deps = [
         "@com_github_gogo_protobuf//gogoproto",
-        "@com_github_open_telemetry_opentelemetry_proto//opentelemetry/proto/common/v1:v1_go_proto",
+        "@com_github_open_telemetry_opentelemetry_proto//opentelemetry/proto/common/v1:common",
         "@com_github_prometheus_client_model//go",
     ],
 )

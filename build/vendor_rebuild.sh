@@ -15,6 +15,7 @@ function restore() {
 
 mv vendor $TMP_VENDOR_DIR
 go mod vendor
-modvendor -copy="**/*.c **/*.h **/*.proto **/*.pb.go"  -include 'github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis/google/api,github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis/google/rpc,github.com/prometheus/client_model,github.com/open-telemetry/opentelemetry-proto'
+modvendor -copy="**/*.c **/*.h **/*.proto"  -include 'github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis/google/api,github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis/google/rpc,github.com/prometheus/client_model,github.com/open-telemetry/opentelemetry-proto'
+# !!! modvendor -copy="**/*.c **/*.h **/*.proto **/*.pb.go"  -include 'github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis/google/api,github.com/grpc-ecosystem/grpc-gateway/third_party/googleapis/google/rpc,github.com/prometheus/client_model,github.com/open-telemetry/opentelemetry-proto'
 mv $TMP_VENDOR_DIR/.git vendor/.git
 rm -rf $TMP_VENDOR_DIR

@@ -61,10 +61,10 @@ exports_files([
 # gazelle:resolve go google.golang.org/genproto/googleapis/cloud/kms/v1 @org_golang_google_genproto//googleapis/cloud/kms/v1:kms
 
 # gazelle:resolve proto opentelemetry/proto/common/v1/common.proto @com_github_open_telemetry_opentelemetry_proto//opentelemetry/proto/common/v1:v1_proto
-# gazelle:resolve proto go opentelemetry/proto/common/v1/common.proto @com_github_open_telemetry_opentelemetry_proto//opentelemetry/proto/common/v1:v1_go_proto
+# gazelle:resolve proto go opentelemetry/proto/common/v1/common.proto @com_github_open_telemetry_opentelemetry_proto//opentelemetry/proto/common/v1:common
 
 # gazelle:resolve proto proto opentelemetry/proto/resource/v1/resource.proto @com_github_open_telemetry_opentelemetry_proto//opentelemetry/proto/resource/v1:v1_proto
-# gazelle:resolve proto go opentelemetry/proto/resource/v1/resource.proto @com_github_open_telemetry_opentelemetry_proto//opentelemetry/proto/resource/v1:v1_go_proto
+# gazelle:resolve proto go opentelemetry/proto/resource/v1/resource.proto @com_github_open_telemetry_opentelemetry_proto//opentelemetry/proto/resource/v1:resource
 
 # See pkg/roachpb/gen/BUILD.bazel for more details.
 #

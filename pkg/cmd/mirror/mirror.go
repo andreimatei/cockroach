@@ -244,15 +244,25 @@ func dumpPatchArgsForRepo(repoName string) error {
 }
 
 func buildFileProtoModeForRepo(repoName string) string {
-	if repoName == "com_github_prometheus_client_model" || repoName == "com_github_open_telemetry_opentelemetry_proto" {
+	if repoName == "com_github_prometheus_client_model" {
 		return "package"
+	}
+	if repoName == "com_github_open_telemetry_opentelemetry_proto" {
+		return "default"
 	}
 	return "disable_global"
 }
 
 func dumpBuildDirectivesForRepo(repoName string) {
-	if repoName == "com_github_cockroachdb_pebble" {
+	switch repoName {
+	case "com_github_cockroachdb_pebble":
 		fmt.Printf(`        build_directives = ["gazelle:build_tags invariants"],
+`)
+	case "com_github_open_telemetry_opentelemetry_proto":
+		fmt.Printf(`        build_directives = [
+				"gazelle:go_proto_compilers @com_github_cockroachdb_cockroach//pkg/cmd/protoc-gen-gogoroach:protoc-gen-gogoroach_compiler",
+				"gazelle:go_grpc_compilers @com_github_cockroachdb_cockroach//pkg/cmd/protoc-gen-gogoroach:protoc-gen-gogoroach_grpc_compiler",
+			],
 `)
 	}
 }

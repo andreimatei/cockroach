@@ -6331,7 +6331,11 @@ def go_deps():
     )
     go_repository(
         name = "com_github_open_telemetry_opentelemetry_proto",
-        build_file_proto_mode = "package",
+        build_directives = [
+				"gazelle:go_proto_compilers @com_github_cockroachdb_cockroach//pkg/cmd/protoc-gen-gogoroach:protoc-gen-gogoroach_compiler",
+				"gazelle:go_grpc_compilers @com_github_cockroachdb_cockroach//pkg/cmd/protoc-gen-gogoroach:protoc-gen-gogoroach_grpc_compiler",
+			],
+        build_file_proto_mode = "default",
         importpath = "github.com/open-telemetry/opentelemetry-proto",
         sha256 = "98403c01676d8471e82c0ba23194a5dd6b032b78e15d5ffb6a77f9d17d30bf87",
         strip_prefix = "github.com/andreimatei/opentelemetry-proto@v0.0.0-20220624212849-7201f6685a7a",
