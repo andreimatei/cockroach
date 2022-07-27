@@ -324,6 +324,10 @@ const (
 	// for a partial statistics collection.
 	V23_1AddPartialStatisticsPredicateCol
 
+	// V23_1KeyVisualizerTablesAndJobs adds the system tables and jobs that support
+	// persisting key visualizer sample data.
+	V23_1KeyVisualizerTablesAndJobs
+
 	// *************************************************
 	// Step (1): Add new versions here.
 	// Do not add new versions to a patch release.
@@ -537,6 +541,10 @@ var rawVersionsSingleton = keyedVersions{
 	{
 		Key:     V23_1AddPartialStatisticsPredicateCol,
 		Version: roachpb.Version{Major: 22, Minor: 2, Internal: 8},
+	},
+	{
+		Key:     V23_1KeyVisualizerTablesAndJobs,
+		Version: roachpb.Version{Major: 22, Minor: 2, Internal: 10},
 	},
 
 	// *************************************************

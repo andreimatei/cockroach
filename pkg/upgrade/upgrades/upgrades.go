@@ -178,6 +178,10 @@ var upgrades = []upgrade.Upgrade{
 		upgrade.NoPrecondition,
 		alterSystemTableStatisticsAddPartialPredicate,
 	),
+	upgrade.NewPermanentSystemUpgrade("add tables and jobs to support persisting key visualizer samples",
+		toCV(clusterversion.V23_1KeyVisualizerTablesAndJobs),
+		keyVisualizerTablesMigration,
+	),
 }
 
 func init() {

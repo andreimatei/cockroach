@@ -20,6 +20,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/kv/kvclient/kvcoord"
 	"github.com/cockroachdb/cockroach/pkg/roachpb"
 	"github.com/cockroachdb/cockroach/pkg/server/serverpb"
+	"github.com/cockroachdb/cockroach/pkg/settings/cluster"
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/cockroachdb/logtags"
 )
@@ -106,10 +107,12 @@ type Cluster interface {
 // SystemDeps are the dependencies of upgrades which perform actions at the
 // KV layer on behalf of the system tenant.
 type SystemDeps struct {
-	Cluster    Cluster
-	DB         *kv.DB
-	DistSender *kvcoord.DistSender
-	Stopper    *stop.Stopper
+	Cluster     Cluster
+	DB          *kv.DB
+	Settings    *cluster.Settings
+	JobRegistry *jobs.Registry
+	DistSender  *kvcoord.DistSender
+	Stopper     *stop.Stopper
 }
 
 // SystemUpgrade is an implementation of Upgrade for system-level
@@ -130,6 +133,7 @@ func NewSystemUpgrade(description string, v roachpb.Version, fn SystemUpgradeFun
 		upgrade: upgrade{
 			description: description,
 			v:           v,
+			permanent:   false,
 		},
 		fn: fn,
 	}
