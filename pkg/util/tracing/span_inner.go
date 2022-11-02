@@ -108,8 +108,8 @@ var sortPoolRecordings = sync.Pool{
 	},
 }
 
-func (s *spanInner) ImportRemoteRecording(remoteRecording tracingpb.Recording) {
-	s.crdb.recordFinishedChildren(treeifyRecording(remoteRecording))
+func (s *spanInner) ImportTrace(trace Trace) {
+	s.crdb.recordFinishedChildren(trace)
 }
 
 func treeifyRecording(rec tracingpb.Recording) Trace {
