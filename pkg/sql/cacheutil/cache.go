@@ -69,7 +69,7 @@ func (c *Cache) LoadValueOutsideOfCacheSingleFlight(
 		},
 		fn,
 	)
-	defer ch.ReaderClose()
+	defer ch.Close()
 	select {
 	case res := <-ch.C():
 		if res.Err != nil {

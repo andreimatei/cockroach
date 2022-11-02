@@ -800,7 +800,6 @@ func (rc *RangeCache) tryLookup(
 			}
 			return lookupRes, nil
 		})
-	defer future.ReaderClose()
 
 	// We must use DoChan above so that we can always unlock this mutex. This must
 	// be done *after* the request has been added to the lookupRequests group, or
@@ -815,12 +814,14 @@ func (rc *RangeCache) tryLookup(
 	}
 
 	// Wait for the inflight request.
-	var res singleflight.Result
-	select {
-	case res = <-future.C():
-	case <-ctx.Done():
-		return EvictionToken{}, errors.Wrap(ctx.Err(), "aborted during range descriptor lookup")
-	}
+	res := future.Result(ctx)
+	// !!!
+	//var res singleflight.Result
+	//select {
+	//case res = <-future.C():
+	//case <-ctx.Done():
+	//	return EvictionToken{}, errors.Wrap(ctx.Err(), "aborted during range descriptor lookup")
+	//}
 
 	var s string
 	if res.Err != nil {

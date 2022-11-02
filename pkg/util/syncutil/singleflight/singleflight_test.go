@@ -43,11 +43,10 @@ func TestDoChan(t *testing.T) {
 	res, leader := g.DoChan(ctx, "key", DoOpts{}, func(context.Context) (interface{}, error) {
 		return "bar", nil
 	})
-	defer res.ReaderClose()
 	if !leader {
 		t.Errorf("DoChan returned not leader, expected leader")
 	}
-	result := <-res.C()
+	result := res.Result(ctx)
 	assertRes(t, result, false)
 }
 
@@ -123,19 +122,18 @@ func TestDoChanDupSuppress(t *testing.T) {
 	ctx := context.Background()
 	g := NewGroup("test", "key")
 	res1, leader1 := g.DoChan(ctx, "key", DoOpts{}, fn)
-	defer res1.ReaderClose()
 	if !leader1 {
 		t.Errorf("DoChan returned not leader, expected leader")
 	}
 
 	res2, leader2 := g.DoChan(ctx, "key", DoOpts{}, fn)
-	defer res2.ReaderClose()
 	if leader2 {
 		t.Errorf("DoChan returned leader, expected not leader")
 	}
 
 	close(c)
-	for _, res := range []Result{<-res1.C(), <-res2.C()} {
+
+	for _, res := range []Result{res1.Result(ctx), res2.Result(ctx)} {
 		assertRes(t, res, true)
 	}
 }
@@ -150,10 +148,8 @@ func TestNumCalls(t *testing.T) {
 	g := NewGroup("test", "key")
 	assertNumCalls(t, g.NumCalls("key"), 0)
 	resC1, _ := g.DoChan(ctx, "key", DoOpts{}, fn)
-	defer resC1.ReaderClose()
 	assertNumCalls(t, g.NumCalls("key"), 1)
 	resC2, _ := g.DoChan(ctx, "key", DoOpts{}, fn)
-	defer resC2.ReaderClose()
 	assertNumCalls(t, g.NumCalls("key"), 2)
 	close(c)
 	<-resC1.C()

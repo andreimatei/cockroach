@@ -709,7 +709,7 @@ func (r *Replica) handleClosedTimestampUpdateRaftMuLocked(
 				// number of lease acquisitions all at once.
 				select {
 				case m.RangeFeedSlowClosedTimestampNudgeSem <- struct{}{}:
-				case <-r.store.stopper.ShouldQuiesce():
+				case <-ctx.Done():
 				}
 				defer func() { <-m.RangeFeedSlowClosedTimestampNudgeSem }()
 				if err := r.ensureClosedTimestampStarted(ctx); err != nil {
@@ -717,7 +717,7 @@ func (r *Replica) handleClosedTimestampUpdateRaftMuLocked(
 				}
 				return nil, nil
 			})
-		res.ReaderClose()
+		res.Close()
 	}
 
 	// If the closed timestamp is not empty, inform the Processor.

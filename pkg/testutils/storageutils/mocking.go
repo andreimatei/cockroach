@@ -93,7 +93,7 @@ func (c *ReplayProtectionFilterWrapper) run(args kvserverbase.FilterArgs) *roach
 			c.processedCommands[mapKey] = pErr
 			return pErr, nil
 		})
-	defer resC.ReaderClose()
+	defer resC.Close()
 	c.Unlock()
 
 	res := <-resC.C()

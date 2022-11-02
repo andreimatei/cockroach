@@ -613,7 +613,7 @@ func (c *Connector) getClient(ctx context.Context) (*client, error) {
 			c.mu.client = client
 			return client, nil
 		})
-	defer res.ReaderClose()
+	defer res.Close()
 	c.mu.RUnlock()
 
 	select {

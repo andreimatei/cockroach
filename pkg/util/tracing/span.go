@@ -290,9 +290,9 @@ func (sp *Span) FinishAndGetConfiguredRecording() tracingpb.Recording {
 	rec := tracingpb.Recording(nil)
 	recType := sp.RecordingType()
 	if recType != tracingpb.RecordingOff {
+		// Reach directly into sp.i to pass the finishing argument.
 		rec = sp.i.GetRecording(recType, true /* finishing */)
 	}
-	// Reach directly into sp.i to pass the finishing argument.
 	sp.finishInternal()
 	return rec
 }
@@ -352,9 +352,30 @@ func (sp *Span) GetConfiguredRecording() tracingpb.Recording {
 	return sp.i.GetRecording(recType, false /* finishing */)
 }
 
+// !!! comment
+func (sp *Span) GetTraceRecording(recType tracingpb.RecordingType) Trace {
+	if sp.detectUseAfterFinish() {
+		return Trace{}
+	}
+	return sp.i.GetTraceRecording(recType, false /* finishing */)
+}
+
+func (sp *Span) FinishAndGetTraceRecording(recType tracingpb.RecordingType) Trace {
+	if sp.detectUseAfterFinish() {
+		return Trace{}
+	}
+	var rec Trace
+	if recType != tracingpb.RecordingOff {
+		rec = sp.i.GetTraceRecording(recType, true /* finishing */)
+	}
+	sp.Finish()
+	return rec
+}
+
 // ImportRemoteRecording adds the spans in remoteRecording as children of the
 // receiver. As a result of this, the imported recording will be a part of the
-// GetRecording() output for the receiver.
+// GetRecording() output for the receiver. All the structured events from the
+// trace are passed to the receiver's event listeners.
 //
 // This function is used to import a recording from another node.
 func (sp *Span) ImportRemoteRecording(remoteRecording tracingpb.Recording) {
@@ -377,9 +398,13 @@ func (sp *Span) ImportRemoteRecording(remoteRecording tracingpb.Recording) {
 	sp.ImportTrace(treeifyRecording(remoteRecording))
 }
 
-// ImportTrace takes a trace recording and adds it as a child to sp.
+// ImportTrace takes a trace recording and, depending on the receiver's
+// recording mode, adds it as a child to sp. All the structured events from the
+// trace are passed to the receiver's event listeners.
 //
 // ImportTrace takes ownership of trace; the caller should not use it anymore.
+// The caller can call Trace.PartialClone() to make a sufficient copy for
+// passing into ImportTrace.
 func (sp *Span) ImportTrace(trace Trace) {
 	if sp.detectUseAfterFinish() {
 		return
@@ -407,6 +432,22 @@ func (sp *Span) SetRecordingType(to tracingpb.RecordingType) {
 	}
 	sp.i.SetRecordingType(to)
 }
+
+// !!!
+//func (sp *Span) MaybeIncreaseRecordingType(to tracingpb.RecordingType) {
+//	if sp.detectUseAfterFinish() {
+//		return
+//	}
+//	// If already recording at an equal or higher value, there's nothing more to
+//	// do.
+//	if sp.RecordingType() < to {
+//		return
+//	}
+//	// Switch the recording mode. This is not atomic with the check above, so it might race
+//	// with a SetRecordingType() call and end up lowering the recording level
+//	// instead of increasing it, but such a race seems very unlikely.
+//	sp.SetRecordingType(to)
+//}
 
 // RecordingType returns the range's current recording mode.
 func (sp *Span) RecordingType() tracingpb.RecordingType {

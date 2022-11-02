@@ -12,9 +12,7 @@ package tracing
 
 import (
 	"fmt"
-	"sort"
 	"strings"
-	"sync"
 
 	"github.com/cockroachdb/cockroach/pkg/util/timeutil"
 	"github.com/cockroachdb/cockroach/pkg/util/tracing/tracingpb"
@@ -73,9 +71,17 @@ func (s *spanInner) RecordingType() tracingpb.RecordingType {
 
 func (s *spanInner) SetRecordingType(to tracingpb.RecordingType) {
 	if s.isNoop() {
-		panic(errors.AssertionFailedf("SetVerbose called on NoopSpan; use the WithForceRealSpan option for StartSpan"))
+		panic(errors.AssertionFailedf("SetRecordingType called on NoopSpan; use the WithForceRealSpan option for StartSpan"))
 	}
 	s.crdb.SetRecordingType(to)
+}
+
+// !!! comment
+func (s *spanInner) GetTraceRecording(recType tracingpb.RecordingType, finishing bool) Trace {
+	if s.isNoop() {
+		return Trace{}
+	}
+	return s.crdb.GetRecording(recType, finishing)
 }
 
 // GetRecording returns the span's recording.
@@ -89,24 +95,19 @@ func (s *spanInner) GetRecording(
 		return nil
 	}
 	trace := s.crdb.GetRecording(recType, finishing)
-	spans := trace.Flatten()
-
-	// Sort the spans by StartTime, except the first Span (the root of this
-	// recording) which stays in place.
-	toSort := sortPoolRecordings.Get().(*tracingpb.Recording) // avoids allocations in sort.Sort
-	*toSort = spans[1:]
-	sort.Sort(toSort)
-	*toSort = nil
-	sortPoolRecordings.Put(toSort)
-
-	return spans
+	return trace.ToRecording()
 }
 
-var sortPoolRecordings = sync.Pool{
-	New: func() interface{} {
-		return &tracingpb.Recording{}
-	},
-}
+// !!!
+//// sortSpans sorts the spans by StartTime, except the first Span (the root of
+//// this recording) which stays in place.
+//func SortSpans(spans []tracingpb.RecordedSpan) {
+//	toSort := sortPoolRecordings.Get().(*tracingpb.Recording) // avoids allocations in sort.Sort
+//	*toSort = spans[1:]
+//	sort.Sort(toSort)
+//	*toSort = nil
+//	sortPoolRecordings.Put(toSort)
+//}
 
 func (s *spanInner) ImportTrace(trace Trace) {
 	s.crdb.recordFinishedChildren(trace)

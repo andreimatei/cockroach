@@ -1293,7 +1293,7 @@ func (nl *NodeLiveness) updateLiveness(
 				func(ctx context.Context) (interface{}, error) {
 					return nil, storage.WriteSyncNoop(eng)
 				})
-			defer resultCs[i].ReaderClose()
+			defer resultCs[i].Close()
 		}
 		for _, resultC := range resultCs {
 			select {

@@ -99,7 +99,7 @@ func (m *manager) ResolveIndeterminateCommit(
 		func(ctx context.Context) (interface{}, error) {
 			return m.resolveIndeterminateCommitForTxn(txn)
 		})
-	defer resC.ReaderClose()
+	defer resC.Close()
 
 	// Wait for the inflight request.
 	select {

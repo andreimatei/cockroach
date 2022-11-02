@@ -531,7 +531,7 @@ func acquireNodeLease(ctx context.Context, m *Manager, id descpb.ID) (bool, erro
 			}
 			return true, nil
 		})
-	defer result.ReaderClose()
+	defer result.Close()
 	select {
 	case <-ctx.Done():
 		return false, ctx.Err()

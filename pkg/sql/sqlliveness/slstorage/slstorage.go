@@ -216,7 +216,7 @@ func (s *Storage) isAlive(
 
 	// We think that the session is expired; check, and maybe delete it.
 	resChan := s.deleteOrFetchSessionSingleFlightLocked(ctx, sid)
-	defer resChan.ReaderClose()
+	defer resChan.Close()
 
 	// At this point, we know that the singleflight goroutine has been launched.
 	// Releasing the lock here ensures that callers will either join the single-
@@ -374,7 +374,7 @@ func (s *Storage) deleteExpiredSessions(ctx context.Context) {
 	}
 	checkSession := func(id sqlliveness.SessionID) error {
 		res := launchSessionCheck(id)
-		defer res.ReaderClose()
+		defer res.Close()
 		select {
 		case r := <-res.C():
 			return r.Err

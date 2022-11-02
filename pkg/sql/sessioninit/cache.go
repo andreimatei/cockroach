@@ -216,7 +216,7 @@ func (a *Cache) loadValueOutsideOfCache(
 		},
 		fn,
 	)
-	defer ch.ReaderClose()
+	defer ch.Close()
 	select {
 	case res := <-ch.C():
 		if res.Err != nil {

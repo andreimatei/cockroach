@@ -516,7 +516,7 @@ func MemberOfWithAdminOption(
 				useSingleQueryForRoleMembershipCache.Get(execCfg.SV()),
 			)
 		})
-	defer ch.ReaderClose()
+	defer ch.Close()
 	var memberships map[username.SQLUsername]bool
 	select {
 	case res := <-ch.C():

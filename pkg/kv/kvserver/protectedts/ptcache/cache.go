@@ -124,7 +124,7 @@ func (c *Cache) Refresh(ctx context.Context, asOf hlc.Timestamp) error {
 		)
 		select {
 		case <-ctx.Done():
-			ch.ReaderClose()
+			ch.Close()
 			return ctx.Err()
 		case res := <-ch.C():
 			if res.Err != nil {
@@ -178,6 +178,13 @@ func (c *Cache) periodicallyRefreshProtectedtsCache(ctx context.Context) {
 	timer.Reset(0) // Read immediately upon startup
 	var lastReset time.Time
 	var doneCh singleflight.Future
+	defer func() {
+		// Close doneCh. doneCh can be assigned several times, but all but the last
+		// value have had their C() consumed, so they don't need to be closed.
+		if doneCh != nil {
+			doneCh.Close()
+		}
+	}()
 	// TODO(ajwerner): consider resetting the timer when the state is updated
 	// due to a call to Refresh.
 	for {
@@ -185,6 +192,9 @@ func (c *Cache) periodicallyRefreshProtectedtsCache(ctx context.Context) {
 		case <-timer.C:
 			// Let's not reset the timer until we get our response.
 			timer.Read = true
+			if doneCh != nil {
+				log.Fatalf(ctx, "trying to create a new flight before consuming the previous one")
+			}
 			doneCh, _ = c.sf.DoChan(ctx,
 				refreshKey,
 				singleflight.DoOpts{
@@ -204,6 +214,7 @@ func (c *Cache) periodicallyRefreshProtectedtsCache(ctx context.Context) {
 			timer.Reset(nextUpdate)
 			lastReset = timeutil.Now()
 		case res := <-doneCh.C():
+			doneCh = nil
 			if res.Err != nil {
 				if ctx.Err() == nil {
 					log.Errorf(ctx, "failed to refresh protected timestamps: %v", res.Err)
@@ -212,9 +223,6 @@ func (c *Cache) periodicallyRefreshProtectedtsCache(ctx context.Context) {
 			timer.Reset(protectedts.PollInterval.Get(&c.settings.SV))
 			lastReset = timeutil.Now()
 		case <-c.stopper.ShouldQuiesce():
-			if doneCh != nil {
-				doneCh.ReaderClose()
-			}
 			return
 		}
 	}

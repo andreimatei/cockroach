@@ -20,35 +20,60 @@ package singleflight
 
 import (
 	"context"
-	"sync"
+	"fmt"
 
 	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/stop"
 	"github.com/cockroachdb/cockroach/pkg/util/syncutil"
 	"github.com/cockroachdb/cockroach/pkg/util/tracing"
+	"github.com/cockroachdb/cockroach/pkg/util/tracing/tracingpb"
+	"github.com/cockroachdb/errors"
 	"github.com/cockroachdb/logtags"
 	"go.opentelemetry.io/otel/attribute"
 )
 
-// call is an in-flight or completed singleflight.Do call
+// call is an in-flight or completed singleflight.Do/DoChan call.
 type call struct {
-	wg sync.WaitGroup
+	opName, key string
+	// c is closed when the call completes, signaling all waiters.
+	c chan struct{}
+	// sp is the tracing span of the flight leader. Nil if the leader does not
+	// have a span. This span's recording is captured as `rec` below, and might
+	// get copied into the traces of other flight members.
+	sp *tracing.Span
 
-	// These fields are written once before the WaitGroup is done
-	// and are only read after the WaitGroup is done.
+	/////////////////////////////////////////////////////////////////////////////
+	// These fields are written once before the channel is closed and are only
+	// read after the channel is closed.
+	/////////////////////////////////////////////////////////////////////////////
 	val interface{}
 	err error
+	// rec is the call's recording, if any of the callers that joined the call
+	// requested the trace to be recording.
+	rec tracing.Trace
 
-	// These fields are read and written with the singleflight
-	// mutex held before the WaitGroup is done, and are read but
-	// not written after the WaitGroup is done.
-	dups    int
-	waiters []*futureImpl
+	/////////////////////////////////////////////////////////////////////////////
+	// These fields are read and written with the singleflight mutex held before
+	// the channel is closed, and are read but not written after the chanel is
+	// closed.
+	/////////////////////////////////////////////////////////////////////////////
+	dups int
 }
 
-type waiter struct {
-	c  chan<- Result
-	sp *tracing.Span
+func newCall(sp *tracing.Span, opName, key string) *call {
+	c := &call{
+		opName: opName,
+		key:    key,
+		c:      make(chan struct{}),
+		sp:     sp,
+	}
+	return c
+}
+
+func (c *call) maybeStartRecording(mode tracingpb.RecordingType) {
+	if c.sp.RecordingType() < mode {
+		c.sp.SetRecordingType(mode)
+	}
 }
 
 // Group represents a class of work and forms a namespace in
@@ -64,6 +89,10 @@ type Group struct {
 	m       map[string]*call // lazily initialized
 }
 
+// NoTags can be passed to NewGroup as the tagName to indicate that the tracing
+// spans created for operations should not have the operation key as a tag. In
+// particular, in cases where a single dummy key is used with a Group, having it
+// as a tag is not necessary.
 const NoTags = ""
 
 // NewGroup creates a Group.
@@ -82,6 +111,11 @@ type Result struct {
 	Val    interface{}
 	Err    error
 	Shared bool
+	Leader bool
+}
+
+func makeErrResult(err error) {
+
 }
 
 // Do executes and returns the results of the given function, making
@@ -103,14 +137,19 @@ func (g *Group) Do(
 	}
 	if c, ok := g.m[key]; ok {
 		c.dups++
+		c.maybeStartRecording(tracing.SpanFromContext(ctx).RecordingType())
 		g.mu.Unlock()
-		log.Eventf(ctx, "waiting on singleflight %s:%s owned by another leader...", g.opName, key)
-		c.wg.Wait()
+		log.Eventf(ctx, "waiting on singleflight %s:%s owned by another leader. Starting to record the leader's flight.", g.opName, key)
+
+		// Block on the call.
+		<-c.c
 		log.Eventf(ctx, "waiting on singleflight %s:%s owned by another leader... done", g.opName, key)
-		return c.val, true, c.err
+		// Get the call's result through result() so that the call's trace gets
+		// imported into ctx.
+		res := c.result(ctx, false /* leader */)
+		return res.Val, true, res.Err
 	}
-	c := new(call)
-	c.wg.Add(1)
+	c := newCall(tracing.SpanFromContext(ctx), g.opName, key)
 	g.m[key] = c
 	g.mu.Unlock()
 
@@ -138,65 +177,74 @@ type DoOpts struct {
 	InheritCancelation bool
 }
 
-// Future represents the result of the DoChan() call.
-type Future interface {
-	// ReaderClose indicates that the reader is no longer waiting on this Future.
-	// Readers that do not wait on C() are required to call ReaderClose() in order
-	// to prevent the singleflight from using DoChan()'s tracing span after the
-	// span is finished by the caller. In other words, the span used for the
-	// DoChan() call needs to live until either <-C() returns the result, or
-	// ReaderClose() is called.
-	//
-	// ReaderClose() can be called after C(), although that is not necessary. It's
-	// often a good idea to `defer future.ReaderClose()` immediately after a
-	// DoChan() call.
-	ReaderClose()
-
-	// C() returns the channel on which the result of the DoChan call will be
-	// delivered.
-	C() <-chan Result
+type Future struct {
+	call   *call
+	leader bool
 }
 
-// futureImpl implements Future, providing the expoted reading interface, and
-// the internal writing interface. The futureImpl captures a tracing span, which
-// is released by ReaderClose().
-type futureImpl struct {
-	c  chan Result
-	mu struct {
-		syncutil.Mutex
-		sp *tracing.Span
+func makeFuture(c *call, leader bool) Future {
+	return Future{
+		call:   c,
+		leader: leader,
 	}
 }
 
-var _ Future = &futureImpl{}
+// C returns the channel on which the result of the DoChan call will be
+// delivered.
+func (f Future) C() <-chan struct{} {
+	return f.call.c
+}
 
-func newFutureImpl(sp *tracing.Span) *futureImpl {
-	f := &futureImpl{
-		c: make(chan Result, 1),
+// Result delivers the flight's result. If called before the call is done
+// (i.e. before channel returned by C() is closed), then it will block;
+// canceling ctx unblocks it.
+//
+// If the tracing span in ctx is recording, and if the same span was used for the
+// Group.DoChan() call (commonly the same ctx is used for DoChan() and Result()), then
+// the call's trace will be !!!
+func (f Future) Result(ctx context.Context) Result {
+	return f.call.result(ctx, f.leader)
+}
+
+// !!! comment
+func (c *call) result(ctx context.Context, leader bool) Result {
+	// Wait for the call to finish.
+	select {
+	// Give priority to c.c to ensure that a context error is not returned if the
+	// call is done.
+	case <-c.c:
+	default:
+		select {
+		case <-c.c:
+		case <-ctx.Done():
+			op := fmt.Sprintf("%s:%s", c.opName, c.key)
+			if !leader {
+				log.Eventf(ctx, "waiting for singleflight interrupted: %v", ctx.Err())
+			}
+			return Result{
+				Val:    nil,
+				Err:    errors.Wrapf(ctx.Err(), "interrupted during singleflight %s", op),
+				Shared: false,
+				Leader: leader}
+		}
 	}
-	f.mu.sp = sp
-	return f
-}
 
-// ReaderClose is part of the Future interface.
-func (f *futureImpl) ReaderClose() {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.mu.sp = nil
-}
-
-// ReaderClose is part of the Future interface.
-func (f *futureImpl) C() <-chan Result {
-	return f.c
-}
-
-func (f *futureImpl) writerClose(r Result, groupName, key string) {
-	f.mu.Lock()
-	if f.mu.sp != nil {
-		f.mu.sp.Recordf("finished waiting on singleflight %s:%s. err: %v", groupName, key, r.Err)
+	if !leader {
+		// Copy over the call's trace.
+		sp := tracing.SpanFromContext(ctx)
+		if sp.RecordingType() != tracingpb.RecordingOff {
+			if rec := c.rec; !rec.Empty() {
+				tracing.SpanFromContext(ctx).ImportTrace(rec.PartialClone())
+			}
+		}
 	}
-	f.mu.Unlock()
-	f.c <- r
+
+	return Result{
+		Val:    c.val,
+		Err:    c.err,
+		Shared: c.dups > 0,
+		Leader: leader,
+	}
 }
 
 // DoChan is like Do but returns a Future that will receive the results when
@@ -204,7 +252,7 @@ func (f *futureImpl) writerClose(r Result, groupName, key string) {
 // caller's fn function will be called or not. This return value lets callers
 // identify a unique "leader" for a flight.
 //
-// ReaderClose() must be called on the returned Future if the caller does not
+// Close() must be called on the returned Future if the caller does not
 // wait for the Future's result.
 //
 // opts controls details about how the flight is to run.
@@ -238,24 +286,23 @@ func (g *Group) DoChan(
 
 	if c, ok := g.m[key]; ok {
 		c.dups++
-		waiter := newFutureImpl(tracing.SpanFromContext(ctx))
-		c.waiters = append(c.waiters, waiter)
+		c.maybeStartRecording(tracing.SpanFromContext(ctx).RecordingType())
+
 		g.mu.Unlock()
 		log.Eventf(ctx, "joining singleflight %s:%s owned by another leader", g.opName, key)
-		return waiter, false
+		return makeFuture(c, false /* leader */), false
 	}
-	waiter := newFutureImpl(nil /* sp - the leader does not keep track of the span because it doesn't need to log*/)
-	c := &call{waiters: []*futureImpl{waiter}}
-	c.wg.Add(1)
+	c := newCall(nil /* sp - the leader does not need to import the flight recording */, g.opName, key)
 	g.m[key] = c
 	g.mu.Unlock()
 
 	go g.doCall(ctx, c, key, opts, fn)
 
-	return waiter, true
+	return makeFuture(c, true /* leader */), true
 }
 
-// doCall handles the single call for a key.
+// doCall handles the single call for a key. At the end of the call, c.waiters
+// are signaled (if any).
 func (g *Group) doCall(
 	ctx context.Context,
 	c *call,
@@ -264,6 +311,12 @@ func (g *Group) doCall(
 	fn func(ctx context.Context) (interface{}, error),
 ) {
 	// Prepare the ctx for the call.
+
+	// Open a child span for the flight. Note that this child span might outlive
+	// its parent if the caller doesn't wait for the result of this flight. It's
+	// common for the caller to not always wait, particularly if
+	// opts.InheritCancelation == false (i.e. if the caller can be canceled
+	// independently of the flight).
 	ctx, sp := tracing.ChildSpan(ctx, g.opName)
 	if g.tagName != "" {
 		sp.SetTag(g.tagName, attribute.StringValue(key))
@@ -278,9 +331,7 @@ func (g *Group) doCall(
 		var cancel func()
 		ctx, cancel = opts.Stop.WithCancelOnQuiesce(ctx)
 		defer cancel()
-	}
 
-	if opts.Stop != nil {
 		if err := opts.Stop.RunTask(ctx, g.opName+":"+key, func(ctx context.Context) {
 			c.val, c.err = fn(ctx)
 		}); err != nil {
@@ -289,14 +340,12 @@ func (g *Group) doCall(
 	} else {
 		c.val, c.err = fn(ctx)
 	}
-	c.wg.Done()
 
 	g.mu.Lock()
 	delete(g.m, key)
-	res := Result{c.val, c.err, c.dups > 0}
-	for _, waiter := range c.waiters {
-		waiter.writerClose(res, g.opName, key)
-	}
+	c.rec = c.sp.FinishAndGetTraceRecording(c.sp.RecordingType())
+	// Publish the results to all waiters.
+	close(c.c)
 	g.mu.Unlock()
 }
 

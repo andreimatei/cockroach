@@ -11,6 +11,7 @@ go_library(
         "//pkg/util/stop",
         "//pkg/util/syncutil",
         "//pkg/util/tracing",
+        "//pkg/util/tracing/tracingpb",
         "@com_github_cockroachdb_logtags//:logtags",
         "@io_opentelemetry_go_otel//attribute",
     ],
