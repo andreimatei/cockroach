@@ -18,9 +18,9 @@ import (
 	"time"
 
 	"github.com/cockroachdb/cockroach/pkg/base"
+	"github.com/cockroachdb/cockroach/pkg/ccl"
 	// Blank import kvtenantccl so that we can create a tenant.
 	_ "github.com/cockroachdb/cockroach/pkg/ccl/kvccl/kvtenantccl"
-	"github.com/cockroachdb/cockroach/pkg/ccl/utilccl"
 	"github.com/cockroachdb/cockroach/pkg/keys"
 	"github.com/cockroachdb/cockroach/pkg/kv"
 	"github.com/cockroachdb/cockroach/pkg/kv/kvclient/kvcoord"
@@ -56,7 +56,7 @@ const (
 
 func TestEvalFollowerReadOffset(t *testing.T) {
 	defer leaktest.AfterTest(t)()
-	disableEnterprise := utilccl.TestingEnableEnterprise()
+	disableEnterprise := ccl.TestingEnableEnterprise()
 	defer disableEnterprise()
 	st := cluster.MakeTestingClusterSettings()
 	if offset, err := evalFollowerReadOffset(uuid.MakeV4(), st); err != nil {
@@ -74,7 +74,7 @@ func TestEvalFollowerReadOffset(t *testing.T) {
 
 func TestZeroDurationDisablesFollowerReadOffset(t *testing.T) {
 	defer leaktest.AfterTest(t)()
-	defer utilccl.TestingEnableEnterprise()()
+	defer ccl.TestingEnableEnterprise()()
 	ctx := context.Background()
 
 	st := cluster.MakeTestingClusterSettings()
@@ -455,7 +455,7 @@ func TestCanSendToFollower(t *testing.T) {
 	for _, c := range testCases {
 		t.Run(c.name, func(t *testing.T) {
 			if !c.disabledEnterprise {
-				defer utilccl.TestingEnableEnterprise()()
+				defer ccl.TestingEnableEnterprise()()
 			}
 			st := cluster.MakeTestingClusterSettings()
 			kvserver.FollowerReadsEnabled.Override(ctx, &st.SV, !c.disabledFollowerReads)
@@ -641,7 +641,7 @@ func TestOracle(t *testing.T) {
 	for _, c := range testCases {
 		t.Run(c.name, func(t *testing.T) {
 			if !c.disabledEnterprise {
-				defer utilccl.TestingEnableEnterprise()()
+				defer ccl.TestingEnableEnterprise()()
 			}
 			st := cluster.MakeTestingClusterSettings()
 			kvserver.FollowerReadsEnabled.Override(ctx, &st.SV, !c.disabledFollowerReads)
@@ -669,7 +669,7 @@ func TestFollowerReadsWithStaleDescriptor(t *testing.T) {
 
 	ctx := context.Background()
 	// The test uses follower_read_timestamp().
-	defer utilccl.TestingEnableEnterprise()()
+	defer ccl.TestingEnableEnterprise()()
 
 	historicalQuery := `SELECT * FROM test AS OF SYSTEM TIME follower_read_timestamp() WHERE k=2`
 	recCh := make(chan tracingpb.Recording, 1)
@@ -811,7 +811,7 @@ func TestFollowerReadsWithStaleDescriptor(t *testing.T) {
 // where it needs to be estimated using node localities.
 func TestSecondaryTenantFollowerReadsRouting(t *testing.T) {
 	defer leaktest.AfterTest(t)()
-	defer utilccl.TestingEnableEnterprise()()
+	defer ccl.TestingEnableEnterprise()()
 
 	skip.UnderStressRace(t, "times out")
 

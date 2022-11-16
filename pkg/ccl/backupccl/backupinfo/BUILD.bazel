@@ -60,7 +60,7 @@ go_test(
     args = ["-test.timeout=295s"],
     embed = [":backupinfo"],
     deps = [
-        "//pkg/ccl/utilccl",
+        "//pkg/ccl",
         "//pkg/security/securityassets",
         "//pkg/security/securitytest",
         "//pkg/server",

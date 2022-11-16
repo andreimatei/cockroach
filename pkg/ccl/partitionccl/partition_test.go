@@ -1412,7 +1412,7 @@ func TestPrimaryKeyChangeZoneConfigs(t *testing.T) {
 func TestRemovePartitioningExpiredLicense(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
-	defer utilccl.TestingEnableEnterprise()()
+	defer utilccl.TestingEnableEnterpriseTricky()()
 
 	ctx := context.Background()
 	s, sqlDBRaw, _ := serverutils.StartServer(t, base.TestServerArgs{
@@ -1435,7 +1435,7 @@ func TestRemovePartitioningExpiredLicense(t *testing.T) {
 	sqlDB.Exec(t, `ALTER INDEX t@i CONFIGURE ZONE USING DEFAULT`)
 
 	// Remove the enterprise license.
-	defer utilccl.TestingDisableEnterprise()()
+	defer utilccl.TestingDisableEnterpriseTricky()()
 
 	const partitionErr = "use of partitions requires an enterprise license"
 	const zoneErr = "use of replication zones on indexes or partitions requires an enterprise license"

@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/cockroachdb/cockroach/pkg/ccl"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -37,7 +38,6 @@ import (
 	_ "github.com/cockroachdb/cockroach/pkg/ccl/kvccl/kvtenantccl" // multi-tenant tests
 	_ "github.com/cockroachdb/cockroach/pkg/ccl/multiregionccl"    // locality-related table mutations
 	_ "github.com/cockroachdb/cockroach/pkg/ccl/partitionccl"
-	"github.com/cockroachdb/cockroach/pkg/ccl/utilccl"
 	_ "github.com/cockroachdb/cockroach/pkg/cloud/impl" // registers cloud storage providers
 	"github.com/cockroachdb/cockroach/pkg/clusterversion"
 	"github.com/cockroachdb/cockroach/pkg/jobs"
@@ -3551,7 +3551,7 @@ func TestChangefeedMonitoring(t *testing.T) {
 func TestChangefeedRetryableError(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
-	defer utilccl.TestingEnableEnterprise()()
+	defer ccl.TestingEnableEnterprise()()
 
 	testFn := func(t *testing.T, s TestServer, f cdctest.TestFeedFactory) {
 		knobs := s.TestingKnobs.
@@ -3984,7 +3984,7 @@ func TestChangefeedErrors(t *testing.T) {
 		`CREATE CHANGEFEED FOR foo INTO $1`, ``,
 	)
 
-	enableEnterprise := utilccl.TestingDisableEnterprise()
+	enableEnterprise := ccl.TestingDisableEnterprise()
 	sqlDB.ExpectErr(
 		t, `CHANGEFEED requires an enterprise license`,
 		`CREATE CHANGEFEED FOR foo INTO $1`, `kafka://nope`,
@@ -7506,7 +7506,7 @@ func TestSchemachangeDoesNotBreakSinklessFeed(t *testing.T) {
 func TestChangefeedKafkaMessageTooLarge(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
-	defer utilccl.TestingEnableEnterprise()()
+	defer ccl.TestingEnableEnterprise()()
 
 	testFn := func(t *testing.T, s TestServer, f cdctest.TestFeedFactory) {
 		changefeedbase.BatchReductionRetryEnabled.Override(
@@ -7767,7 +7767,7 @@ func TestPubsubValidationErrors(t *testing.T) {
 	sqlDB := sqlutils.MakeSQLRunner(s.DB)
 	sqlDB.Exec(t, `CREATE TABLE foo (a INT PRIMARY KEY, b STRING)`)
 	sqlDB.Exec(t, `SET CLUSTER SETTING kv.rangefeed.enabled = true`)
-	enableEnterprise := utilccl.TestingDisableEnterprise()
+	enableEnterprise := ccl.TestingDisableEnterprise()
 	enableEnterprise()
 
 	for _, tc := range []struct {

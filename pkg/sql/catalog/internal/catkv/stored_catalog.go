@@ -22,6 +22,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/sql/catalog/nstree"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/catconstants"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/catid"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/cockroach/pkg/util/mon"
 	"github.com/cockroachdb/errors"
 )
@@ -300,11 +301,14 @@ func (sc *StoredCatalog) LookupDescriptorID(
 	// Fall back to querying the namespace table.
 	c, err := sc.GetNamespaceEntries(ctx, txn, []descpb.NameInfo{key})
 	if err != nil {
+		log.Infof(ctx, "!!! GetNamespaceEntries err: %v", err)
 		return descpb.InvalidID, err
 	}
 	if ne := c.LookupNamespaceEntry(key); ne != nil {
+		log.Infof(ctx, "!!! ne != nil", err)
 		return ne.GetID(), nil
 	}
+	log.Infof(ctx, "!!! LookupDescriptorID: not found: %s (parent: %d)", name, parentID)
 	return descpb.InvalidID, nil
 }
 

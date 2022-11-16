@@ -9,11 +9,11 @@
 package cloudprivilege_test
 
 import (
+	"github.com/cockroachdb/cockroach/pkg/ccl"
 	"os"
 	"testing"
 
 	_ "github.com/cockroachdb/cockroach/pkg/ccl/kvccl/kvtenantccl"
-	"github.com/cockroachdb/cockroach/pkg/ccl/utilccl"
 	_ "github.com/cockroachdb/cockroach/pkg/cloud/impl"
 	"github.com/cockroachdb/cockroach/pkg/security/securityassets"
 	"github.com/cockroachdb/cockroach/pkg/security/securitytest"
@@ -24,7 +24,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	defer utilccl.TestingEnableEnterprise()()
+	defer ccl.TestingEnableEnterprise()()
 
 	securityassets.SetLoader(securitytest.EmbeddedAssets)
 	randutil.SeedForTests()

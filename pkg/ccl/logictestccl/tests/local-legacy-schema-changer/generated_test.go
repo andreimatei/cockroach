@@ -16,8 +16,8 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/cockroach/pkg/build/bazel"
+	"github.com/cockroachdb/cockroach/pkg/ccl"
 	_ "github.com/cockroachdb/cockroach/pkg/ccl"
-	"github.com/cockroachdb/cockroach/pkg/ccl/utilccl"
 	"github.com/cockroachdb/cockroach/pkg/security/securityassets"
 	"github.com/cockroachdb/cockroach/pkg/security/securitytest"
 	"github.com/cockroachdb/cockroach/pkg/server"
@@ -46,7 +46,7 @@ func init() {
 }
 
 func TestMain(m *testing.M) {
-	defer utilccl.TestingEnableEnterprise()()
+	defer ccl.TestingEnableEnterprise()()
 	securityassets.SetLoader(securitytest.EmbeddedAssets)
 	randutil.SeedForTests()
 	serverutils.InitTestServerFactory(server.TestServerFactory)
@@ -73,37 +73,27 @@ func TestLogic_tmp(t *testing.T) {
 	logictest.RunLogicTests(t, logictest.TestServerArgs{}, configIdx, glob)
 }
 
-func TestCCLLogic_new_schema_changer(
-	t *testing.T,
-) {
+func TestCCLLogic_new_schema_changer(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	runCCLLogicTest(t, "new_schema_changer")
 }
 
-func TestCCLLogic_partitioning_enum(
-	t *testing.T,
-) {
+func TestCCLLogic_partitioning_enum(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	runCCLLogicTest(t, "partitioning_enum")
 }
 
-func TestCCLLogic_redact_descriptor(
-	t *testing.T,
-) {
+func TestCCLLogic_redact_descriptor(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	runCCLLogicTest(t, "redact_descriptor")
 }
 
-func TestCCLLogic_schema_change_in_txn(
-	t *testing.T,
-) {
+func TestCCLLogic_schema_change_in_txn(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	runCCLLogicTest(t, "schema_change_in_txn")
 }
 
-func TestCCLLogic_show_create(
-	t *testing.T,
-) {
+func TestCCLLogic_show_create(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	runCCLLogicTest(t, "show_create")
 }

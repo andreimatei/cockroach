@@ -11,12 +11,12 @@ package changefeedccl
 import (
 	"context"
 	gosql "database/sql"
+	"github.com/cockroachdb/cockroach/pkg/ccl"
 	"math/rand"
 	"sync/atomic"
 	"testing"
 
 	"github.com/cockroachdb/cockroach/pkg/ccl/changefeedccl/cdctest"
-	"github.com/cockroachdb/cockroach/pkg/ccl/utilccl"
 	"github.com/cockroachdb/cockroach/pkg/util/ctxgroup"
 	"github.com/cockroachdb/cockroach/pkg/util/leaktest"
 	"github.com/cockroachdb/cockroach/pkg/util/log"
@@ -28,7 +28,7 @@ import (
 func TestCatchupScanOrdering(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
-	defer utilccl.TestingEnableEnterprise()()
+	defer ccl.TestingEnableEnterprise()()
 
 	testFn := func(t *testing.T, s TestServer, f cdctest.TestFeedFactory) {
 		t.Run("bank", func(t *testing.T) {

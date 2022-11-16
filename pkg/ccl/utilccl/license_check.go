@@ -71,7 +71,8 @@ var errEnterpriseRequired = pgerror.New(pgcode.CCLValidLicenseRequired,
 type licenseCacheKey string
 
 // TestingEnableEnterprise allows overriding the license check in tests.
-func TestingEnableEnterprise() func() {
+// !!! comment Tricky and below
+func TestingEnableEnterpriseTricky() func() {
 	before := atomic.LoadInt32(&enterpriseStatus)
 	atomic.StoreInt32(&enterpriseStatus, enterpriseEnabled)
 	return func() {
@@ -80,7 +81,7 @@ func TestingEnableEnterprise() func() {
 }
 
 // TestingDisableEnterprise allows re-enabling the license check in tests.
-func TestingDisableEnterprise() func() {
+func TestingDisableEnterpriseTricky() func() {
 	before := atomic.LoadInt32(&enterpriseStatus)
 	atomic.StoreInt32(&enterpriseStatus, deferToLicense)
 	return func() {
@@ -186,9 +187,16 @@ func updateMetricWithLicenseTTL(
 	metric.Update(int64(sec))
 }
 
+// !!! comment
+var AllCCLCodeImported bool = false
+
 func checkEnterpriseEnabledAt(
 	st *cluster.Settings, at time.Time, cluster uuid.UUID, feature string, withDetails bool,
 ) error {
+	// !!!
+	//if !AllCCLCodeImported {
+	//	return errors.Errorf("not all CCL code was linked in this binary. Was pkg/ccl imported?")
+	//}
 	if atomic.LoadInt32(&enterpriseStatus) == enterpriseEnabled {
 		return nil
 	}

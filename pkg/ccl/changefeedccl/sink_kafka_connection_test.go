@@ -11,11 +11,11 @@ package changefeedccl
 import (
 	"context"
 	"fmt"
+	"github.com/cockroachdb/cockroach/pkg/ccl"
 	"strings"
 	"testing"
 
 	"github.com/cockroachdb/cockroach/pkg/ccl/changefeedccl/kvevent"
-	"github.com/cockroachdb/cockroach/pkg/ccl/utilccl"
 	"github.com/cockroachdb/cockroach/pkg/jobs/jobspb"
 	"github.com/cockroachdb/cockroach/pkg/sql/execinfra"
 	"github.com/cockroachdb/cockroach/pkg/testutils/sqlutils"
@@ -89,7 +89,7 @@ func TestChangefeedExternalConnections(t *testing.T) {
 	sqlDB := sqlutils.MakeSQLRunner(s.DB)
 	sqlDB.Exec(t, `CREATE TABLE foo (a INT PRIMARY KEY, b STRING)`)
 	sqlDB.Exec(t, `SET CLUSTER SETTING kv.rangefeed.enabled = true`)
-	enableEnterprise := utilccl.TestingDisableEnterprise()
+	enableEnterprise := ccl.TestingDisableEnterprise()
 	enableEnterprise()
 	unknownParams := func(sink string, params ...string) string {
 		return fmt.Sprintf(`unknown %s sink query parameters: [%s]`, sink, strings.Join(params, ", "))

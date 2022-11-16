@@ -32,7 +32,7 @@ import (
 func TestScrubUniqueIndex(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
-	utilccl.TestingEnableEnterprise()
+	utilccl.TestingEnableEnterpriseTricky()
 	s, db, kvDB := serverutils.StartServer(t, base.TestServerArgs{})
 	defer s.Stopper().Stop(context.Background())
 
@@ -56,7 +56,10 @@ INSERT INTO db.t VALUES (1, 2, 1), (2, 3, 2);
 
 	// Overwrite the value on partition one with a duplicate unique index value.
 	values := []tree.Datum{tree.NewDInt(1), tree.NewDInt(3), tree.NewDInt(1)}
+	ctx := context.Background()
+	log.Infof(ctx, "!!! about to resolve")
 	tableDesc := desctestutils.TestingGetPublicTableDescriptor(kvDB, keys.SystemSQLCodec, "db", "t")
+	log.Infof(ctx, "!!! about to resolve... done")
 	primaryIndex := tableDesc.GetPrimaryIndex()
 	var colIDtoRowIndex catalog.TableColMap
 	colIDtoRowIndex.Set(tableDesc.PublicColumns()[0].GetID(), 0)
@@ -116,7 +119,7 @@ INSERT INTO db.t VALUES (1, 2, 1), (2, 3, 2);
 func TestScrubUniqueIndexWithNulls(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
-	utilccl.TestingEnableEnterprise()
+	utilccl.TestingEnableEnterpriseTricky()
 	s, db, kvDB := serverutils.StartServer(t, base.TestServerArgs{})
 	defer s.Stopper().Stop(context.Background())
 
@@ -186,7 +189,7 @@ INSERT INTO db.t VALUES (1, 2, 1), (2, NULL, 2);
 func TestScrubUniqueIndexExplicitPartition(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
-	utilccl.TestingEnableEnterprise()
+	utilccl.TestingEnableEnterpriseTricky()
 	s, db, kvDB := serverutils.StartServer(t, base.TestServerArgs{})
 	defer s.Stopper().Stop(context.Background())
 
@@ -251,7 +254,7 @@ INSERT INTO db.t VALUES (1, 3), (2, 4);
 func TestScrubPartialUniqueIndex(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
-	utilccl.TestingEnableEnterprise()
+	utilccl.TestingEnableEnterpriseTricky()
 	s, db, kvDB := serverutils.StartServer(t, base.TestServerArgs{})
 	defer s.Stopper().Stop(context.Background())
 
@@ -367,7 +370,7 @@ INSERT INTO db.t VALUES (1, 2, 1), (2, 3, 2), (3, 5, 1), (4, 6, 2);
 func TestScrubUniqueIndexMultiCol(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
-	utilccl.TestingEnableEnterprise()
+	utilccl.TestingEnableEnterpriseTricky()
 	s, db, kvDB := serverutils.StartServer(t, base.TestServerArgs{})
 	defer s.Stopper().Stop(context.Background())
 
@@ -455,7 +458,7 @@ INSERT INTO db.t VALUES (1, 1, 2, 1);
 func TestScrubPrimaryKey(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
-	utilccl.TestingEnableEnterprise()
+	utilccl.TestingEnableEnterpriseTricky()
 	s, db, kvDB := serverutils.StartServer(t, base.TestServerArgs{})
 	defer s.Stopper().Stop(context.Background())
 

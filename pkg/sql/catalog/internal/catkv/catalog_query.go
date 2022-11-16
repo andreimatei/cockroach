@@ -26,6 +26,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/sql/pgwire/pgerror"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
 	"github.com/cockroachdb/cockroach/pkg/sql/sqlerrors"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/errors"
 )
 
@@ -57,15 +58,18 @@ func (cq catalogQuery) query(
 	if err := txn.Run(ctx, b); err != nil {
 		return err
 	}
+	log.Infof(ctx, "!!! catalogQuery results: %d", len(b.Results))
 	for _, result := range b.Results {
 		if result.Err != nil {
 			return result.Err
 		}
+		log.Infof(ctx, "!!! catalogQuery result.Rows: %d", len(result.Rows))
 		for _, row := range result.Rows {
 			_, catTableID, err := cq.codec.DecodeTablePrefix(row.Key)
 			if err != nil {
 				return err
 			}
+			log.Infof(ctx, "!!! catalogQuery result.Rows: id: %d", catTableID)
 			switch catTableID {
 			case keys.NamespaceTableID:
 				err = cq.processNamespaceResultRow(row, out)
@@ -85,6 +89,7 @@ func (cq catalogQuery) query(
 
 func (cq catalogQuery) processNamespaceResultRow(row kv.KeyValue, cb *nstree.MutableCatalog) error {
 	nameInfo, err := catalogkeys.DecodeNameMetadataKey(cq.codec, row.Key)
+	log.Infof(context.TODO(), "!!! decoded namespace entry: %v. row.Exists: %t, value: %d", nameInfo, row.Exists(), row.ValueInt())
 	if err != nil {
 		return err
 	}

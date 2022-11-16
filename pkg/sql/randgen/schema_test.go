@@ -13,12 +13,12 @@ package randgen_test
 import (
 	"context"
 	"fmt"
+	"github.com/cockroachdb/cockroach/pkg/ccl"
 	"strings"
 	"testing"
 
 	"github.com/cockroachdb/cockroach/pkg/base"
 	_ "github.com/cockroachdb/cockroach/pkg/ccl"
-	"github.com/cockroachdb/cockroach/pkg/ccl/utilccl"
 	"github.com/cockroachdb/cockroach/pkg/sql/randgen"
 	"github.com/cockroachdb/cockroach/pkg/sql/sem/tree"
 	"github.com/cockroachdb/cockroach/pkg/testutils/serverutils"
@@ -38,7 +38,7 @@ func TestPopulateTableWithRandData(t *testing.T) {
 	defer s.Stopper().Stop(ctx)
 
 	rng, _ := randutil.NewTestRand()
-	defer utilccl.TestingEnableEnterprise()()
+	defer ccl.TestingEnableEnterprise()()
 
 	sqlDB := sqlutils.MakeSQLRunner(dbConn)
 	sqlDB.Exec(t, "CREATE DATABASE rand")

@@ -47,7 +47,6 @@ go_test(
         "//pkg/blobs",
         "//pkg/ccl",
         "//pkg/ccl/changefeedccl",
-        "//pkg/ccl/utilccl",
         "//pkg/cloud",
         "//pkg/cloud/nodelocal",
         "//pkg/cloud/nullsink",

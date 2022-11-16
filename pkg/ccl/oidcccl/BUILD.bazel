@@ -40,7 +40,7 @@ go_test(
     embed = [":oidcccl"],
     deps = [
         "//pkg/base",
-        "//pkg/ccl/utilccl",
+        "//pkg/ccl",
         "//pkg/roachpb",
         "//pkg/rpc",
         "//pkg/security/securityassets",

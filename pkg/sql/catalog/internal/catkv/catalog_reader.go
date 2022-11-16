@@ -259,6 +259,7 @@ func (cr catalogReader) GetNamespaceEntries(
 		}
 	}
 	// Only run a query when absolutely necessary.
+	log.Infof(ctx, "!!! GetNamespaceEntries: %v. needsQuery: %t", nameInfos, needsQuery)
 	if needsQuery {
 		cq := catalogQuery{catalogReader: cr}
 		err := cq.query(ctx, txn, &mc, func(codec keys.SQLCodec, b *kv.Batch) {

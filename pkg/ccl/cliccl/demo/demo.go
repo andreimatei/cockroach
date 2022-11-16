@@ -6,12 +6,12 @@
 //
 //     https://github.com/cockroachdb/cockroach/blob/master/licenses/CCL.txt
 
-package cliccl
+package demo
 
 import (
 	gosql "database/sql"
 
-	"github.com/cockroachdb/cockroach/pkg/ccl/utilccl"
+	"github.com/cockroachdb/cockroach/pkg/ccl"
 	"github.com/cockroachdb/cockroach/pkg/cli/democluster"
 )
 
@@ -22,7 +22,7 @@ func enableEnterpriseForDemo(db *gosql.DB, org string) (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-	return utilccl.TestingEnableEnterprise(), nil
+	return ccl.TestingEnableEnterprise(), nil
 }
 
 func init() {

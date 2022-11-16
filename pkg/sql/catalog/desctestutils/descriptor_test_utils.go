@@ -22,6 +22,7 @@ import (
 	"github.com/cockroachdb/cockroach/pkg/sql/catalog/internal/catkv"
 	"github.com/cockroachdb/cockroach/pkg/sql/catalog/internal/validate"
 	"github.com/cockroachdb/cockroach/pkg/sql/catalog/tabledesc"
+	"github.com/cockroachdb/cockroach/pkg/util/log"
 	"github.com/cockroachdb/errors"
 )
 
@@ -173,6 +174,12 @@ func testingGetObjectDescriptor(
 	schema string,
 	object string,
 ) (desc catalog.Descriptor) {
+	defer func() {
+		// !!!
+		r := recover()
+		log.Infof(context.TODO(), "!!! panic: %v", r)
+		panic(r)
+	}()
 	ctx := context.Background()
 	direct := catkv.MakeDirect(
 		codec, version, catkv.DefaultDescriptorValidationModeProvider,
@@ -180,9 +187,11 @@ func testingGetObjectDescriptor(
 	if err := kvDB.Txn(ctx, func(ctx context.Context, txn *kv.Txn) (err error) {
 		dbID, err := direct.LookupDescriptorID(ctx, txn, keys.RootNamespaceID, keys.RootNamespaceID, database)
 		if err != nil {
+			log.Infof(ctx, "!!! err looking up desc: %v", err)
 			return err
 		}
 		if dbID == descpb.InvalidID {
+			log.Infof(ctx, "!!! desc not found")
 			return errors.Errorf("database %s not found", database)
 		}
 		schemaID, err := direct.LookupDescriptorID(ctx, txn, dbID, keys.RootNamespaceID, schema)

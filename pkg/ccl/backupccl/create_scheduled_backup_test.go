@@ -294,7 +294,7 @@ CREATE TABLE other_db.t1(a int);
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			defer th.clearSchedules(t)
-			defer utilccl.TestingDisableEnterprise()()
+			defer utilccl.TestingDisableEnterpriseTricky()()
 
 			destination := "nodelocal://0/backup/" + tc.name
 			schedules, err := th.createBackupSchedule(t, tc.query, destination)
@@ -621,9 +621,9 @@ func TestSerializesScheduledBackupExecutionArgs(t *testing.T) {
 			defer th.clearSchedules(t)
 
 			if tc.user == freeUser {
-				defer utilccl.TestingDisableEnterprise()()
+				defer utilccl.TestingDisableEnterpriseTricky()()
 			} else {
-				defer utilccl.TestingEnableEnterprise()()
+				defer utilccl.TestingEnableEnterpriseTricky()()
 			}
 
 			schedules, err := th.createBackupSchedule(t, tc.query, tc.queryArgs...)
@@ -1228,7 +1228,7 @@ func TestShowCreateScheduleStatement(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			defer utilccl.TestingEnableEnterprise()()
+			defer utilccl.TestingEnableEnterpriseTricky()()
 			defer th.clearSchedules(t)
 
 			destination := "nodelocal://0/" + tc.name
