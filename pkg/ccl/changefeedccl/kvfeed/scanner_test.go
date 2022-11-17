@@ -46,6 +46,14 @@ func (r *recordResolvedWriter) CloseWithReason(ctx context.Context, reason error
 	return nil
 }
 
+func systemOrFirstTenantCodec(s serverutils.TestServerInterface) keys.SQLCodec {
+	var codec = s.Codec()
+	if len(s.TestTenants()) > 0 {
+		codec = s.TestTenants()[0].Codec()
+	}
+	return codec
+}
+
 var _ kvevent.Writer = (*recordResolvedWriter)(nil)
 
 func TestEmitsResolvedDuringScan(t *testing.T) {
@@ -62,7 +70,7 @@ CREATE TABLE t (a INT PRIMARY KEY);
 INSERT INTO t VALUES (1), (2), (3);
 `)
 
-	descr := desctestutils.TestingGetPublicTableDescriptor(kvdb, keys.SystemSQLCodec, "defaultdb", "t")
+	descr := desctestutils.TestingGetPublicTableDescriptor(kvdb, systemOrFirstTenantCodec(s), "defaultdb", "t")
 	span := tableSpan(uint32(descr.GetID()))
 
 	exportTime := kvdb.Clock().Now()
