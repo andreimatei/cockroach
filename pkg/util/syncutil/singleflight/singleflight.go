@@ -55,7 +55,8 @@ type call struct {
 	val interface{}
 	err error
 	// rec is the call's recording, if any of the callers that joined the call
-	// requested the trace to be recorded.
+	// requested the trace to be recorded. It is set once mu.sp is set to nil,
+	// which happens before c is closed. rec is only read after c is closed.
 	rec tracing.Trace
 
 	/////////////////////////////////////////////////////////////////////////////
@@ -274,6 +275,7 @@ func (c *call) result(ctx context.Context, leader bool) Result {
 		}
 	}
 
+	// If we got here, c.c has been closed, so we can access c.rec.
 	if !leader {
 		// If we're recording, copy over the call's trace.
 		sp := tracing.SpanFromContext(ctx)
@@ -400,10 +402,15 @@ func (g *Group) doCall(
 
 	g.mu.Lock()
 	delete(g.m, key)
-	c.mu.Lock()
-	c.rec = c.mu.sp.FinishAndGetTraceRecording(c.mu.sp.RecordingType())
-	c.mu.sp = nil // Inhibit the deferred closing of the span.
-	c.mu.Unlock()
+	{
+		c.mu.Lock()
+		sp := c.mu.sp
+		// Inhibit the deferred closing of the span above, and also prevent other
+		// flyers from observing a finished span.
+		c.mu.sp = nil
+		c.rec = sp.FinishAndGetTraceRecording(sp.RecordingType())
+		c.mu.Unlock()
+	}
 	// Publish the results to all waiters.
 	close(c.c)
 	g.mu.Unlock()
