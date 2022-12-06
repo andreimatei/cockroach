@@ -101,6 +101,7 @@ func (s storage) jitteredLeaseDuration() time.Duration {
 func (s storage) acquire(
 	ctx context.Context, minExpiration hlc.Timestamp, id descpb.ID,
 ) (desc catalog.Descriptor, expiration hlc.Timestamp, _ error) {
+	log.Infof(ctx, "!!! storage.acquire")
 	ctx = multitenant.WithTenantCostControlExemption(ctx)
 	acquireInTxn := func(ctx context.Context, txn *kv.Txn) (err error) {
 

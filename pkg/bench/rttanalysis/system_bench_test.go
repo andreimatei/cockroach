@@ -24,8 +24,9 @@ func init() {
 		// This query performs 1 extra lookup since the executor first tries to
 		// lookup the Name `current_db.system.users`.
 		{
-			Name: "select system.users without schema Name",
-			Stmt: `SELECT username, "hashedPassword" FROM system.users WHERE username = 'root'`,
+			Name:  "select system.users without schema Name",
+			Setup: `SELECT username, "hashedPassword" FROM system.users WHERE username = 'root'`,
+			Stmt:  `SELECT username, "hashedPassword" FROM system.users WHERE username = 'root'`,
 		},
 		// This query performs 0 extra lookups since the Name resolution logic does
 		// not try to resolve `"".system.users` and instead resolves

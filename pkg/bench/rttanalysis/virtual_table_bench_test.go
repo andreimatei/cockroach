@@ -56,11 +56,14 @@ SELECT * FROM crdb_internal.index_columns;`,
 			Name: "virtual table cache with point lookups",
 			Setup: `
 CREATE TABLE t1 (i INT PRIMARY KEY);
-CREATE TABLE t2 (i INT PRIMARY KEY, j INT);`,
-			Stmt: `
+CREATE TABLE t2 (i INT PRIMARY KEY, j INT);
 SELECT * FROM crdb_internal.tables;
 SELECT * FROM t1;
-SELECT * FROM t2;`,
+--SELECT * FROM t2;`,
+			Stmt: `
+SELECT * FROM crdb_internal.tables;
+--SELECT * FROM t1;
+--SELECT * FROM t2;`,
 		},
 	})
 }

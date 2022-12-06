@@ -96,6 +96,7 @@ func (ld *leasedDescriptors) getByName(
 		}
 		return cached.(lease.LeasedDescriptor).Underlying(), false, nil
 	}
+	log.VEventf(ctx, 2, "did not find descriptor for %s in cache", name)
 
 	readTimestamp := txn.ReadTimestamp()
 	ldesc, err := ld.lm.AcquireByName(ctx, readTimestamp, parentID, parentSchemaID, name)
@@ -140,6 +141,7 @@ func (ld *leasedDescriptors) getResult(
 	ldesc lease.LeasedDescriptor,
 	err error,
 ) (_ catalog.Descriptor, shouldReadFromStore bool, _ error) {
+	log.VEventf(ctx, 2, "!!! getResult. err: %v", err)
 	if err != nil {
 		_, isBoundedStalenessRead := txn.(*maxTimestampBoundDeadlineHolder)
 		// Read the descriptor from the store in the face of some specific errors
@@ -165,7 +167,7 @@ func (ld *leasedDescriptors) getResult(
 	}
 
 	ld.cache.Upsert(ldesc, ldesc.Underlying().SkipNamespace())
-	if log.V(2) {
+	if log.ExpensiveLogEnabled(ctx, 2) {
 		log.Eventf(ctx, "added descriptor '%s' to collection: %+v", ldesc.GetName(), ldesc.Underlying())
 	}
 

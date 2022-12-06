@@ -12,6 +12,7 @@ package rttanalysis
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,7 +133,8 @@ func executeRoundTripTest(b testingB, tc RoundTripBenchTestCase, cc ClusterConst
 
 	// Do an extra iteration and don't record it in order to deal with effects of
 	// running it the first time.
-	for i := 0; i < b.N()+1; i++ {
+	log.Infof(context.TODO(), "!!! running bench with N: %d", b.N())
+	for i := 0; i < b.N()+1; i++ { // !!! was b.N() + 1
 		sql.Exec(b, "CREATE DATABASE bench;")
 		sql.Exec(b, tc.Setup)
 		for _, statement := range statements {
@@ -145,7 +147,7 @@ func executeRoundTripTest(b testingB, tc RoundTripBenchTestCase, cc ClusterConst
 		var ok bool
 
 		total := 0
-		for _, statement := range statements {
+		for si, statement := range statements {
 			r, ok = cluster.getStatementTrace(statement.SQL)
 			if !ok {
 				b.Fatalf(
@@ -153,6 +155,18 @@ func executeRoundTripTest(b testingB, tc RoundTripBenchTestCase, cc ClusterConst
 					statement.SQL,
 				)
 			}
+			log.Infof(context.TODO(), "!!! (%d:stmt %d) trace: %s\n", i, si, r)
+			jg, err := r.ToJaegerJSON(statement.SQL, "", "")
+			if err != nil {
+				b.Fatal(err)
+			}
+			dir := getDir()
+			fileName := fmt.Sprintf("trace-%d-%d", i, si)
+			path := filepath.Join(dir, fileName) + ".jaeger.json"
+			if err := os.WriteFile(path, []byte(jg), 0644); err != nil {
+				b.Fatal(err)
+			}
+			fmt.Printf("!!! trace: %s\n", path)
 
 			// If there's a retry error then we're just going to throw away this
 			// run.

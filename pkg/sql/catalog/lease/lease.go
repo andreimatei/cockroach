@@ -493,6 +493,7 @@ func acquireNodeLease(
 ) (bool, error) {
 	start := timeutil.Now()
 	log.VEventf(ctx, 2, "acquiring lease for descriptor %d...", id)
+	//log.VEventf(ctx, 2, string(debug.Stack())) // !!!
 	var toRelease *storedLease
 	future, didAcquire := m.storage.group.DoChan(ctx,
 		strconv.Itoa(int(id)),
@@ -804,6 +805,7 @@ func (m *Manager) AcquireByName(
 	// Check if we have cached an ID for this name.
 	descVersion := m.names.get(ctx, parentID, parentSchemaID, name, timestamp)
 	if descVersion != nil {
+		log.Infof(ctx, "!!! descVersion not nil. id: %d", descVersion.GetID())
 		if descVersion.GetModificationTime().LessEq(timestamp) {
 			expiration := descVersion.getExpiration()
 			// If this lease is nearly expired, ensure a renewal is queued.
@@ -827,6 +829,8 @@ func (m *Manager) AcquireByName(
 			return nil, err
 		}
 		return validateDescriptorForReturn(leasedDesc)
+	} else {
+		log.Infof(ctx, "!!! descVersion nil; name not in cache")
 	}
 
 	// We failed to find something in the cache, or what we found is not
@@ -838,7 +842,9 @@ func (m *Manager) AcquireByName(
 	if err != nil {
 		return nil, err
 	}
+	log.VEventf(ctx, 2, "!!! AcquireByName: %s", name)
 	desc, err := m.Acquire(ctx, timestamp, id)
+	log.VEventf(ctx, 2, "!!! AcquireByName: %s... done", name)
 	if err != nil {
 		return nil, err
 	}
@@ -961,6 +967,7 @@ type LeasedDescriptor interface {
 func (m *Manager) Acquire(
 	ctx context.Context, timestamp hlc.Timestamp, id descpb.ID,
 ) (LeasedDescriptor, error) {
+	log.Eventf(ctx, "!!! Manager.Acquire")
 	for {
 		t := m.findDescriptorState(id, true /*create*/)
 		desc, latest, err := t.findForTimestamp(ctx, timestamp)
@@ -982,6 +989,7 @@ func (m *Manager) Acquire(
 				t.markAcquisitionStart(ctx)
 				defer t.markAcquisitionDone(ctx)
 				// Renew lease and retry. This will block until the lease is acquired.
+				log.Eventf(ctx, "!!! Manager.Acquire - 1")
 				_, errLease := acquireNodeLease(ctx, m, id, AcquireBlock)
 				return errLease
 			}(); err != nil {
