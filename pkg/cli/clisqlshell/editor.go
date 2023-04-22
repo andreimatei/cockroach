@@ -44,9 +44,6 @@ func getEditor(useEditor bool, displayPrompt bool) editor {
 	if !useEditor {
 		return &bufioReader{displayPrompt: displayPrompt}
 	}
-	if useLibEdit {
-		return &editlineReader{}
-	}
 	return &bimodalEditor{
 		main: &bubblineReader{},
 		copy: &bufioReader{displayPrompt: displayPrompt},
