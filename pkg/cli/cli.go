@@ -21,6 +21,7 @@ import (
 	"os/signal"
 	"strings"
 
+	rookout "github.com/Rookout/GoSDK"
 	"github.com/cockroachdb/cockroach/pkg/build"
 	"github.com/cockroachdb/cockroach/pkg/cli/clierror"
 	"github.com/cockroachdb/cockroach/pkg/cli/cliflagcfg"
@@ -51,6 +52,10 @@ import (
 // to be the body of an action package main `main` func elsewhere. It is
 // abstracted for reuse by duplicated `main` funcs in different distributions.
 func Main() {
+	rookout.Start(rookout.RookOptions{
+		Token:  "[Your Rookout Token]",
+		Labels: map[string]string{"env": "dev"},
+	})
 	// Seed the math/rand RNG from crypto/rand.
 	rand.Seed(randutil.NewPseudoSeed())
 
