@@ -163,7 +163,7 @@ DESTDIR :=
 
 DUPLFLAGS    := -t 100
 GOFLAGS      :=
-TAGS         :=
+TAGS         := stdmalloc
 STARTFLAGS   := -s type=mem,size=1GiB --logtostderr
 BUILDTARGET  := ./pkg/cmd/cockroach
 SUFFIX       := $(GOEXE)
