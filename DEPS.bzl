@@ -2401,15 +2401,21 @@ def go_deps():
             "https://storage.googleapis.com/cockroach-godeps/gomod/github.com/DataDog/zstd/com_github_datadog_zstd-v1.5.6-0.20230824185856-869dae002e5e.zip",
         ],
     )
+#    go_repository(
+#        name = "com_github_dataexmachina_dev_side_eye_go",
+#        build_file_proto_mode = "disable_global",
+#        importpath = "github.com/DataExMachina-dev/side-eye-go",
+#        # TODO: mirror this repo (to fix, run `./dev generate bazel --mirror`)
+#        sum = "h1:0NRhNOBaRnkXED8mftbOSCNGAf8MZhv4zu840hIUpIc=",
+#        version = "v0.0.0-20240528211710-5eb9c7a69e1d",
+#    )
     go_repository(
-        name = "com_github_dataexmachina_dev_side_eye_go",
+        name = "com_github_cockroachdb_sentry_go",
         build_file_proto_mode = "disable_global",
-        importpath = "github.com/DataExMachina-dev/side-eye-go",
-        sha256 = "8702e7d34a166207ca2329d9780681edfb18ef6a5a9120d35fe33526d418bc4f",
-        strip_prefix = "github.com/DataExMachina-dev/side-eye-go@v0.0.0-20240528211710-5eb9c7a69e1d",
-        urls = [
-            "https://storage.googleapis.com/cockroach-godeps/gomod/github.com/DataExMachina-dev/side-eye-go/com_github_dataexmachina_dev_side_eye_go-v0.0.0-20240528211710-5eb9c7a69e1d.zip",
-        ],
+        importpath = "github.com/cockroachdb/sentry-go",
+        vcs = "git",
+        remote = "https://github.com/rickystewart/sentry-go",  # Custom fork.
+        commit = "6c8e10aca9672de108063d4953399bd331b54037",  # Custom commit.
     )
     go_repository(
         name = "com_github_dave_dst",
@@ -6504,6 +6510,14 @@ def go_deps():
         urls = [
             "https://storage.googleapis.com/cockroach-godeps/gomod/github.com/minio/c2goasm/com_github_minio_c2goasm-v0.0.0-20190812172519-36a3d3bbc4f3.zip",
         ],
+    )
+    go_repository(
+        name = "com_github_minio_highwayhash",
+        build_file_proto_mode = "disable_global",
+        importpath = "github.com/minio/highwayhash",
+        # TODO: mirror this repo (to fix, run `./dev generate bazel --mirror`)
+        sum = "h1:kbnuUMoHYyVl7szWjSxJnxw11k2U709jqFPPmIUyD6Q=",
+        version = "v1.0.3",
     )
     go_repository(
         name = "com_github_minio_md5_simd",

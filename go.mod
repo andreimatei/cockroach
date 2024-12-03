@@ -387,6 +387,7 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/minio/asm2plan9s v0.0.0-20200509001527-cdd76441f9d8 // indirect
 	github.com/minio/c2goasm v0.0.0-20190812172519-36a3d3bbc4f3 // indirect
+	github.com/minio/highwayhash v1.0.3 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/minio/minio-go/v7 v7.0.21 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
@@ -484,3 +485,6 @@ replace github.com/docker/docker => github.com/moby/moby v24.0.6+incompatible
 replace golang.org/x/time => github.com/cockroachdb/x-time v0.3.1-0.20230525123634-71747adb5d5c
 
 replace github.com/gogo/protobuf => github.com/cockroachdb/gogoproto v1.3.3-0.20241118145159-46874edb1b83
+
+// !!!
+replace github.com/DataExMachina-dev/side-eye-go => /home/andrei/src/github.com/DataExMachina-dev/side-eye/side-eye-go

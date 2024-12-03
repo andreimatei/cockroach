@@ -45,6 +45,12 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+func TestXXX(t *testing.T) {
+	testutils.SucceedsSoon(t, func() error {
+		return errors.Errorf("hanging")
+	})
+}
+
 func verifyLiveness(t *testing.T, tc *testcluster.TestCluster) {
 	testutils.SucceedsSoon(t, func() error {
 		for _, s := range tc.Servers {
