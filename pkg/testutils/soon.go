@@ -79,7 +79,7 @@ func maybeCaptureSideEyeSnapshot(t TestFataler) {
 	}
 	ctx := context.Background()
 	snapshotCtx, cancel := context.WithTimeoutCause(
-		ctx, 30*time.Second, errors.New("timed out waiting for Side-Eye snapshot"),
+		ctx, 130*time.Second, errors.New("timed out waiting for Side-Eye snapshot"),
 	)
 	defer cancel()
 	snapshotURL, err := sideeye.CaptureSelfSnapshot(snapshotCtx, name, sideeye.WithEnvironment("unit tests"))
