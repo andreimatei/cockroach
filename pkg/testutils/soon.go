@@ -64,6 +64,9 @@ func SucceedsWithin(t TestFataler, fn func() error, duration time.Duration) {
 	}
 }
 
+// maybeCaptureSideEyeSnapshot captures a Side-Eye snapshot if the
+// SIDE_EYE_TOKEN env var is set. If the snapshot is captured, the snapshot's
+// URL is logged. Snapshots are captured with a 30s timeout.
 func maybeCaptureSideEyeSnapshot(t TestFataler) {
 	// If the Side-Eye token is not set, don't do anything.
 	if os.Getenv("SIDE_EYE_TOKEN") == "" {
