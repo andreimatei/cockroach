@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/DataExMachina-dev/side-eye-go/sideeye"
+
 	"github.com/cockroachdb/cockroach/pkg/base"
 	"github.com/cockroachdb/cockroach/pkg/build"
 	"github.com/cockroachdb/cockroach/pkg/cli/clierror"
@@ -313,6 +315,34 @@ type newServerFn func(ctx context.Context, serverCfg server.Config, stopper *sto
 
 var errCannotUseJoin = errors.New("cannot use --join with 'cockroach start-single-node' -- use 'cockroach start' instead")
 
+func CaptureSideEyeSnapshot(ctx context.Context) {
+	if sideEyeToken := os.Getenv("SIDE_EYE_TOKEN"); sideEyeToken == "" {
+		fmt.Printf("not capturing Side-Eye snapshot; SIDE_EYE_TOKEN env var not set. You can find it in slack or confluence. " +
+			"If using ./dev, make sure you pass it like so: `./dev test mytest -- --test_env SIDE_EYE_TOKEN=xxx --strip=never")
+		return
+	}
+
+	var name string = "xxx"
+
+	snapshotCtx, cancel := context.WithTimeoutCause(
+		ctx, 90*time.Second, errors.New("timed out waiting for Side-Eye snapshot"),
+	)
+	defer cancel()
+	snapshotURL, err := sideeye.CaptureSelfSnapshot(snapshotCtx, name, sideeye.WithEnvironment("unit tests"))
+	if err != nil {
+		if errors.As(err, &sideeye.BinaryStrippedError{}) {
+			fmt.Printf("failed to capture Side-Eye snapshot because the binary is stripped of debug info; " +
+				"if running with `go test` instead of bazel, use `go test -o test.out` " +
+				"for creating a non-stripped binary. If running inside bazel, " +
+				"add `build --strip=never` to your .bazelrc.user file, or pass `--strip=never` to " +
+				"bazel test, or with `dev`: `./dev test mytest -- --strip=never`")
+		}
+		fmt.Printf("failed to capture Side-Eye snapshot: %s", err)
+		return
+	}
+	fmt.Printf("captured Side-Eye snapshot: %s", snapshotURL)
+}
+
 func runStartSingleNode(cmd *cobra.Command, args []string) error {
 	joinFlag := cliflagcfg.FlagSetForCmd(cmd).Lookup(cliflags.Join.Name)
 	if joinFlag.Changed {
@@ -510,6 +540,10 @@ func runStartInternal(
 			return tenantID, serverCfg.Locality, nil
 		}
 	}
+
+	fmt.Printf("!!! runStartSingleNode\n")
+	CaptureSideEyeSnapshot(context.Background())
+	fmt.Printf("!!! runStartSingleNode - done capturing\n")
 
 	// Now perform additional configuration tweaks specific to the start
 	// command.

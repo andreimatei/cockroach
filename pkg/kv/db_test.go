@@ -89,6 +89,18 @@ func checkLen(t *testing.T, expected, count int) {
 	}
 }
 
+func TestXXX(t *testing.T) {
+	defer leaktest.AfterTest(t)()
+	defer log.Scope(t).Close(t)
+	s, _ := setup(t)
+	defer s.Stopper().Stop(context.Background())
+
+	ctx := context.Background()
+	log.Infof(ctx, "!!! capturing")
+	testutils.CaptureSideEyeSnapshot(context.Background(), t)
+	log.Infof(ctx, "!!! capturing... done")
+
+}
 func TestDB_Get(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)
