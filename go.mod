@@ -485,3 +485,5 @@ replace github.com/docker/docker => github.com/moby/moby v24.0.6+incompatible
 replace golang.org/x/time => github.com/cockroachdb/x-time v0.3.1-0.20230525123634-71747adb5d5c
 
 replace github.com/gogo/protobuf => github.com/cockroachdb/gogoproto v1.3.3-0.20241216150617-2358cdb156a1
+
+replace github.com/DataExMachina-dev/side-eye-go => /home/andrei/src/github.com/DataExMachina-dev/probulate/side-eye-go

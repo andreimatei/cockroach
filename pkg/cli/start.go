@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"github.com/DataExMachina-dev/side-eye-go/sideeye"
-
 	"github.com/cockroachdb/cockroach/pkg/base"
 	"github.com/cockroachdb/cockroach/pkg/build"
 	"github.com/cockroachdb/cockroach/pkg/cli/clierror"
@@ -322,13 +321,26 @@ func CaptureSideEyeSnapshot(ctx context.Context) {
 		return
 	}
 
-	var name string = "xxx"
+	//// !!!
+	//var name string = "xxx"
+	//snapshotCtx, cancel := context.WithTimeoutCause(
+	//	ctx, 90*time.Second, errors.New("timed out waiting for Side-Eye snapshot"),
+	//)
+	//defer cancel()
+	//snapshotURL, err := sideeye.CaptureSelfSnapshot(snapshotCtx, name, sideeye.WithEnvironment("unit tests"))
+	//fmt.Printf("captured Side-Eye snapshot: %s", snapshotURL)
 
-	snapshotCtx, cancel := context.WithTimeoutCause(
-		ctx, 90*time.Second, errors.New("timed out waiting for Side-Eye snapshot"),
-	)
-	defer cancel()
-	snapshotURL, err := sideeye.CaptureSelfSnapshot(snapshotCtx, name, sideeye.WithEnvironment("unit tests"))
+	if !serverCfg.SnapshotOnStart {
+		fmt.Printf("!!! flag not specified; not capturing snapshot\n")
+		return
+	}
+
+	bytes, err := os.ReadFile(serverCfg.SnapshotProgramPath)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("!!! using program of %d bytes\n", len(bytes))
+	err = sideeye.CaptureSelfSnapshotWithProgram(bytes)
 	if err != nil {
 		if errors.As(err, &sideeye.BinaryStrippedError{}) {
 			fmt.Printf("failed to capture Side-Eye snapshot because the binary is stripped of debug info; " +
@@ -340,10 +352,15 @@ func CaptureSideEyeSnapshot(ctx context.Context) {
 		fmt.Printf("failed to capture Side-Eye snapshot: %s", err)
 		return
 	}
-	fmt.Printf("captured Side-Eye snapshot: %s", snapshotURL)
+	fmt.Printf("!!! snapshot captured\n")
 }
 
 func runStartSingleNode(cmd *cobra.Command, args []string) error {
+	sideeye.Init(context.Background(), "cockroach")
+	fmt.Printf("!!! runStartSingleNode\n")
+	CaptureSideEyeSnapshot(context.Background())
+	fmt.Printf("!!! runStartSingleNode - done capturing\n")
+
 	joinFlag := cliflagcfg.FlagSetForCmd(cmd).Lookup(cliflags.Join.Name)
 	if joinFlag.Changed {
 		return errCannotUseJoin
@@ -540,10 +557,6 @@ func runStartInternal(
 			return tenantID, serverCfg.Locality, nil
 		}
 	}
-
-	fmt.Printf("!!! runStartSingleNode\n")
-	CaptureSideEyeSnapshot(context.Background())
-	fmt.Printf("!!! runStartSingleNode - done capturing\n")
 
 	// Now perform additional configuration tweaks specific to the start
 	// command.

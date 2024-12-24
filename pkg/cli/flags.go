@@ -403,6 +403,14 @@ func init() {
 		// 'start' will check that the flag is properly defined.
 		cliflagcfg.VarFlag(f, &serverCfg.JoinList, cliflags.Join)
 		cliflagcfg.BoolFlag(f, &serverCfg.JoinPreferSRVRecords, cliflags.JoinPreferSRVRecords)
+		cliflagcfg.BoolFlag(f, &serverCfg.SnapshotOnStart,
+			cliflags.FlagInfo{
+				Name:        "snapshot-on-start",
+				Description: ``})
+		cliflagcfg.StringFlag(f, &serverCfg.SnapshotProgramPath,
+			cliflags.FlagInfo{
+				Name:        "snapshot-program",
+				Description: ``})
 
 		if cmd == startSingleNodeCmd {
 			// Even though all server flags are supported for

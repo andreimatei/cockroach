@@ -130,6 +130,9 @@ type BaseConfig struct {
 	Settings *cluster.Settings
 	*base.Config
 
+	SnapshotOnStart     bool
+	SnapshotProgramPath string
+
 	Tracer *tracing.Tracer
 
 	// idProvider contains the tenant and server identity.
