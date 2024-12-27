@@ -99,8 +99,8 @@ func TestXXX(t *testing.T) {
 	log.Infof(ctx, "!!! capturing")
 	testutils.CaptureSideEyeSnapshot(context.Background(), t)
 	log.Infof(ctx, "!!! capturing... done")
-
 }
+
 func TestDB_Get(t *testing.T) {
 	defer leaktest.AfterTest(t)()
 	defer log.Scope(t).Close(t)

@@ -314,7 +314,7 @@ type newServerFn func(ctx context.Context, serverCfg server.Config, stopper *sto
 
 var errCannotUseJoin = errors.New("cannot use --join with 'cockroach start-single-node' -- use 'cockroach start' instead")
 
-func CaptureSideEyeSnapshot(ctx context.Context) {
+func CaptureSideEyeSnapshot() {
 	if sideEyeToken := os.Getenv("SIDE_EYE_TOKEN"); sideEyeToken == "" {
 		fmt.Printf("not capturing Side-Eye snapshot; SIDE_EYE_TOKEN env var not set. You can find it in slack or confluence. " +
 			"If using ./dev, make sure you pass it like so: `./dev test mytest -- --test_env SIDE_EYE_TOKEN=xxx --strip=never")
@@ -330,16 +330,15 @@ func CaptureSideEyeSnapshot(ctx context.Context) {
 	//snapshotURL, err := sideeye.CaptureSelfSnapshot(snapshotCtx, name, sideeye.WithEnvironment("unit tests"))
 	//fmt.Printf("captured Side-Eye snapshot: %s", snapshotURL)
 
-	if !serverCfg.SnapshotOnStart {
-		fmt.Printf("!!! flag not specified; not capturing snapshot\n")
-		return
-	}
-
+	//if !serverCfg.SnapshotOnStart {
+	//	fmt.Printf("!!! flag not specified; not capturing snapshot\n")
+	//	return
+	//}
+	//
 	bytes, err := os.ReadFile(serverCfg.SnapshotProgramPath)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Printf("!!! using program of %d bytes\n", len(bytes))
 	err = sideeye.CaptureSelfSnapshotWithProgram(bytes)
 	if err != nil {
 		if errors.As(err, &sideeye.BinaryStrippedError{}) {
@@ -352,14 +351,13 @@ func CaptureSideEyeSnapshot(ctx context.Context) {
 		fmt.Printf("failed to capture Side-Eye snapshot: %s", err)
 		return
 	}
-	fmt.Printf("!!! snapshot captured\n")
 }
 
 func runStartSingleNode(cmd *cobra.Command, args []string) error {
 	sideeye.Init(context.Background(), "cockroach")
-	fmt.Printf("!!! runStartSingleNode\n")
-	CaptureSideEyeSnapshot(context.Background())
-	fmt.Printf("!!! runStartSingleNode - done capturing\n")
+	//fmt.Printf("!!! runStartSingleNode\n")
+	//CaptureSideEyeSnapshot()
+	//fmt.Printf("!!! runStartSingleNode - done capturing\n")
 
 	joinFlag := cliflagcfg.FlagSetForCmd(cmd).Lookup(cliflags.Join.Name)
 	if joinFlag.Changed {
@@ -709,6 +707,68 @@ If problems persist, please see %s.`
 
 	srvStatus, serverShutdownReqC := createAndStartServerAsync(ctx,
 		tBegin, &serverCfg, stopper, startupSpan, newServerFn, startSingleNode, serverType)
+
+	go func() {
+		for {
+			CaptureSideEyeSnapshot()
+			time.Sleep(5 * time.Second)
+		}
+	}()
+
+	//go func() {
+	//	for {
+	//		start := time.Now()
+	//		allstacks.Get()
+	//		dur := time.Since(start)
+	//		numGoroutines := runtime.NumGoroutine()
+	//		fmt.Printf("!!! pprof took %s for %d goroutines (%s per goroutine)\n",
+	//			time.Since(start), numGoroutines, time.Duration(dur.Nanoseconds()/int64(numGoroutines)),
+	//		)
+	//		time.Sleep(5 * time.Second)
+	//	}
+	//}()
+
+	//profiles := pprof.Profiles()
+	//var p *pprof.Profile
+	//for _, profile := range profiles {
+	//	if profile.Name() == "goroutine" {
+	//		p = profile
+	//		break
+	//	}
+	//}
+	//if p == nil {
+	//	panic("!!! no goroutine profile")
+	//}
+	//go func() {
+	//	for {
+	//		start := time.Now()
+	//		if err := p.WriteTo(io.Discard, 0); err != nil {
+	//			panic(err)
+	//		}
+	//		dur := time.Since(start)
+	//		numGoroutines := runtime.NumGoroutine()
+	//		fmt.Printf("!!! pprof(debug=1) took %s for %d goroutines (%s per goroutine)\n",
+	//			time.Since(start), numGoroutines, time.Duration(dur.Nanoseconds()/int64(numGoroutines)),
+	//		)
+	//		time.Sleep(5 * time.Second)
+	//	}
+	//}()
+
+	go func() {
+		for {
+			start := time.Now()
+			sleep := 10 * time.Microsecond
+			time.Sleep(sleep)
+			dur := time.Since(start.Add(sleep))
+			if dur > 5*time.Millisecond {
+				fmt.Printf("!!! slow sleep detected: %s\n", dur)
+			}
+		}
+	}()
+
+	go func() {
+
+	}()
 
 	return waitForShutdown(
 		// NB: we delay the access to s, as it is assigned
